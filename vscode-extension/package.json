@@ -1,0 +1,213 @@
+{
+  "name": "vscode-prompt-proxy",
+  "displayName": "Prompt Proxy — Optimizer & Cost Forecaster",
+  "description": "Local prompt optimization, semantic cache reuse, conversation memory, and token cost forecasting for VS Code. Works with GitHub Copilot via the VS Code Chat API.",
+  "version": "1.0.0",
+  "publisher": "pawan",
+  "license": "MIT",
+  "icon": "images/icon.png",
+  "galleryBanner": {
+    "color": "#1e1e2e",
+    "theme": "dark"
+  },
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "AI",
+    "Chat",
+    "Other"
+  ],
+  "keywords": [
+    "prompt",
+    "copilot",
+    "chat",
+    "tokens",
+    "cost",
+    "cache",
+    "optimizer",
+    "ai",
+    "llm",
+    "semantic"
+  ],
+  "qna": false,
+  "preview": false,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PawanDBalapure/prompt-optimizer"
+  },
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "chatParticipants": [
+      {
+        "id": "prompt-proxy.chat",
+        "name": "promptproxy",
+        "fullName": "Prompt Proxy",
+        "description": "Optimize prompts, answer questions with full conversation memory, and estimate token cost — all powered by your local workspace context",
+        "isSticky": true,
+        "commands": [
+          {
+            "name": "optimize",
+            "description": "Optimize the current prompt with local cache and editor context"
+          },
+          {
+            "name": "estimate",
+            "description": "Estimate input and output token cost for the current prompt"
+          },
+          {
+            "name": "context",
+            "description": "Show the cached, buffered, and editor context Prompt Proxy can use"
+          },
+          {
+            "name": "memory",
+            "description": "Show the stored conversation history for the current workspace"
+          },
+          {
+            "name": "clear",
+            "description": "Clear the conversation memory for the current workspace"
+          },
+          {
+            "name": "mode",
+            "description": "Get or set the default proxy mode: agent | optimize | direct"
+          }
+        ],
+        "disambiguation": [
+          {
+            "category": "prompt_optimization",
+            "description": "The user wants to compress a coding prompt, inspect local prompt context, or estimate token cost before asking Copilot.",
+            "examples": [
+              "Optimize this prompt before I send it to Copilot",
+              "Estimate the token cost for this coding request",
+              "Show me what cached or buffered context Prompt Proxy can use"
+            ]
+          }
+        ]
+      }
+    ],
+    "views": {
+      "workbench.view.chat": [
+        {
+          "id": "prompt-proxy-panel",
+          "name": "Prompt Proxy Control",
+          "type": "webview"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Prompt Proxy Engine",
+      "properties": {
+        "promptProxy.dbPath": {
+          "type": "string",
+          "default": "",
+          "description": "Custom path for the local SQLite semantic cache database. If left blank, it defaults to the global storage path."
+        },
+        "promptProxy.processingMode": {
+          "type": "string",
+          "enum": ["blocking", "non-blocking"],
+          "default": "blocking",
+          "description": "Query processing mode for the cache lookup: 'blocking' stands for precise sequential execution; 'non-blocking' uses an async background lookup."
+        },
+        "promptProxy.enableSessionContext": {
+          "type": "boolean",
+          "default": true,
+          "description": "Feed recent user prompts and analysis results back as conversation-aware session history to the optimizer engine."
+        },
+        "promptProxy.pricingInput": {
+          "type": "number",
+          "default": 0.0015,
+          "description": "Input cost per 1K tokens in USD (defaults to $0.0015)."
+        },
+        "promptProxy.pricingOutput": {
+          "type": "number",
+          "default": 0.002,
+          "description": "Output cost per 1K tokens in USD (defaults to $0.002)."
+        },
+        "promptProxy.enableSecretDetection": {
+          "type": "boolean",
+          "default": true,
+          "description": "Scan prompts for potential secrets (API keys, tokens, passwords) before sending and show a warning in the panel."
+        },
+        "promptProxy.secretPatterns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "type": "string",
+                "description": "Human-readable name shown in the warning (e.g. 'My internal token')."
+              },
+              "pattern": {
+                "type": "string",
+                "description": "JavaScript regular expression source without delimiters (e.g. 'mytoken-[a-z0-9]{32}')."
+              }
+            },
+            "required": ["pattern"]
+          },
+          "default": [],
+          "description": "Additional custom regex patterns for secret detection. Each entry must have a 'pattern' (regex source string) and an optional 'label'."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "prompt-proxy.toggleStatusPanel",
+        "title": "Prompt Proxy: Toggle Proxy Panel"
+      },
+      {
+        "command": "prompt-proxy.focusPanel",
+        "title": "Prompt Proxy: Focus Control Panel"
+      },
+      {
+        "command": "prompt-proxy.startChat",
+        "title": "Prompt Proxy: Open Chat Participant"
+      },
+      {
+        "command": "prompt-proxy.optimizeClipboard",
+        "title": "Prompt Proxy: Optimize Clipboard & Cost Forecast"
+      },
+      {
+        "command": "prompt-proxy.copyPrompt",
+        "title": "Prompt Proxy: Copy Last Optimized Prompt"
+      },
+      {
+        "command": "prompt-proxy.sendPromptToChat",
+        "title": "Prompt Proxy: Send Last Optimized Prompt To Chat"
+      },
+      {
+        "command": "prompt-proxy.openReadme",
+        "title": "Prompt Proxy: Open Extension README"
+      },
+      {
+        "command": "prompt-proxy.cacheStats",
+        "title": "Prompt Proxy: Show Cache Statistics"
+      },
+      {
+        "command": "prompt-proxy.clearCache",
+        "title": "Prompt Proxy: Clear Semantic Cache"
+      },
+      {
+        "command": "prompt-proxy.clearMemory",
+        "title": "Prompt Proxy: Clear Conversation Memory"
+      },
+      {
+        "command": "prompt-proxy.selectMode",
+        "title": "Prompt Proxy: Select Mode (Agent / Optimize / Direct)"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "npm --prefix .. run build && tsc -p ./ && node ./scripts/sync-engine.cjs",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.8.0",
+    "gpt-tokenizer": "^2.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.24",
+    "@types/vscode": "^1.100.0",
+    "typescript": "^5.3.3"
+  }
+}

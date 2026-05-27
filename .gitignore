@@ -1,0 +1,42 @@
+# ── Node.js ──────────────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.yarn
+
+# ── Build outputs ─────────────────────────────────────────────────────────────
+dist/
+out/
+*.tsbuildinfo
+
+# ── SQLite databases — may contain personal prompt history ────────────────────
+*.db
+*.db-shm
+*.db-wal
+
+# ── VS Code extension packages (build artifacts, ~19 MB each) ────────────────
+*.vsix
+
+# ── Environment & secrets ─────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Development-only research / internal notes ────────────────────────────────
+ECC-IMPROVEMENT-REPORT.md
+
+# ── OS files ──────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Editor / IDE ──────────────────────────────────────────────────────────────
+.vscode/settings.json
+.vscode/launch.json
+.idea/
+
+# ── Temp files ────────────────────────────────────────────────────────────────
+tmp-*/
+*.tmp

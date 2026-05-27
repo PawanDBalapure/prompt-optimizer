@@ -1,0 +1,16 @@
+﻿src/**
+scripts/**
+engine/src/**
+tsconfig.json
+tmp-test-cache.db
+*.db
+*.db-shm
+*.db-wal
+.gitignore
+*.vsix
+.vscode/**
+node_modules/.cache/**
+package-lock.json
+ECC-IMPROVEMENT-REPORT.md
+.env
+.env.*

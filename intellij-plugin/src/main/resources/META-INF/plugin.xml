@@ -1,0 +1,68 @@
+<!-- Plugin descriptor — read by IntelliJ Platform at load time -->
+<idea-plugin>
+
+    <id>com.promptproxy.intellij</id>
+    <name>Prompt Proxy — Optimizer &amp; Cost Forecaster</name>
+    <version>1.0.0</version>
+
+    <vendor url="https://github.com/PawanDBalapure/prompt-optimizer">
+        Pawan Balapure
+    </vendor>
+
+    <description><![CDATA[
+        <p>Local prompt optimization, semantic cache reuse, and token cost forecasting
+        for IntelliJ IDEs — without leaving the editor.</p>
+        <ul>
+            <li>Compresses filler words and redundant phrasing before sending to an AI</li>
+            <li>Checks a local SQLite semantic cache for similar past results</li>
+            <li>Estimates token cost before the request leaves your machine</li>
+            <li>Packs active-file and run-console context automatically</li>
+            <li>Detects accidental API keys and secrets in prompts</li>
+        </ul>
+        <p><b>Requires Node.js 18+</b> on your system PATH.</p>
+    ]]></description>
+
+    <change-notes><![CDATA[
+        <b>1.0.0</b><br/>
+        Initial release — prompt optimization, semantic cache, token cost forecasting,
+        secret detection, and workspace context packing.
+    ]]></change-notes>
+
+    <!-- Minimum platform dependency — works with all JetBrains IDEs -->
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+
+        <!-- Tool window (sidebar panel) -->
+        <toolWindow
+            id="Prompt Proxy"
+            anchor="right"
+            secondary="false"
+            factoryClass="com.promptproxy.intellij.PromptProxyToolWindowFactory"
+            icon="/icons/promptproxy.svg"/>
+
+        <!-- Application-level settings (persisted across projects) -->
+        <applicationService
+            serviceImplementation="com.promptproxy.intellij.PromptProxyAppSettings"/>
+
+        <!-- Settings page under Tools > Prompt Proxy -->
+        <applicationConfigurable
+            parentId="tools"
+            instance="com.promptproxy.intellij.PromptProxyConfigurable"
+            id="com.promptproxy.intellij.PromptProxyConfigurable"
+            displayName="Prompt Proxy"/>
+
+    </extensions>
+
+    <actions>
+        <action
+            id="com.promptproxy.intellij.OptimizeSelectionAction"
+            class="com.promptproxy.intellij.OptimizeSelectionAction"
+            text="Optimize with Prompt Proxy"
+            description="Optimize the selected text or clipboard content and show the result in the Prompt Proxy panel">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt P"/>
+        </action>
+    </actions>
+
+</idea-plugin>

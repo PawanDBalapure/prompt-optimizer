@@ -1,0 +1,33 @@
+{
+  "name": "prompt-proxy-engine",
+  "version": "1.0.0",
+  "description": "Production-grade local prompt proxy engine designed for IDE extensions.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PawanDBalapure/prompt-optimizer"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./cli": "./dist/cli.js"
+  },
+  "bin": {
+    "prompt-proxy-engine": "dist/cli.js"
+  },
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "cli": "node dist/cli.js",
+    "start": "node dist/cli.js --help",
+    "test": "node dist/test.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.8.0",
+    "gpt-tokenizer": "^2.8.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^20.11.24",
+    "typescript": "^5.3.3"
+  }
+}
