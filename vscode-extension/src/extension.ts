@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-const CHAT_PARTICIPANT_ID = 'prompt-proxy.chat';
+const CHAT_PARTICIPANT_ID = 'pawanbalapure.promptproxy';
 const SESSION_BUFFER_KEY = 'promptProxy.history';
 const LAST_ANALYSIS_KEY = 'promptProxy.lastAnalysis';
 const MAX_SESSION_ITEMS = 8;
@@ -1077,7 +1077,6 @@ async function seedCacheFromWorkspace(context: vscode.ExtensionContext): Promise
 }
 
 async function openPromptProxyPanel(): Promise<void> {
-  await vscode.commands.executeCommand('workbench.action.chat.open');
   await vscode.commands.executeCommand(`${PromptProxyViewProvider.viewType}.focus`);
 }
 
