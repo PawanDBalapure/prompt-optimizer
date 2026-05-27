@@ -260,7 +260,7 @@ export function activate(context: vscode.ExtensionContext) {
       const items: ModeItem[] = [
         {
           label: '$(robot) Agent',
-          description: 'Optimize + call Copilot automatically — no @promptproxy prefix needed',
+          description: 'Optimize + call Copilot automatically — no @promptoptimizer prefix needed',
           detail: current === 'agent' ? '● Active' : undefined,
           value: 'agent',
         },
@@ -272,7 +272,7 @@ export function activate(context: vscode.ExtensionContext) {
         },
         {
           label: '$(comment-discussion) Direct send',
-          description: 'Pre-fill @promptproxy in the Chat panel and press Enter',
+          description: 'Pre-fill @promptoptimizer in the Chat panel and press Enter',
           detail: current === 'direct' ? '● Active' : undefined,
           value: 'direct',
         },
@@ -465,7 +465,7 @@ async function handleChatRequest(
   if (request.command === 'memory') {
     const history = getConversation(context, workspaceId);
     if (history.length === 0) {
-      stream.markdown('No conversation memory yet. Start chatting with `@promptproxy` to build context across turns.');
+      stream.markdown('No conversation memory yet. Start chatting with `@promptoptimizer` to build context across turns.');
     } else {
       stream.markdown(`**Conversation memory** — ${history.length} turn${history.length === 1 ? '' : 's'} remembered\n\n`);
       for (const [i, turn] of history.entries()) {
@@ -496,11 +496,11 @@ async function handleChatRequest(
       updateStatusBarItem(statusBarItem, arg);
       provider.notifyModeChange(arg);
       const modeDescriptions: Record<ProxyMode, string> = {
-        agent: 'optimize + call Copilot automatically (no `@promptproxy` prefix needed in the sidebar)',
+        agent: 'optimize + call Copilot automatically (no `@promptoptimizer` prefix needed in the sidebar)',
         optimize: 'show analysis only — you control when it goes to Copilot',
-        direct: 'pre-fill `@promptproxy` in Chat and press Enter',
+        direct: 'pre-fill `@promptoptimizer` in Chat and press Enter',
       };
-      stream.markdown(`Mode set to **${arg}** — ${modeDescriptions[arg]}.\n\nThis applies to the sidebar panel. In the Chat panel, any message to \`@promptproxy\` still follows the same mode.`);
+      stream.markdown(`Mode set to **${arg}** — ${modeDescriptions[arg]}.\n\nThis applies to the sidebar panel. In the Chat panel, any message to \`@promptoptimizer\` still follows the same mode.`);
     } else {
       const current = getCurrentMode(context);
       stream.markdown(
@@ -508,8 +508,8 @@ async function handleChatRequest(
         'Available modes:\n' +
         '- `agent` — optimize + call Copilot automatically\n' +
         '- `optimize` — show optimization analysis only\n' +
-        '- `direct` — open @promptproxy chat with prompt pre-filled\n\n' +
-        'Usage: `@promptproxy /mode agent`'
+        '- `direct` — open @promptoptimizer chat with prompt pre-filled\n\n' +
+        'Usage: `@promptoptimizer /mode agent`'
       );
     }
     return { metadata: { command: 'mode' } };
@@ -1081,7 +1081,7 @@ async function openPromptProxyPanel(): Promise<void> {
 }
 
 async function openChatWithPrompt(prompt: string, mentionParticipant: boolean): Promise<void> {
-  const prefix = mentionParticipant ? '@promptproxy ' : '';
+  const prefix = mentionParticipant ? '@promptoptimizer ' : '';
   await vscode.commands.executeCommand('workbench.action.chat.open', {
     query: `${prefix}${prompt}`.trim(),
   });
@@ -1139,7 +1139,7 @@ function renderContextReportMarkdown(snapshot: RuntimeSnapshot): string {
     '',
     `- Active file: **${snapshot.active_file ?? 'none'}**`,
     `- Open editor count: **${snapshot.open_file_count}**`,
-    `- Chat history turns for @promptproxy: **${snapshot.chat_history_turns}**`,
+    `- Chat history turns for @promptoptimizer: **${snapshot.chat_history_turns}**`,
     `- Context log sources: **${snapshot.log_sources.length > 0 ? snapshot.log_sources.join(', ') : 'none'}**`,
     `- Buffered session turns: **${snapshot.session_buffer.length}**`,
     '',
@@ -1868,7 +1868,7 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
       <select id="modeSelect">
         <option value="agent">Agent — optimize + ask Copilot</option>
         <option value="optimize">Optimize only — show analysis</option>
-        <option value="direct">Direct — send to @promptproxy chat</option>
+        <option value="direct">Direct — send to @promptoptimizer chat</option>
       </select>
     </div>
 
@@ -1933,8 +1933,8 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
 
       <!-- Action buttons below cost table -->
       <div class="result-actions" style="margin-top:10px">
-        <button class="secondary compact" id="btnOpenChat" title="Open the @promptproxy chat participant">@promptproxy</button>
-        <button class="secondary compact" id="btnUseOptimized" title="Send the optimized prompt to @promptproxy chat">Use optimized</button>
+        <button class="secondary compact" id="btnOpenChat" title="Open the @promptoptimizer chat participant">@promptoptimizer</button>
+        <button class="secondary compact" id="btnUseOptimized" title="Send the optimized prompt to @promptoptimizer chat">Use optimized</button>
         <button class="secondary compact" id="btnCopyOptimized" title="Copy the optimized prompt to clipboard">Copy optimized</button>
       </div>
 
@@ -2006,7 +2006,7 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
     const MODE_TITLES = {
       agent: 'Run Agent — optimize + call Copilot',
       optimize: 'Analyze locally — optimize only',
-      direct: 'Send to @promptproxy chat'
+      direct: 'Send to @promptoptimizer chat'
     };
 
     function applyMode(mode) {
@@ -2604,7 +2604,7 @@ class ProxyStatusPanel {
 
   <!-- Link rows -->
   <div>
-    <button class="link-row" id="btnOpenChat">Open @promptproxy in Chat <span class="chevron">&#8250;</span></button>
+    <button class="link-row" id="btnOpenChat">Open @promptoptimizer in Chat <span class="chevron">&#8250;</span></button>
     <button class="link-row" id="btnCopyOptimized">Copy optimized prompt <span class="chevron">&#8250;</span></button>
     <button class="link-row" id="btnSendToChat">Send optimized to Chat <span class="chevron">&#8250;</span></button>
   </div>
