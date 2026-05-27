@@ -2,7 +2,7 @@
 <idea-plugin>
 
     <id>com.promptproxy.intellij</id>
-    <name>Prompt Proxy — Optimizer &amp; Cost Forecaster</name>
+    <name>Prompt Optimizer</name>
     <version>1.0.1</version>
 
     <vendor url="https://github.com/PawanDBalapure/prompt-optimizer">
@@ -35,7 +35,7 @@
 
         <!-- Tool window (sidebar panel) -->
         <toolWindow
-            id="Prompt Proxy"
+            id="Prompt Optimizer"
             anchor="right"
             secondary="false"
             factoryClass="com.promptproxy.intellij.PromptProxyToolWindowFactory"
@@ -50,7 +50,7 @@
             parentId="tools"
             instance="com.promptproxy.intellij.PromptProxyConfigurable"
             id="com.promptproxy.intellij.PromptProxyConfigurable"
-            displayName="Prompt Proxy"/>
+            displayName="Prompt Optimizer"/>
 
     </extensions>
 
@@ -58,8 +58,8 @@
         <action
             id="com.promptproxy.intellij.OptimizeSelectionAction"
             class="com.promptproxy.intellij.OptimizeSelectionAction"
-            text="Optimize with Prompt Proxy"
-            description="Optimize the selected text or clipboard content and show the result in the Prompt Proxy panel">
+            text="Optimize with Prompt Optimizer"
+            description="Optimize the selected text or clipboard content and show the result in the Prompt Optimizer panel">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
             <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt P"/>
         </action>

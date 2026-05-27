@@ -25,13 +25,13 @@ class OptimizeSelectionAction : AnAction() {
             Messages.showInfoMessage(
                 project,
                 "Nothing to optimize — please select some text first.",
-                "Prompt Proxy"
+                "Prompt Optimizer"
             )
             return
         }
 
         // Open (or focus) the Prompt Proxy tool window
-        val tw = ToolWindowManager.getInstance(project).getToolWindow("Prompt Proxy")
+        val tw = ToolWindowManager.getInstance(project).getToolWindow("Prompt Optimizer")
         tw?.activate {
             // Locate the panel and populate the prompt area
             tw.contentManager.contents.firstOrNull()

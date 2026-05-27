@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-const CHAT_PARTICIPANT_ID = 'pawanbalapure.promptproxy';
+const CHAT_PARTICIPANT_ID = 'pawanbalapure.promptoptimizer';
 const SESSION_BUFFER_KEY = 'promptProxy.history';
 const LAST_ANALYSIS_KEY = 'promptProxy.lastAnalysis';
 const MAX_SESSION_ITEMS = 8;
@@ -57,7 +57,7 @@ function updateStatusBarItem(item: vscode.StatusBarItem, mode: ProxyMode): void 
     direct: '$(comment-discussion) Proxy [Direct]',
   };
   item.text = labels[mode];
-  item.tooltip = `Prompt Proxy: ${mode} mode — click to change`;
+  item.tooltip = `Prompt Optimizer: ${mode} mode — click to change`;
   item.command = 'prompt-proxy.selectMode';
 }
 
@@ -278,7 +278,7 @@ export function activate(context: vscode.ExtensionContext) {
         },
       ];
       const picked = await vscode.window.showQuickPick(items as vscode.QuickPickItem[], {
-        placeHolder: 'Select default Prompt Proxy mode',
+        placeHolder: 'Select default Prompt Optimizer mode',
         matchOnDescription: true,
       }) as ModeItem | undefined;
       if (!picked) { return; }
@@ -314,11 +314,11 @@ export function activate(context: vscode.ExtensionContext) {
         await openPromptProxyPanel();
         await vscode.env.clipboard.writeText(state.optimized);
         vscode.window.showInformationMessage(
-          `Prompt Proxy saved ${state.metrics.tokens_saved} tokens. Estimated cost ${formatCurrency(state.metrics.estimated_cost_usd)}.`
+          `Prompt Optimizer saved ${state.metrics.tokens_saved} tokens. Estimated cost ${formatCurrency(state.metrics.estimated_cost_usd)}.`
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        vscode.window.showErrorMessage(`Prompt Proxy failed to optimize the clipboard prompt: ${message}`);
+        vscode.window.showErrorMessage(`Prompt Optimizer failed to optimize the clipboard prompt: ${message}`);
       }
     })
   );
@@ -332,7 +332,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
 
       await vscode.env.clipboard.writeText(text);
-      vscode.window.showInformationMessage('Prompt Proxy copied the optimized prompt to the clipboard.');
+      vscode.window.showInformationMessage('Prompt Optimizer copied the optimized prompt to the clipboard.');
     })
   );
 
@@ -372,7 +372,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('prompt-proxy.clearCache', async () => {
       const confirm = await vscode.window.showWarningMessage(
-        'Clear the Prompt Proxy semantic cache? This cannot be undone.',
+        'Clear the Prompt Optimizer semantic cache? This cannot be undone.',
         { modal: true },
         'Clear'
       );
@@ -380,7 +380,7 @@ export function activate(context: vscode.ExtensionContext) {
       const dbPath = getDbPath(context);
       try {
         runEngineRaw(['--clear-cache', '--db', dbPath]);
-        vscode.window.showInformationMessage('Prompt Proxy cache cleared.');
+        vscode.window.showInformationMessage('Prompt Optimizer cache cleared.');
       } catch (err) {
         vscode.window.showErrorMessage(`Cache clear failed: ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -394,7 +394,7 @@ export function activate(context: vscode.ExtensionContext) {
       const all = context.globalState.get<ConversationTurn[]>(CONVERSATION_KEY) ?? [];
       const kept = all.filter((t) => t.workspace_id !== wsId);
       await context.globalState.update(CONVERSATION_KEY, kept);
-      vscode.window.showInformationMessage('Prompt Proxy conversation memory cleared.');
+      vscode.window.showInformationMessage('Prompt Optimizer conversation memory cleared.');
     })
   );
 
@@ -428,7 +428,7 @@ export function activate(context: vscode.ExtensionContext) {
         followups.push({ prompt: '/memory', label: `View memory (${hist.length} turn${hist.length === 1 ? '' : 's'})` });
         followups.push({ prompt: '/clear', label: 'Clear conversation memory' });
       }
-      followups.push({ prompt: '/context Show what local context Prompt Proxy can read right now.', label: 'Show workspace context' });
+      followups.push({ prompt: '/context Show what local context Prompt Optimizer can read right now.', label: 'Show workspace context' });
       return followups;
     },
   };
@@ -616,7 +616,7 @@ async function analyzePrompt(
   const secrets = scanForSecrets(rawPrompt);
   if (secrets.length > 0) {
     vscode.window.showWarningMessage(
-      `Prompt Proxy detected possible secrets in your prompt: ${secrets.join(', ')}. Review before sending to any AI service.`
+      `Prompt Optimizer detected possible secrets in your prompt: ${secrets.join(', ')}. Review before sending to any AI service.`
     );
   }
 
@@ -763,7 +763,7 @@ function getSessionHistoryLogs(context: vscode.ExtensionContext): Array<{ source
 
   return [
     {
-      source: 'Prompt Proxy Session Buffer',
+      source: 'Prompt Optimizer Session Buffer',
       kind: 'general',
       content,
     },
@@ -787,7 +787,7 @@ function getChatHistoryLogs(chatContext?: vscode.ChatContext): Array<{ source: s
 
   return [
     {
-      source: 'Prompt Proxy Chat History',
+      source: 'Prompt Optimizer Chat History',
       kind: 'general',
       content,
     },
@@ -1090,7 +1090,7 @@ async function openChatWithPrompt(prompt: string, mentionParticipant: boolean): 
 async function openExtensionReadme(context: vscode.ExtensionContext): Promise<void> {
   const readmePath = path.resolve(context.extensionPath, 'README.md');
   if (!fs.existsSync(readmePath)) {
-    vscode.window.showWarningMessage('Prompt Proxy README.md was not found in the extension package.');
+    vscode.window.showWarningMessage('Prompt Optimizer README.md was not found in the extension package.');
     return;
   }
 
@@ -1103,7 +1103,7 @@ function renderChatAnalysisMarkdown(state: PromptProxyPanelState, command: strin
     ? Math.round((state.metrics.tokens_saved / state.metrics.raw_input_tokens) * 100)
     : 0;
   const lines = [
-    '### Prompt Proxy report',
+    '### Prompt Optimizer report',
     '',
     `- Mode: **${command}**`,
     `- Cache: **${formatCacheStatus(state.analysis.cache.status, state.analysis.cache.confidence)}**`,
@@ -1128,14 +1128,14 @@ function renderChatAnalysisMarkdown(state: PromptProxyPanelState, command: strin
   }
 
   lines.push('', '#### Optimized prompt', '```text', state.optimized, '```');
-  lines.push('', '_Prompt Proxy can use its own chat history, the local session buffer, editor context, and diagnostics. The public VS Code API does not expose Copilot\'s private transcript for other chat participants._');
+  lines.push('', '_Prompt Optimizer can use its own chat history, the local session buffer, editor context, and diagnostics. The public VS Code API does not expose Copilot\'s private transcript for other chat participants._');
 
   return lines.join('\n');
 }
 
 function renderContextReportMarkdown(snapshot: RuntimeSnapshot): string {
   const lines = [
-    '### Prompt Proxy context snapshot',
+    '### Prompt Optimizer context snapshot',
     '',
     `- Active file: **${snapshot.active_file ?? 'none'}**`,
     `- Open editor count: **${snapshot.open_file_count}**`,
@@ -1143,7 +1143,7 @@ function renderContextReportMarkdown(snapshot: RuntimeSnapshot): string {
     `- Context log sources: **${snapshot.log_sources.length > 0 ? snapshot.log_sources.join(', ') : 'none'}**`,
     `- Buffered session turns: **${snapshot.session_buffer.length}**`,
     '',
-    '_Prompt Proxy can read its own chat history, the local session buffer, open editors, active selection, and diagnostics. It cannot read the private transcript of other chat participants through the public VS Code API._',
+    '_Prompt Optimizer can read its own chat history, the local session buffer, open editors, active selection, and diagnostics. It cannot read the private transcript of other chat participants through the public VS Code API._',
   ];
 
   if (snapshot.session_buffer.length > 0) {
@@ -1408,7 +1408,7 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'.">
-  <title>Prompt Proxy Control</title>
+  <title>Prompt Optimizer</title>
   <style>
     :root {
       color-scheme: light dark;
@@ -1852,13 +1852,13 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
   <div class="stack">
     <section class="hero">
       <div class="hero-title">
-        <strong>Prompt Proxy</strong>
+        <strong>Prompt Optimizer</strong>
         <div style="display:flex;align-items:center;gap:6px">
           <span class="badge">Local cache + chat</span>
           <button class="readme-icon-btn" id="btnReadme" title="Open README — extension documentation">?</button>
         </div>
       </div>
-      <p>Use <strong>@promptproxy</strong> in Chat or paste a draft prompt here. Prompt Proxy can pack editor state, diagnostics, its own chat history, and the local session buffer before estimating tokens and cost.</p>
+      <p>Use <strong>@promptoptimizer</strong> in Chat or paste a draft prompt here. Prompt Optimizer can pack editor state, diagnostics, its own chat history, and the local session buffer before estimating tokens and cost.</p>
     </section>
 
     <div class="notice" id="notice"></div>
@@ -2280,7 +2280,7 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
       } else if (message.type === 'error') {
         loading.style.display = 'none';
         clearAlerts();
-        addAlert('error', message.message || 'Prompt Proxy failed to analyze the prompt.');
+        addAlert('error', message.message || 'Prompt Optimizer failed to analyze the prompt.');
       } else if (message.type === 'secretSettingsState') {
         currentCustomPatterns = (message.customPatterns || []).slice();
         secretEnabledChk.checked = !!message.enabled;
@@ -2329,7 +2329,7 @@ class ProxyStatusPanel {
   ) {
     this._panel = vscode.window.createWebviewPanel(
       'promptProxyStatus',
-      'Prompt Proxy',
+      'Prompt Optimizer',
       { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
       {
         enableScripts: true,
@@ -2417,7 +2417,7 @@ class ProxyStatusPanel {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'.">
-  <title>Prompt Proxy</title>
+  <title>Prompt Optimizer</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -2559,7 +2559,7 @@ class ProxyStatusPanel {
   <div class="hdr">
     <div class="hdr-title">
       <div class="hdr-icon">P</div>
-      Prompt Proxy
+      Prompt Optimizer
     </div>
     <div class="hdr-actions">
       <button class="icon-btn" id="btnSettings" title="Settings">&#9881;</button>

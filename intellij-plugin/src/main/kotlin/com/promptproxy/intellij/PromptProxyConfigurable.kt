@@ -21,7 +21,7 @@ class PromptProxyConfigurable : Configurable {
 
     private var panel: JPanel? = null
 
-    override fun getDisplayName(): String = "Prompt Proxy"
+    override fun getDisplayName(): String = "Prompt Optimizer"
 
     override fun createComponent(): JComponent {
         panel = FormBuilder.createFormBuilder()

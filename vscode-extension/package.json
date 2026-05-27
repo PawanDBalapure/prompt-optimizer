@@ -1,6 +1,6 @@
 {
-  "name": "vscode-prompt-proxy",
-  "displayName": "Prompt Proxy — Optimizer & Cost Forecaster",
+  "name": "vscode-prompt-optimizer",
+  "displayName": "Prompt Optimizer",
   "description": "Fully local prompt optimization, semantic cache, and token cost forecasting for VS Code. Your prompts and code never leave your machine — no telemetry, no cloud processing. Works with GitHub Copilot.",
   "version": "1.0.1",
   "publisher": "PawanBalapure",
@@ -63,9 +63,9 @@
   "contributes": {
     "chatParticipants": [
       {
-        "id": "pawanbalapure.promptproxy",
-        "name": "promptproxy",
-        "fullName": "Prompt Proxy",
+        "id": "pawanbalapure.promptoptimizer",
+        "name": "promptoptimizer",
+        "fullName": "Prompt Optimizer",
         "description": "Optimize prompts, answer questions with full conversation memory, and estimate token cost — all powered by your local workspace context",
         "isSticky": true,
         "commands": [
@@ -79,7 +79,7 @@
           },
           {
             "name": "context",
-            "description": "Show the cached, buffered, and editor context Prompt Proxy can use"
+            "description": "Show the cached, buffered, and editor context Prompt Optimizer can use"
           },
           {
             "name": "memory",
@@ -101,7 +101,7 @@
             "examples": [
               "Optimize this prompt before I send it to Copilot",
               "Estimate the token cost for this coding request",
-              "Show me what cached or buffered context Prompt Proxy can use"
+              "Show me what cached or buffered context Prompt Optimizer can use"
             ]
           }
         ]
@@ -111,13 +111,13 @@
       "workbench.view.chat": [
         {
           "id": "prompt-proxy-panel",
-          "name": "Prompt Proxy Control",
+          "name": "Prompt Optimizer",
           "type": "webview"
         }
       ]
     },
     "configuration": {
-      "title": "Prompt Proxy Engine",
+      "title": "Prompt Optimizer",
       "properties": {
         "promptProxy.dbPath": {
           "type": "string",
@@ -174,47 +174,47 @@
     "commands": [
       {
         "command": "prompt-proxy.toggleStatusPanel",
-        "title": "Prompt Proxy: Toggle Proxy Panel"
+        "title": "Prompt Optimizer: Toggle Panel"
       },
       {
         "command": "prompt-proxy.focusPanel",
-        "title": "Prompt Proxy: Focus Control Panel"
+        "title": "Prompt Optimizer: Focus Panel"
       },
       {
         "command": "prompt-proxy.startChat",
-        "title": "Prompt Proxy: Open Chat Participant"
+        "title": "Prompt Optimizer: Open Chat Participant"
       },
       {
         "command": "prompt-proxy.optimizeClipboard",
-        "title": "Prompt Proxy: Optimize Clipboard & Cost Forecast"
+        "title": "Prompt Optimizer: Optimize Clipboard & Cost Forecast"
       },
       {
         "command": "prompt-proxy.copyPrompt",
-        "title": "Prompt Proxy: Copy Last Optimized Prompt"
+        "title": "Prompt Optimizer: Copy Last Optimized Prompt"
       },
       {
         "command": "prompt-proxy.sendPromptToChat",
-        "title": "Prompt Proxy: Send Last Optimized Prompt To Chat"
+        "title": "Prompt Optimizer: Send Last Optimized Prompt To Chat"
       },
       {
         "command": "prompt-proxy.openReadme",
-        "title": "Prompt Proxy: Open Extension README"
+        "title": "Prompt Optimizer: Open Extension README"
       },
       {
         "command": "prompt-proxy.cacheStats",
-        "title": "Prompt Proxy: Show Cache Statistics"
+        "title": "Prompt Optimizer: Show Cache Statistics"
       },
       {
         "command": "prompt-proxy.clearCache",
-        "title": "Prompt Proxy: Clear Semantic Cache"
+        "title": "Prompt Optimizer: Clear Semantic Cache"
       },
       {
         "command": "prompt-proxy.clearMemory",
-        "title": "Prompt Proxy: Clear Conversation Memory"
+        "title": "Prompt Optimizer: Clear Conversation Memory"
       },
       {
         "command": "prompt-proxy.selectMode",
-        "title": "Prompt Proxy: Select Mode (Agent / Optimize / Direct)"
+        "title": "Prompt Optimizer: Select Mode (Agent / Optimize / Direct)"
       }
     ]
   },
