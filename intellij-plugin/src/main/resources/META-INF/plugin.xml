@@ -2,7 +2,7 @@
 <idea-plugin>
 
     <id>com.promptproxy.intellij</id>
-    <name>Prompt Optimizer</name>
+    <name>Local Prompt Optimizer</name>
     <version>1.0.1</version>
 
     <vendor url="https://github.com/PawanDBalapure/prompt-optimizer">
