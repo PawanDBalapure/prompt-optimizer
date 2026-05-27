@@ -1,9 +1,9 @@
 {
   "name": "vscode-prompt-proxy",
   "displayName": "Prompt Proxy — Optimizer & Cost Forecaster",
-  "description": "Local prompt optimization, semantic cache reuse, conversation memory, and token cost forecasting for VS Code. Works with GitHub Copilot via the VS Code Chat API.",
+  "description": "Fully local prompt optimization, semantic cache, and token cost forecasting for VS Code. Your prompts and code never leave your machine — no telemetry, no cloud processing. Works with GitHub Copilot.",
   "version": "1.0.0",
-  "publisher": "pawan",
+  "publisher": "PDB",
   "license": "MIT",
   "icon": "images/icon.png",
   "galleryBanner": {
@@ -28,7 +28,29 @@
     "optimizer",
     "ai",
     "llm",
-    "semantic"
+    "semantic",
+    "privacy",
+    "local",
+    "offline",
+    "no-telemetry",
+    "secure"
+  ],
+  "badges": [
+    {
+      "url": "https://img.shields.io/badge/data-fully_local-brightgreen?logo=lock",
+      "href": "https://github.com/PawanDBalapure/prompt-optimizer#privacy--security",
+      "description": "Fully local — no data leaves your machine"
+    },
+    {
+      "url": "https://img.shields.io/badge/telemetry-none-brightgreen",
+      "href": "https://github.com/PawanDBalapure/prompt-optimizer#privacy--security",
+      "description": "Zero telemetry"
+    },
+    {
+      "url": "https://img.shields.io/badge/license-MIT-blue",
+      "href": "https://github.com/PawanDBalapure/prompt-optimizer/blob/main/vscode-extension/LICENSE",
+      "description": "MIT License"
+    }
   ],
   "qna": false,
   "preview": false,

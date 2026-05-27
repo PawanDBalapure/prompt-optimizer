@@ -2,7 +2,16 @@
 
 A local prompt optimizer, semantic cache, and conversational AI agent — all running inside VS Code without leaving your editor.
 
-![Prompt Proxy Control Panel](images/screenshot-panel.png)
+![Prompt Proxy Control Panel](https://raw.githubusercontent.com/PawanDBalapure/prompt-optimizer/main/vscode-extension/images/screenshot-panel.png)
+
+[![Fully local](https://img.shields.io/badge/data-fully_local-brightgreen?logo=lock)](https://github.com/PawanDBalapure/prompt-optimizer#privacy--security)
+[![No telemetry](https://img.shields.io/badge/telemetry-none-brightgreen)](https://github.com/PawanDBalapure/prompt-optimizer#privacy--security)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/PawanDBalapure/prompt-optimizer/blob/main/vscode-extension/LICENSE)
+
+> **🔒 Fully local — zero telemetry.**
+> All prompt processing, token counting, semantic caching, and secret scanning run entirely on your machine.
+> **No prompts, code, file contents, or metrics are ever sent to any external server.**
+> The only network request is the final Copilot call you explicitly trigger.
 
 ---
 
@@ -146,6 +155,21 @@ The cache is seeded on activation from your git log, Copilot chat history, READM
 Manage via command palette:
 - `Prompt Proxy: Show Cache Statistics`
 - `Prompt Proxy: Clear Semantic Cache`
+
+---
+
+## Privacy & Security
+
+| What | Detail |
+|---|---|
+| **Data processing** | 100% on your machine — no cloud backend, no remote API except the Copilot request you approve |
+| **Prompt storage** | Cached locally in a SQLite file on your own disk (`promptProxy.dbPath`). Never uploaded. |
+| **Secret scanning** | API keys and tokens are detected **before** any network call and blocked with a warning |
+| **Telemetry** | None. The extension collects zero usage or diagnostic data. |
+| **Network calls** | Only the GitHub Copilot inference request you explicitly send via the VS Code Chat API |
+| **Open source** | Full source available at [github.com/PawanDBalapure/prompt-optimizer](https://github.com/PawanDBalapure/prompt-optimizer) — audit it yourself |
+
+> To verify: open the extension source (`out/extension.js`) or the engine source (`engine/dist/`). Search for `http`, `fetch`, `axios`, `request` — you will find zero outbound calls outside of the Copilot API.
 
 ---
 

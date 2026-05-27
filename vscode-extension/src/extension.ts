@@ -2306,6 +2306,9 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
 
     vscode.postMessage({ type: 'ready' });
   </script>
+  <div style="margin:12px 0 2px;padding:5px 8px;border-radius:4px;background:rgba(0,200,100,0.06);border:1px solid rgba(0,200,100,0.15);font-size:10.5px;color:var(--vscode-descriptionForeground);display:flex;align-items:center;gap:5px;">
+    <span>&#x1F512;</span><span><strong>Fully local</strong> &mdash; your prompts and code never leave this machine</span>
+  </div>
 </body>
 </html>`;
   }
@@ -2696,6 +2699,9 @@ class ProxyStatusPanel {
 
     vscode.postMessage({ type: 'ready' });
   </script>
+  <div style="margin:12px 0 2px;padding:5px 8px;border-radius:4px;background:rgba(0,200,100,0.06);border:1px solid rgba(0,200,100,0.15);font-size:10.5px;color:var(--vscode-descriptionForeground);display:flex;align-items:center;gap:5px;">
+    <span>&#x1F512;</span><span><strong>Fully local</strong> &mdash; your prompts and code never leave this machine</span>
+  </div>
 </body>
 </html>`;
   }
