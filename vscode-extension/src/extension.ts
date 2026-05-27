@@ -1252,8 +1252,6 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
       enableScripts: true,
       localResourceRoots: [this._extensionUri],
     };
-    webviewView.webview.html = this._getHtmlForWebview();
-
     webviewView.webview.onDidReceiveMessage(async (data: { type?: string; prompt?: string; mode?: string }) => {
       switch (data.type) {
         case 'ready': {
@@ -1387,6 +1385,8 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
         }
       }
     });
+
+    webviewView.webview.html = this._getHtmlForWebview();
   }
 
   public publishAnalysis(state: PromptProxyPanelState): void {
@@ -1407,7 +1407,7 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'.">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
   <title>Prompt Optimizer</title>
   <style>
     :root {
@@ -2150,15 +2150,21 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
     });
 
     document.getElementById('btnUseOptimized').addEventListener('click', function() {
-      if (currentState && currentState.optimized) {
-        vscode.postMessage({ type: 'sendPrompt', prompt: currentState.optimized });
+      if (!currentState || !currentState.optimized) {
+        clearAlerts();
+        addAlert('warning', 'Run Optimize or Agent first.');
+        return;
       }
+      vscode.postMessage({ type: 'sendPrompt', prompt: currentState.optimized });
     });
 
     document.getElementById('btnCopyOptimized').addEventListener('click', function() {
-      if (currentState && currentState.optimized) {
-        vscode.postMessage({ type: 'copyPrompt', prompt: currentState.optimized });
+      if (!currentState || !currentState.optimized) {
+        clearAlerts();
+        addAlert('warning', 'Run Optimize or Agent first.');
+        return;
       }
+      vscode.postMessage({ type: 'copyPrompt', prompt: currentState.optimized });
     });
 
     document.getElementById('btnSecretSettings').addEventListener('click', function() {
@@ -2322,6 +2328,7 @@ class ProxyStatusPanel {
 
   private readonly _panel: vscode.WebviewPanel;
   private readonly _disposables: vscode.Disposable[] = [];
+  private _isDisposed = false;
 
   private constructor(
     private readonly _context: vscode.ExtensionContext,
@@ -2338,13 +2345,19 @@ class ProxyStatusPanel {
       }
     );
     this._panel.iconPath = vscode.Uri.joinPath(_context.extensionUri, 'images', 'icon.png');
-    this._panel.webview.html = this._getHtml();
-    this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
     this._panel.webview.onDidReceiveMessage(
       async (data: { type?: string; prompt?: string }) => this._handleMessage(data),
       null,
       this._disposables
     );
+    this._panel.onDidDispose(() => {
+      this._isDisposed = true;
+      ProxyStatusPanel.current = undefined;
+      while (this._disposables.length > 0) {
+        this._disposables.pop()?.dispose();
+      }
+    });
+    this._panel.webview.html = this._getHtml();
   }
 
   static toggle(context: vscode.ExtensionContext, provider: PromptProxyViewProvider): void {
@@ -2364,10 +2377,11 @@ class ProxyStatusPanel {
   }
 
   dispose(): void {
+    if (this._isDisposed) {
+      return;
+    }
     ProxyStatusPanel.current = undefined;
     this._panel.dispose();
-    for (const d of this._disposables) { d.dispose(); }
-    this._disposables.length = 0;
   }
 
   private async _handleMessage(data: { type?: string; prompt?: string }): Promise<void> {
@@ -2416,7 +2430,7 @@ class ProxyStatusPanel {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'.">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
   <title>Prompt Optimizer</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -2676,10 +2690,26 @@ class ProxyStatusPanel {
     el('btnSettings').addEventListener('click',     () => vscode.postMessage({ type: 'openSettings' }));
     el('btnClose').addEventListener('click',        () => vscode.postMessage({ type: 'close' }));
     el('btnCopyOptimized').addEventListener('click', function() {
-      if (currentState && currentState.optimized) vscode.postMessage({ type: 'copyPrompt', prompt: currentState.optimized });
+      if (!currentState || !currentState.optimized) {
+        el('alerts').innerHTML = '';
+        const d = document.createElement('div');
+        d.className = 'alert-item alert-warning';
+        d.textContent = '\u26a0\ufe0f  Analyze a prompt first.';
+        el('alerts').appendChild(d);
+        return;
+      }
+      vscode.postMessage({ type: 'copyPrompt', prompt: currentState.optimized });
     });
     el('btnSendToChat').addEventListener('click', function() {
-      if (currentState && currentState.optimized) vscode.postMessage({ type: 'sendPrompt', prompt: currentState.optimized });
+      if (!currentState || !currentState.optimized) {
+        el('alerts').innerHTML = '';
+        const d = document.createElement('div');
+        d.className = 'alert-item alert-warning';
+        d.textContent = '\u26a0\ufe0f  Analyze a prompt first.';
+        el('alerts').appendChild(d);
+        return;
+      }
+      vscode.postMessage({ type: 'sendPrompt', prompt: currentState.optimized });
     });
 
     window.addEventListener('message', function(event) {
