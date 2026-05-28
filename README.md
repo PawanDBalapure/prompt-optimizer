@@ -5,7 +5,7 @@ Local, zero-network prompt optimization and cost forecasting for IDE integration
 The repository now contains two surfaces:
 
 - A reusable engine in `src/`.
-- A VS Code extension in `vscode-extension/` that exposes a native `@promptproxy` chat participant and a Chat sidebar control panel.
+- A VS Code extension in `vscode-extension/` that exposes a native `@promptoptimizer` chat participant and a Chat sidebar control panel.
 
 ## What It Does
 
@@ -22,7 +22,7 @@ The VS Code extension can read:
 - The active editor and other visible editors.
 - Workspace diagnostics.
 - Prompt Proxy's own buffered prompt history.
-- Prompt Proxy's own `@promptproxy` chat history.
+- Prompt Proxy's own `@promptoptimizer` chat history.
 
 The public VS Code API does not expose the private transcript of other chat participants. That means the extension can integrate natively into the Chat view and reuse its own conversation history, but it cannot scrape the built-in Copilot transcript from another participant.
 

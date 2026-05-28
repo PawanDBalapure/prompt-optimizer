@@ -100,6 +100,13 @@ export interface PromptOptimizationResponse {
   diagnostics?: PromptDiagnostic[];
   structured_ir?: PromptIR;
   explanation?: string;
+  /** SDLC mode detected from slash command or intent words, if any. */
+  sdlc_mode?: {
+    id: string;
+    label: string;
+    trigger: string | null;
+    read_only: boolean;
+  };
 }
 
 export type ProcessPromptResponse = PromptOptimizationResponse;

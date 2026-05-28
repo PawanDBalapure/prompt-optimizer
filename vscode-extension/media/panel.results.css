@@ -1,0 +1,127 @@
+/* Panel: mode selector, response/results, summary table, list-sm, code blocks */
+    .mode-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .mode-label {
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--vscode-descriptionForeground);
+      flex-shrink: 0;
+    }
+    select {
+      flex: 1;
+      background: var(--vscode-dropdown-background, var(--vscode-input-background));
+      color: var(--vscode-dropdown-foreground, var(--vscode-editor-foreground));
+      border: 1px solid var(--vscode-dropdown-border, rgba(128,128,128,0.35));
+      border-radius: 8px;
+      padding: 6px 8px;
+      font: inherit;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    select:focus { outline: 1px solid var(--vscode-focusBorder); }
+    .response-card { display: none; }
+    .response-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .stream-badge {
+      font-size: 10px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--vscode-badge-background, #4d4d4d) 60%, transparent);
+      color: var(--vscode-badge-foreground, #fff);
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+    .response-text {
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.55;
+      font-size: 12px;
+      max-height: 420px;
+      overflow-y: auto;
+      padding: 4px 2px;
+    }
+    .loading {
+      display: none;
+      color: var(--vscode-descriptionForeground);
+      font-style: italic;
+    }
+    .card { display: none; }
+    .section-title {
+      margin: 0 0 8px;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--vscode-descriptionForeground);
+    }
+    .summary-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .summary-table td {
+      padding: 4px 5px;
+      border-bottom: 1px solid rgba(127,127,127,0.1);
+      line-height: 1.35;
+      vertical-align: middle;
+    }
+    .summary-table tr:last-child td { border-bottom: none; }
+    .summary-table .lbl {
+      color: var(--vscode-descriptionForeground);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      white-space: nowrap;
+      width: 1%;
+      padding-right: 3px;
+    }
+    .summary-table .val {
+      font-weight: 500;
+      font-size: 12px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .prompt-refine-row {
+      display: grid;
+      grid-template-columns: minmax(80px, 34%) 1fr;
+      gap: 8px;
+      align-items: start;
+    }
+    .list-sm {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .list-sm li {
+      font-size: 11px;
+      padding: 3px 0;
+      border-bottom: 1px solid rgba(127,127,127,0.08);
+      line-height: 1.35;
+      color: var(--vscode-descriptionForeground);
+      word-break: break-word;
+    }
+    .list-sm li:last-child { border-bottom: none; }
+    /* keep chips hidden but accessible to JS */
+    .chips { display: none; }
+    .chip { display: none; }
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin: 0;
+      border-radius: 8px;
+      padding: 8px;
+      background: rgba(0, 0, 0, 0.16);
+      border: 1px solid rgba(127, 127, 127, 0.14);
+      font-family: var(--vscode-editor-font-family, monospace);
+      font-size: 11px;
+      max-height: 160px;
+      overflow: auto;
+    }

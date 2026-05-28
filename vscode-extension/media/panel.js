@@ -1,0 +1,265 @@
+// acquireVsCodeApi() must be called exactly once per webview lifetime.
+// var → window.vscode, accessible to sibling scripts loaded before this file.
+var vscode = acquireVsCodeApi();
+
+// ── DOM refs used in this module ─────────────────────────────────────────────
+var promptInput     = document.getElementById('promptInput');
+var loading         = document.getElementById('loading');
+var resultCard      = document.getElementById('resultCard');
+var responseCard    = document.getElementById('responseCard');
+var responseContent = document.getElementById('responseContent');
+var streamBadge     = document.getElementById('streamBadge');
+var modeSelect      = document.getElementById('modeSelect');
+var btnPrimary      = document.getElementById('btnPrimary');
+var optimizedCard   = document.getElementById('optimizedCard');
+var optimizedPrompt = document.getElementById('optimizedPrompt');
+var targetModelSelect = document.getElementById('targetModelSelect');
+var btnSettingsMenu = document.getElementById('btnSettingsMenu');
+var settingsMenu    = document.getElementById('settingsMenu');
+
+// ── Mode state (currentMode declared in panel.helpers.js as var) ─────────────
+var currentMode = 'agent';
+
+var MODE_TITLES = {
+  agent:    'Run Agent \u2014 optimize + call Copilot',
+  optimize: 'Analyze locally \u2014 optimize only',
+  direct:   'Send to @promptoptimizer chat',
+};
+
+function applyMode(mode) {
+  currentMode = mode;
+  modeSelect.value = mode;
+  btnPrimary.title = MODE_TITLES[mode] || 'Run';
+}
+
+function setSettingsMenuOpen(isOpen) {
+  settingsMenu.hidden = !isOpen;
+  btnSettingsMenu.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+}
+
+// ── Event wiring ─────────────────────────────────────────────────────────────
+
+modeSelect.addEventListener('change', function() {
+  applyMode(modeSelect.value);
+  vscode.postMessage({ type: 'setMode', mode: modeSelect.value });
+});
+
+targetModelSelect.addEventListener('change', function() {
+  vscode.postMessage({ type: 'setTargetModel', model: targetModelSelect.value });
+});
+
+btnPrimary.addEventListener('click', function() {
+  var text = promptInput.value.trim();
+  if (!text) { clearAlerts(); addAlert('error', 'Enter a prompt.'); return; }
+  clearAlerts();
+  if (currentMode === 'agent') {
+    responseContent.textContent = '';
+    streamBadge.style.display = 'inline';
+    responseCard.style.display = 'block';
+    loading.style.display = 'block';
+    loading.setAttribute('aria-hidden', 'false');
+    vscode.postMessage({ type: 'agentRun', prompt: text });
+  } else if (currentMode === 'direct') {
+    vscode.postMessage({ type: 'openChatWithPrompt', prompt: text });
+  } else {
+    optimizedCard.style.display = 'none';
+    loading.style.display = 'block';
+    loading.setAttribute('aria-hidden', 'false');
+    vscode.postMessage({ type: 'analyze', prompt: text });
+  }
+});
+
+document.getElementById('btnOpenChat').addEventListener('click', function() {
+  vscode.postMessage({ type: 'openChat' });
+});
+
+document.getElementById('btnUseOptimized').addEventListener('click', function() {
+  if (!currentState || !currentState.optimized) { clearAlerts(); addAlert('warning', 'Run Optimize or Agent first.'); return; }
+  vscode.postMessage({ type: 'sendPrompt', prompt: currentState.optimized });
+});
+
+optimizedPrompt.addEventListener('click', function(e) {
+  var btn = e.target.closest('.secret-del');
+  if (btn) { removeSecretFromOutput(btn.getAttribute('data-remove'), optimizedPrompt); }
+});
+
+document.getElementById('btnCopyOptimized').addEventListener('click', function() {
+  if (!currentState || !currentState.optimized) { clearAlerts(); addAlert('warning', 'Run Optimize or Agent first.'); return; }
+  vscode.postMessage({ type: 'copyPrompt', prompt: currentState.optimized });
+});
+
+btnSettingsMenu.addEventListener('click', function(event) {
+  event.stopPropagation();
+  setSettingsMenuOpen(settingsMenu.hidden);
+});
+
+settingsMenu.addEventListener('click', function(event) { event.stopPropagation(); });
+
+document.getElementById('btnSecretSettings').addEventListener('click', function() {
+  setSettingsMenuOpen(false);
+  vscode.postMessage({ type: 'openSecretSettings' });
+});
+
+document.getElementById('btnReadme').addEventListener('click', function() {
+  setSettingsMenuOpen(false);
+  vscode.postMessage({ type: 'openReadme' });
+});
+
+document.addEventListener('click', function() {
+  if (!settingsMenu.hidden) { setSettingsMenuOpen(false); }
+});
+
+document.addEventListener('keydown', function(event) {
+  if (event.key === 'Escape') {
+    if (!settingsMenu.hidden) { setSettingsMenuOpen(false); return; }
+    clearAlerts();
+    loading.style.display = 'none';
+    loading.setAttribute('aria-hidden', 'true');
+    return;
+  }
+  // Ctrl/Cmd+Enter in the prompt textarea runs the primary action.
+  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+    if (document.activeElement === promptInput) {
+      event.preventDefault();
+      btnPrimary.click();
+    }
+  }
+});
+
+// ── Quick chips ──────────────────────────────────────────────────────────────
+var chipExample = document.getElementById('chipExample');
+var chipMemory  = document.getElementById('chipMemory');
+var chipPeers   = document.getElementById('chipPeers');
+var chipAgents  = document.getElementById('chipAgents');
+if (chipExample) {
+  chipExample.addEventListener('click', function() {
+    promptInput.value = 'Refactor the auth middleware to use async/await and add unit tests for the happy path and 401 case.';
+    promptInput.focus();
+  });
+}
+if (chipMemory) {
+  chipMemory.addEventListener('click', function() {
+    vscode.postMessage({ type: 'openMemoryFile' });
+  });
+}
+if (chipPeers) {
+  chipPeers.addEventListener('click', function() {
+    vscode.postMessage({ type: 'openPeerWorkspaces' });
+  });
+}
+if (chipAgents) {
+  chipAgents.addEventListener('click', function() {
+    vscode.postMessage({ type: 'manageAgentSkills' });
+  });
+}
+
+// ── Message handler ───────────────────────────────────────────────────────────
+// Helper functions (renderState, clearAlerts, addAlert, openSecretSettingsState)
+// are defined in sibling scripts loaded before this file.
+
+window.addEventListener('message', function(event) {
+  var msg = event.data;
+  switch (msg.type) {
+    case 'modeState':
+      applyMode(msg.mode);
+      break;
+    case 'targetModelPattern':
+      targetModelSelect.value = msg.model;
+      break;
+    case 'analysisState':
+      renderState(msg.payload);
+      break;
+    case 'responseStart':
+      responseContent.textContent = '';
+      streamBadge.style.display = 'inline';
+      responseCard.style.display = 'block';
+      loading.style.display = 'none';
+      loading.setAttribute('aria-hidden', 'true');
+      break;
+    case 'responseChunk':
+      responseContent.textContent += msg.chunk;
+      responseContent.scrollTop = responseContent.scrollHeight;
+      break;
+    case 'responseDone':
+      streamBadge.style.display = 'none';
+      loading.style.display = 'none';
+      loading.setAttribute('aria-hidden', 'true');
+      break;
+    case 'responseError':
+      streamBadge.style.display = 'none';
+      loading.style.display = 'none';
+      loading.setAttribute('aria-hidden', 'true');
+      clearAlerts();
+      addAlert('error', msg.message || 'Agent call failed.');
+      break;
+    case 'error':
+      loading.style.display = 'none';
+      loading.setAttribute('aria-hidden', 'true');
+      clearAlerts();
+      addAlert('error', msg.message || 'Prompt Optimizer failed to analyze the prompt.');
+      break;
+    case 'secretSettingsState':
+      openSecretSettingsState(msg);
+      break;
+    case 'secretSettingsSaved':
+      savedNotice.style.display = 'block';
+      setTimeout(function() {
+        savedNotice.style.display = 'none';
+        secretMgrOverlay.setAttribute('aria-hidden', 'true');
+        secretMgrOverlay.style.display = 'none';
+      }, 1200);
+      break;
+    case 'statusOverview':
+      renderStatusOverview(msg.payload);
+      break;
+  }
+});
+
+function renderStatusOverview(overview) {
+  if (!overview) { return; }
+  var strip = document.getElementById('statusStrip');
+  if (!strip) { return; }
+  var memoryCount = document.getElementById('memoryCount');
+  var kgCount     = document.getElementById('kgCount');
+  var cacheCount  = document.getElementById('cacheCount');
+  var peerCount   = document.getElementById('peerCount');
+  var memoryVal = (overview.memory && overview.memory.entries) || 0;
+  var kgNodes   = (overview.kg && overview.kg.nodes) || 0;
+  var kgEdges   = (overview.kg && overview.kg.edges) || 0;
+  var cacheVal  = (overview.cache && overview.cache.entries) || 0;
+  var peerVal   = (overview.peers && overview.peers.enabled) || 0;
+  if (memoryCount) { memoryCount.textContent = String(memoryVal); }
+  if (kgCount)     { kgCount.textContent     = String(kgNodes + '/' + kgEdges); }
+  if (cacheCount)  { cacheCount.textContent  = String(cacheVal); }
+  if (peerCount)   { peerCount.textContent   = String(peerVal); }
+
+  var hasAnyData = memoryVal > 0 || kgNodes > 0 || cacheVal > 0 || peerVal > 0;
+  var pillIndexing = document.getElementById('pillIndexing');
+  var pillMemory   = document.getElementById('pillMemory');
+  var pillKg       = document.getElementById('pillKg');
+  var pillCache    = document.getElementById('pillCache');
+  var pillPeers    = document.getElementById('pillPeers');
+  if (hasAnyData) {
+    if (pillIndexing) { pillIndexing.hidden = true; }
+    if (pillMemory)   { pillMemory.hidden = false; }
+    if (pillKg)       { pillKg.hidden = false; }
+    if (pillCache)    { pillCache.hidden = false; }
+    if (pillPeers)    { pillPeers.hidden = false; }
+  } else {
+    // Bootstrap hasn't produced any rows yet; keep the indexing pill visible
+    // so the panel never looks empty after install. A follow-up refresh will
+    // populate the real counts.
+    if (pillIndexing) {
+      pillIndexing.hidden = false;
+      var label = document.getElementById('indexingLabel');
+      if (label) { label.textContent = 'Indexing workspace…'; }
+    }
+    if (pillMemory) { pillMemory.hidden = true; }
+    if (pillKg)     { pillKg.hidden = true; }
+    if (pillCache)  { pillCache.hidden = true; }
+    if (pillPeers)  { pillPeers.hidden = true; }
+  }
+  strip.hidden = false;
+}
+
+vscode.postMessage({ type: 'ready' });

@@ -7,6 +7,7 @@ import { PromptOptimizationRequest, PromptProxyEngineOptions } from './contracts
 import { PromptProxyEngine } from './PromptProxyEngine.js';
 import { SemanticCacheManager } from './SemanticCacheManager.js';
 import { PromptEvalEngine } from './PromptEvalEngine.js';
+import { listRegisteredModes, listSkillErrors } from './engine/promptModes.js';
 
 function readStdin(): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -27,7 +28,12 @@ function printHelp(): void {
       '   or: prompt-proxy-engine --prompt "your prompt" [--target-model <claude|gpt|gemini|local>] [--db <path>]\n' +
       '   or: prompt-proxy-engine --benchmark <benchmark_config.json> [--db <path>]\n' +
       '   or: prompt-proxy-engine --cache-stats [--db <path>]\n' +
-      '   or: prompt-proxy-engine --clear-cache [--db <path>]\n'
+      '   or: prompt-proxy-engine --clear-cache [--db <path>]\n' +
+      '   or: prompt-proxy-engine --peer-list [--db <path>]\n' +
+      '   or: prompt-proxy-engine --peer-add --label <name> --peer-db <path> [--db <path>]\n' +
+      '   or: prompt-proxy-engine --peer-remove --peer-db <path> [--db <path>]\n' +
+      '   or: prompt-proxy-engine --peer-toggle --peer-db <path> [--enabled true|false] [--db <path>]\n' +
+      '   or: prompt-proxy-engine --kg-stats [--workspace <id>] [--db <path>]\n'
   );
 }
 
@@ -104,6 +110,7 @@ async function extractVSCodeChatHistory(vscodePath?: string): Promise<string[]> 
 
 async function handleSeedBatch(args: string[]): Promise<void> {
   const wsId = resolveArg(args, '--workspace-id') ?? 'global';
+  const wsRoot = resolveArg(args, '--workspace-root');
   const dbPath = resolveDbPath(args);
   const stdin = await readStdin();
   let prompts: string[];
@@ -118,10 +125,19 @@ async function handleSeedBatch(args: string[]): Promise<void> {
   const engine = new PromptProxyEngine(dbPath ? { db_path: dbPath } : {});
   await engine.initialize();
   let count = 0;
+  // Pass workspace_root in ide_context so the engine's collectAugmentedSections
+  // also harvests AGENTS.md / CLAUDE.md / .promptoptimizer/memory.md and the
+  // knowledge-graph receives nodes/edges for every bootstrap prompt.
+  const ideContext = wsRoot ? { workspace_root: wsRoot } : undefined;
   for (const raw of prompts) {
     if (!raw?.trim()) { continue; }
     try {
-      await engine.processRequest({ raw_prompt: raw, mode: 'blocking', workspace_id: wsId });
+      await engine.processRequest({
+        raw_prompt: raw,
+        mode: 'blocking',
+        workspace_id: wsId,
+        ide_context: ideContext,
+      });
       count++;
     } catch { /* skip bad seeds */ }
   }
@@ -144,6 +160,104 @@ async function handleClearCache(dbPath?: string): Promise<void> {
   const pruned = manager.pruneStale(0); // prune all stale regardless of age after full clear
   manager.close();
   process.stdout.write(`${JSON.stringify({ cleared: true, pruned })}\n`);
+}
+
+/**
+ * Cross-workspace + knowledge-graph admin endpoints.  All of these reuse the
+ * already-running engine so the SQLite schema is applied consistently.
+ */
+async function handlePeerCommand(args: string[]): Promise<void> {
+  const engine = new PromptProxyEngine(resolveDbPath(args) ? { db_path: resolveDbPath(args) } : {});
+  await engine.initialize();
+  try {
+    const federation = engine.getFederation();
+    if (!federation) {
+      process.stdout.write(`${JSON.stringify({ ok: false, error: 'federation unavailable' })}\n`);
+      return;
+    }
+    if (args.includes('--peer-list')) {
+      process.stdout.write(`${JSON.stringify({ ok: true, peers: federation.list() })}\n`);
+      return;
+    }
+    if (args.includes('--peer-add')) {
+      const label = resolveArg(args, '--label') ?? 'peer';
+      const peerDb = resolveArg(args, '--peer-db');
+      if (!peerDb) { throw new Error('--peer-add requires --peer-db <path>'); }
+      const result = federation.addPeer(label, peerDb);
+      process.stdout.write(`${JSON.stringify(result)}\n`);
+      return;
+    }
+    if (args.includes('--peer-remove')) {
+      const peerDb = resolveArg(args, '--peer-db');
+      if (!peerDb) { throw new Error('--peer-remove requires --peer-db <path>'); }
+      const ok = federation.removePeer(peerDb);
+      process.stdout.write(`${JSON.stringify({ ok })}\n`);
+      return;
+    }
+    if (args.includes('--peer-toggle')) {
+      const peerDb = resolveArg(args, '--peer-db');
+      const enabled = resolveArg(args, '--enabled') !== 'false';
+      if (!peerDb) { throw new Error('--peer-toggle requires --peer-db <path>'); }
+      const ok = federation.setEnabled(peerDb, enabled);
+      process.stdout.write(`${JSON.stringify({ ok })}\n`);
+      return;
+    }
+  } finally {
+    engine.close();
+  }
+}
+
+async function handleKgStats(args: string[]): Promise<void> {
+  const engine = new PromptProxyEngine(resolveDbPath(args) ? { db_path: resolveDbPath(args) } : {});
+  await engine.initialize();
+  try {
+    const kg = engine.getKnowledgeGraph();
+    if (!kg) {
+      process.stdout.write(`${JSON.stringify({ nodes: 0, edges: 0 })}\n`);
+      return;
+    }
+    const workspace = resolveArg(args, '--workspace');
+    process.stdout.write(`${JSON.stringify(kg.stats(workspace))}\n`);
+  } finally {
+    engine.close();
+  }
+}
+
+/**
+ * Combined snapshot used by the VS Code panel to show users that their local
+ * indexing is active and growing.  Returns counts for cache, knowledge graph,
+ * peer workspaces, and ingested memory files in a single JSON object so the
+ * panel can render a status row with one subprocess call.
+ */
+async function handleStatusOverview(args: string[]): Promise<void> {
+  const dbPath = resolveDbPath(args);
+  const workspace = resolveArg(args, '--workspace');
+  const engine = new PromptProxyEngine(dbPath ? { db_path: dbPath } : {});
+  await engine.initialize();
+  try {
+    const cacheManager = engine.getCacheManager();
+    const cacheStats = cacheManager.getStats();
+    const kg = engine.getKnowledgeGraph();
+    const kgStats = kg ? kg.stats(workspace) : { nodes: 0, edges: 0 };
+    const federation = engine.getFederation();
+    const peers = federation ? federation.list() : [];
+    let memoryCount = 0;
+    if (workspace) {
+      try {
+        const db = cacheManager.rawDatabase();
+        const row = db.prepare('SELECT COUNT(*) AS c FROM workspace_memory WHERE workspace_id = ?').get(workspace) as { c: number } | undefined;
+        memoryCount = row?.c ?? 0;
+      } catch { /* ignore */ }
+    }
+    process.stdout.write(`${JSON.stringify({
+      cache: { entries: cacheStats.total_entries, hits: cacheStats.total_hits, avg_confidence: cacheStats.avg_confidence },
+      kg: kgStats,
+      peers: { total: peers.length, enabled: peers.filter((p) => p.enabled).length },
+      memory: { entries: memoryCount },
+    })}\n`);
+  } finally {
+    engine.close();
+  }
 }
 
 async function handleBenchmark(benchmarkPath: string, dbPath?: string): Promise<void> {
@@ -243,6 +357,29 @@ async function main(): Promise<void> {
 
   if (args.includes('--clear-cache')) {
     await handleClearCache(resolveDbPath(args));
+    return;
+  }
+
+  if (args.includes('--peer-list') || args.includes('--peer-add') || args.includes('--peer-remove') || args.includes('--peer-toggle')) {
+    await handlePeerCommand(args);
+    return;
+  }
+
+  if (args.includes('--kg-stats')) {
+    await handleKgStats(args);
+    return;
+  }
+
+  if (args.includes('--status-overview')) {
+    await handleStatusOverview(args);
+    return;
+  }
+
+  if (args.includes('--list-modes')) {
+    const workspaceRoot = resolveArg(args, '--workspace-root') ?? process.cwd();
+    const modes = listRegisteredModes(workspaceRoot);
+    const errors = listSkillErrors(workspaceRoot);
+    process.stdout.write(JSON.stringify({ modes, errors }, null, 2) + '\n');
     return;
   }
 

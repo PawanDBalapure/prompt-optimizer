@@ -1,12 +1,16 @@
 import Database from 'better-sqlite3';
 import { LocalSemanticVectorizer } from './localSemanticVectorizer.js';
-
-const SEMANTIC_HIT_THRESHOLD = 0.68;
-// High-confidence entries (heavily used, frequently hit) can match at a lower
-// similarity threshold — they've proven reliable.  Low-confidence entries
-// (newly inserted or never re-used) need a higher bar before being served.
-const CONFIDENCE_THRESHOLD_BUMP = 0.06; // added to threshold when confidence < 0.4
-const CONFIDENCE_THRESHOLD_EASE = 0.04; // subtracted from threshold when confidence > 0.8
+import { initializeSchema } from './cache/schema.js';
+import {
+  calculateSimilarityScore,
+  effectiveThreshold,
+} from './cache/similarity.js';
+import {
+  PromptVersionRow,
+  getVersions as getVersionsImpl,
+  recordVersion as recordVersionImpl,
+  rollbackToVersion as rollbackToVersionImpl,
+} from './cache/versioning.js';
 
 export interface CacheQueryResult {
   optimizedPrompt: string;
@@ -39,6 +43,8 @@ interface SemanticCacheRow {
   workspace_id: string;
 }
 
+const ROW_COLUMNS = 'id, raw_prompt, optimized_prompt, embedding, timestamp, usage_count, confidence_score, workspace_id';
+
 export class SemanticCacheManager {
   private readonly db: Database.Database;
   private readonly vectorizer = new LocalSemanticVectorizer();
@@ -54,51 +60,9 @@ export class SemanticCacheManager {
   }
 
   public async initialize(): Promise<void> {
-    if (this.isInitialized) {
-      return;
-    }
-
+    if (this.isInitialized) { return; }
     try {
-      // Create table with the original schema so existing DBs aren't broken.
-      this.db.exec(`
-        CREATE TABLE IF NOT EXISTS semantic_cache (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          raw_prompt TEXT UNIQUE,
-          optimized_prompt TEXT,
-          embedding BLOB,
-          timestamp INTEGER
-        );
-        CREATE INDEX IF NOT EXISTS idx_raw_prompt ON semantic_cache(raw_prompt);
-
-        CREATE TABLE IF NOT EXISTS prompt_versions (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          prompt_key TEXT,
-          version INTEGER,
-          raw_prompt TEXT,
-          optimized_prompt TEXT,
-          target_model TEXT,
-          timestamp INTEGER,
-          performance_score REAL DEFAULT 0.0,
-          experiment_branch TEXT DEFAULT 'main'
-        );
-        CREATE INDEX IF NOT EXISTS idx_prompt_versions_key ON prompt_versions(prompt_key);
-      `);
-
-      // Safe migration — ADD COLUMN is idempotent via try/catch (SQLite <3.35
-      // does not support IF NOT EXISTS for columns).
-      for (const ddl of [
-        'ALTER TABLE semantic_cache ADD COLUMN usage_count INTEGER DEFAULT 0',
-        'ALTER TABLE semantic_cache ADD COLUMN confidence_score REAL DEFAULT 0.7',
-        "ALTER TABLE semantic_cache ADD COLUMN workspace_id TEXT DEFAULT 'global'",
-      ]) {
-        try { this.db.exec(ddl); } catch { /* column already exists */ }
-      }
-
-      // Create workspace index only after the column is guaranteed to exist.
-      try {
-        this.db.exec('CREATE INDEX IF NOT EXISTS idx_workspace ON semantic_cache(workspace_id)');
-      } catch { /* already exists */ }
-
+      initializeSchema(this.db);
       this.isInitialized = true;
     } catch (error) {
       console.error('[SemanticCacheManager] Initialization error:', error);
@@ -106,137 +70,47 @@ export class SemanticCacheManager {
     }
   }
 
-  private vectorize(text: string): Float32Array {
-    return this.vectorizer.vectorize(text);
-  }
-
-  private calculateCosineSimilarity(left: Float32Array, right: Float32Array): number {
-    return this.vectorizer.cosineSimilarity(left, right);
-  }
-
-  private calculateOverlapCoefficient(left: string[], right: string[]): number {
-    const leftSet = new Set(left);
-    const rightSet = new Set(right);
-
-    if (leftSet.size === 0 || rightSet.size === 0) {
-      return 0;
-    }
-
-    let sharedCount = 0;
-    for (const token of leftSet) {
-      if (rightSet.has(token)) {
-        sharedCount++;
-      }
-    }
-
-    return sharedCount / Math.min(leftSet.size, rightSet.size);
-  }
-
-  private buildComparisonFeatures(features: { tokens: string[]; signals: string[] }): string[] {
-    const comparisonFeatures = new Set<string>();
-
-    for (const token of features.tokens) {
-      comparisonFeatures.add(`tok:${token}`);
-    }
-
-    for (const signal of features.signals) {
-      comparisonFeatures.add(`sig:${signal}`);
-    }
-
-    for (let index = 0; index < features.tokens.length - 1; index++) {
-      comparisonFeatures.add(`bi:${features.tokens[index]}__${features.tokens[index + 1]}`);
-    }
-
-    for (let index = 0; index < features.tokens.length - 2; index++) {
-      comparisonFeatures.add(`tri:${features.tokens[index]}__${features.tokens[index + 1]}__${features.tokens[index + 2]}`);
-    }
-
-    return Array.from(comparisonFeatures);
-  }
-
-  private calculateSimilarityScore(queryText: string, queryVector: Float32Array, candidateText: string, candidateVector: Float32Array): number {
-    const queryFeatures = this.vectorizer.analyze(queryText);
-    const candidateFeatures = this.vectorizer.analyze(candidateText);
-
-    const lexicalFeatures = this.buildComparisonFeatures(queryFeatures);
-    const candidateLexicalFeatures = this.buildComparisonFeatures(candidateFeatures);
-    const overlapCoefficient = this.calculateOverlapCoefficient(lexicalFeatures, candidateLexicalFeatures);
-    const vectorSimilarity = this.calculateCosineSimilarity(queryVector, candidateVector);
-
-    const score = (overlapCoefficient * 0.95) + (vectorSimilarity * 0.05);
-    return Math.max(0, Math.min(1, score));
-  }
-
-  private bufferToFloat32Array(buffer: Buffer): Float32Array {
-    return this.vectorizer.deserialize(buffer);
-  }
-
-  private async loadRows(workspaceId?: string): Promise<SemanticCacheRow[]> {
-    const statement = workspaceId && workspaceId !== 'global'
-      ? this.db.prepare(
-          'SELECT id, raw_prompt, optimized_prompt, embedding, timestamp, usage_count, confidence_score, workspace_id FROM semantic_cache WHERE embedding IS NOT NULL AND (workspace_id = ? OR workspace_id = \'global\')'
-        )
-      : this.db.prepare(
-          'SELECT id, raw_prompt, optimized_prompt, embedding, timestamp, usage_count, confidence_score, workspace_id FROM semantic_cache WHERE embedding IS NOT NULL'
-        );
-
-    return (workspaceId && workspaceId !== 'global'
-      ? statement.all(workspaceId)
-      : statement.all()) as SemanticCacheRow[];
-  }
-
-  private buildMatch(row: SemanticCacheRow, similarity: number): CacheSearchResult {
-    return {
-      id: row.id,
-      rawPrompt: row.raw_prompt,
-      optimizedPrompt: row.optimized_prompt,
-      confidence: similarity,
-      matchType: 'semantic',
-      timestamp: row.timestamp,
-    };
-  }
-
-  public async searchSimilarPrompts(rawPrompt: string, limit = 3, workspaceId?: string): Promise<CacheSearchResult[]> {
-    if (!rawPrompt || rawPrompt.trim() === '') {
-      return [];
-    }
+  public async searchSimilarPrompts(
+    rawPrompt: string,
+    limit = 3,
+    workspaceId?: string,
+  ): Promise<CacheSearchResult[]> {
+    if (!rawPrompt || rawPrompt.trim() === '') { return []; }
 
     try {
-      if (!this.isInitialized) {
-        await this.initialize();
-      }
+      if (!this.isInitialized) { await this.initialize(); }
 
-      const queryVector = this.vectorize(rawPrompt);
-      const rows = await this.loadRows(workspaceId);
+      const queryVector = this.vectorizer.vectorize(rawPrompt);
+      const rows = this.loadRows(workspaceId);
       const matches: CacheSearchResult[] = [];
 
       for (const row of rows) {
-        if (!row.embedding) {
-          continue;
-        }
+        if (!row.embedding) { continue; }
 
-        const cachedVector = this.bufferToFloat32Array(row.embedding);
+        const cachedVector = this.vectorizer.deserialize(row.embedding);
         if (cachedVector.length !== queryVector.length || cachedVector.length === 0) {
           continue;
         }
 
-        const similarity = this.calculateSimilarityScore(rawPrompt, queryVector, row.raw_prompt, cachedVector);
-        if (Number.isNaN(similarity) || similarity <= 0) {
-          continue;
-        }
+        const similarity = calculateSimilarityScore(
+          this.vectorizer, rawPrompt, queryVector, row.raw_prompt, cachedVector,
+        );
+        if (Number.isNaN(similarity) || similarity <= 0) { continue; }
 
-        // Confidence-aware threshold: well-used entries are surfaced more readily,
-        // brand-new entries need a stricter similarity before they appear.
-        const rowConfidence = row.confidence_score ?? 0.7;
-        let effectiveThreshold = SEMANTIC_HIT_THRESHOLD;
-        if (rowConfidence < 0.4) { effectiveThreshold += CONFIDENCE_THRESHOLD_BUMP; }
-        if (rowConfidence > 0.8) { effectiveThreshold -= CONFIDENCE_THRESHOLD_EASE; }
-        if (similarity < effectiveThreshold * 0.5) { continue; } // hard lower bound for candidates list
+        const threshold = effectiveThreshold(row.confidence_score ?? 0.7);
+        if (similarity < threshold * 0.5) { continue; }
 
-        matches.push(this.buildMatch(row, similarity));
+        matches.push({
+          id: row.id,
+          rawPrompt: row.raw_prompt,
+          optimizedPrompt: row.optimized_prompt,
+          confidence: similarity,
+          matchType: 'semantic',
+          timestamp: row.timestamp,
+        });
       }
 
-      matches.sort((left, right) => right.confidence - left.confidence);
+      matches.sort((l, r) => r.confidence - l.confidence);
       return matches.slice(0, Math.max(1, limit));
     } catch (error) {
       console.error('[SemanticCacheManager] Semantic search failed:', error);
@@ -245,53 +119,32 @@ export class SemanticCacheManager {
   }
 
   public async checkCache(rawPrompt: string, workspaceId?: string): Promise<CacheQueryResult | null> {
-    if (!rawPrompt || rawPrompt.trim() === '') {
-      return null;
-    }
+    if (!rawPrompt || rawPrompt.trim() === '') { return null; }
 
     try {
-      if (!this.isInitialized) {
-        await this.initialize();
+      if (!this.isInitialized) { await this.initialize(); }
+
+      const exact = this.findExactMatch(rawPrompt, workspaceId ?? 'global');
+      if (exact) {
+        this.bumpUsage(exact.id, 0.03);
+        return { optimizedPrompt: exact.optimized_prompt, confidence: 1, matchType: 'exact' };
       }
 
-      // Exact match first — update usage stats on hit.
-      const exactStatement = this.db.prepare('SELECT id, optimized_prompt, confidence_score FROM semantic_cache WHERE raw_prompt = ?');
-      const exactResult = exactStatement.get(rawPrompt) as { id: number; optimized_prompt: string; confidence_score: number } | undefined;
+      const [bestMatch] = await this.searchSimilarPrompts(rawPrompt, 1, workspaceId);
+      if (!bestMatch) { return null; }
 
-      if (exactResult) {
-        this.db.prepare(
-          'UPDATE semantic_cache SET usage_count = usage_count + 1, confidence_score = MIN(0.95, COALESCE(confidence_score, 0.7) + 0.03) WHERE id = ?'
-        ).run(exactResult.id);
+      const rowConfidence =
+        (this.db.prepare('SELECT confidence_score FROM semantic_cache WHERE id = ?').get(bestMatch.id) as
+          { confidence_score?: number } | undefined)?.confidence_score ?? 0.7;
+
+      if (bestMatch.confidence >= effectiveThreshold(rowConfidence)) {
+        this.bumpUsage(bestMatch.id, 0.02);
         return {
-          optimizedPrompt: exactResult.optimized_prompt,
-          confidence: 1,
-          matchType: 'exact',
+          optimizedPrompt: bestMatch.optimizedPrompt,
+          confidence: bestMatch.confidence,
+          matchType: 'semantic',
         };
       }
-
-      const matches = await this.searchSimilarPrompts(rawPrompt, 1, workspaceId);
-      const bestMatch = matches[0];
-
-      if (bestMatch) {
-        // Apply confidence-aware threshold: a high-confidence cached entry can
-        // match at slightly lower similarity.
-        const rowConfidence = (this.db.prepare('SELECT confidence_score FROM semantic_cache WHERE id = ?').get(bestMatch.id) as { confidence_score?: number } | undefined)?.confidence_score ?? 0.7;
-        let effectiveThreshold = SEMANTIC_HIT_THRESHOLD;
-        if (rowConfidence > 0.8) { effectiveThreshold -= CONFIDENCE_THRESHOLD_EASE; }
-        if (rowConfidence < 0.4) { effectiveThreshold += CONFIDENCE_THRESHOLD_BUMP; }
-
-        if (bestMatch.confidence >= effectiveThreshold) {
-          this.db.prepare(
-            'UPDATE semantic_cache SET usage_count = usage_count + 1, confidence_score = MIN(0.95, COALESCE(confidence_score, 0.7) + 0.02) WHERE id = ?'
-          ).run(bestMatch.id);
-          return {
-            optimizedPrompt: bestMatch.optimizedPrompt,
-            confidence: bestMatch.confidence,
-            matchType: 'semantic',
-          };
-        }
-      }
-
       return null;
     } catch (error) {
       console.error('[SemanticCacheManager] Cache check failed:', error);
@@ -299,31 +152,30 @@ export class SemanticCacheManager {
     }
   }
 
-  public async writeToCache(rawPrompt: string, optimizedPrompt: string, workspaceId?: string): Promise<void> {
-    if (!rawPrompt || rawPrompt.trim() === '') {
-      return;
-    }
+  public async writeToCache(
+    rawPrompt: string,
+    optimizedPrompt: string,
+    workspaceId?: string,
+  ): Promise<void> {
+    if (!rawPrompt || rawPrompt.trim() === '') { return; }
 
     try {
-      if (!this.isInitialized) {
-        await this.initialize();
-      }
+      if (!this.isInitialized) { await this.initialize(); }
 
-      const embedding = this.vectorize(rawPrompt);
+      const embedding = this.vectorizer.vectorize(rawPrompt);
       const buffer = this.vectorizer.serialize(embedding);
       const wsId = workspaceId ?? 'global';
 
-      const statement = this.db.prepare(`
+      // workspace_id is intentionally not updated on conflict: the first writer
+      // owns the entry; cross-workspace queries still get a semantic hit.
+      this.db.prepare(`
         INSERT INTO semantic_cache (raw_prompt, optimized_prompt, embedding, timestamp, usage_count, confidence_score, workspace_id)
         VALUES (?, ?, ?, ?, 0, 0.7, ?)
         ON CONFLICT(raw_prompt) DO UPDATE SET
           optimized_prompt = excluded.optimized_prompt,
           embedding = excluded.embedding,
-          timestamp = excluded.timestamp,
-          workspace_id = excluded.workspace_id
-      `);
-
-      statement.run(rawPrompt, optimizedPrompt, buffer, Date.now(), wsId);
+          timestamp = excluded.timestamp
+      `).run(rawPrompt, optimizedPrompt, buffer, Date.now(), wsId);
     } catch (error) {
       console.error('[SemanticCacheManager] Write to cache failed:', error);
     }
@@ -347,7 +199,7 @@ export class SemanticCacheManager {
           MIN(timestamp) AS oldest_entry_ms,
           MAX(timestamp) AS newest_entry_ms
         FROM semantic_cache
-      `).get() as { total_entries: number; avg_confidence: number; total_hits: number; oldest_entry_ms: number; newest_entry_ms: number } | undefined;
+      `).get() as CacheStats | undefined;
 
       return {
         total_entries: row?.total_entries ?? 0,
@@ -365,7 +217,7 @@ export class SemanticCacheManager {
     try {
       const cutoffMs = Date.now() - olderThanDays * 24 * 60 * 60 * 1000;
       const result = this.db.prepare(
-        'DELETE FROM semantic_cache WHERE timestamp < ? AND COALESCE(confidence_score, 0.7) < 0.4'
+        'DELETE FROM semantic_cache WHERE timestamp < ? AND COALESCE(confidence_score, 0.7) < 0.4',
       ).run(cutoffMs);
       return result.changes;
     } catch (error) {
@@ -380,53 +232,20 @@ export class SemanticCacheManager {
     optimizedPrompt: string,
     targetModel: string,
     branch = 'main',
-    performanceScore = 0.0
+    performanceScore = 0.0,
   ): number {
-    try {
-      const getVer = this.db.prepare('SELECT MAX(version) as max_v FROM prompt_versions WHERE prompt_key = ?');
-      const row = getVer.get(key) as { max_v: number | null } | undefined;
-      const nextVer = (row?.max_v ?? 0) + 1;
-
-      const insert = this.db.prepare(`
-        INSERT INTO prompt_versions (prompt_key, version, raw_prompt, optimized_prompt, target_model, timestamp, performance_score, experiment_branch)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      insert.run(key, nextVer, rawPrompt, optimizedPrompt, targetModel, Date.now(), performanceScore, branch);
-      return nextVer;
-    } catch (error) {
-      console.error('[SemanticCacheManager] Failed to record version:', error);
-      return -1;
-    }
+    return recordVersionImpl(this.db, key, rawPrompt, optimizedPrompt, targetModel, branch, performanceScore);
   }
 
-  public getVersions(key: string): Array<{
-    version: number;
-    raw_prompt: string;
-    optimized_prompt: string;
-    target_model: string;
-    timestamp: number;
-    performance_score: number;
-    experiment_branch: string;
-  }> {
-    try {
-      const statement = this.db.prepare(
-        'SELECT version, raw_prompt, optimized_prompt, target_model, timestamp, performance_score, experiment_branch FROM prompt_versions WHERE prompt_key = ? ORDER BY version DESC'
-      );
-      return statement.all(key) as any[];
-    } catch {
-      return [];
-    }
+  public getVersions(key: string): PromptVersionRow[] {
+    return getVersionsImpl(this.db, key);
   }
 
-  public rollbackToVersion(key: string, versionNum: number): { raw_prompt: string; optimized_prompt: string } | null {
-    try {
-      const statement = this.db.prepare(
-        'SELECT raw_prompt, optimized_prompt FROM prompt_versions WHERE prompt_key = ? AND version = ?'
-      );
-      return statement.get(key, versionNum) as any || null;
-    } catch {
-      return null;
-    }
+  public rollbackToVersion(
+    key: string,
+    versionNum: number,
+  ): { raw_prompt: string; optimized_prompt: string } | null {
+    return rollbackToVersionImpl(this.db, key, versionNum);
   }
 
   public close(): void {
@@ -435,5 +254,43 @@ export class SemanticCacheManager {
     } catch (error) {
       console.error('[SemanticCacheManager] Error closing SQLite connection:', error);
     }
+  }
+
+  /**
+   * Exposes the underlying SQLite handle so adjacent modules (knowledge graph,
+   * cross-workspace federation, workspace memory persistence) can share the
+   * already-open connection without opening a second one.  Intentionally
+   * package-internal in spirit — only `PromptProxyEngine` calls this.
+   */
+  public rawDatabase(): Database.Database {
+    return this.db;
+  }
+
+  private loadRows(workspaceId?: string): SemanticCacheRow[] {
+    const scoped = workspaceId !== undefined && workspaceId !== 'global';
+    const statement = scoped
+      ? this.db.prepare(`SELECT ${ROW_COLUMNS} FROM semantic_cache WHERE embedding IS NOT NULL AND (workspace_id = ? OR workspace_id = 'global')`)
+      : this.db.prepare(`SELECT ${ROW_COLUMNS} FROM semantic_cache WHERE embedding IS NOT NULL`);
+    return (scoped ? statement.all(workspaceId) : statement.all()) as SemanticCacheRow[];
+  }
+
+  private findExactMatch(
+    rawPrompt: string,
+    wsId: string,
+  ): { id: number; optimized_prompt: string; confidence_score: number } | undefined {
+    return this.db.prepare(
+      `SELECT id, optimized_prompt, confidence_score FROM semantic_cache
+       WHERE raw_prompt = ?
+         AND (workspace_id = ? OR workspace_id = 'global')
+       ORDER BY CASE WHEN workspace_id = ? THEN 0 ELSE 1 END
+       LIMIT 1`,
+    ).get(rawPrompt, wsId, wsId) as
+      { id: number; optimized_prompt: string; confidence_score: number } | undefined;
+  }
+
+  private bumpUsage(id: number, confidenceDelta: number): void {
+    this.db.prepare(
+      'UPDATE semantic_cache SET usage_count = usage_count + 1, confidence_score = MIN(0.95, COALESCE(confidence_score, 0.7) + ?) WHERE id = ?',
+    ).run(confidenceDelta, id);
   }
 }

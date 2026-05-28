@@ -225,8 +225,100 @@
         "title": "Prompt Optimizer: Clear Conversation Memory"
       },
       {
+        "command": "prompt-proxy.openMemoryFile",
+        "title": "Prompt Optimizer: Open Workspace Memory File"
+      },
+      {
+        "command": "prompt-proxy.peerWorkspaces",
+        "title": "Prompt Optimizer: Manage Peer Workspaces (Cross-Workspace Cache)"
+      },
+      {
+        "command": "prompt-proxy.knowledgeGraphStats",
+        "title": "Prompt Optimizer: Show Knowledge Graph Stats"
+      },
+      {
         "command": "prompt-proxy.selectMode",
         "title": "Prompt Optimizer: Select Mode (Agent / Optimize / Direct)"
+      },
+      {
+        "command": "prompt-proxy.optimizeChatPrompt",
+        "title": "Prompt Optimizer: Optimize Prompt and Send to Copilot Chat",
+        "shortTitle": "Optimize",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "prompt-proxy.listSkills",
+        "title": "Prompt Optimizer: List Agent Skills (Modes)"
+      },
+      {
+        "command": "prompt-proxy.createSkill",
+        "title": "Prompt Optimizer: Create / Edit Agent Skill"
+      },
+      {
+        "command": "prompt-proxy.diagnoseSkills",
+        "title": "Prompt Optimizer: Diagnose Skill Loading Errors"
+      },
+      {
+        "command": "prompt-proxy.manageAgentSkills",
+        "title": "Prompt Optimizer: Manage SDLC Agent Skills"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "prompt-proxy.optimizeChatPrompt",
+          "when": "resourceScheme == file || resourceScheme == untitled",
+          "group": "navigation@99"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "prompt-proxy.optimizeChatPrompt",
+        "key": "ctrl+alt+o",
+        "mac": "cmd+alt+o"
+      },
+      {
+        "command": "prompt-proxy.focusPanel",
+        "key": "ctrl+alt+p",
+        "mac": "cmd+alt+p"
+      }
+    ],
+    "walkthroughs": [
+      {
+        "id": "promptOptimizer.gettingStarted",
+        "title": "Get started with Prompt Optimizer",
+        "description": "Optimize prompts locally before sending to Copilot.",
+        "steps": [
+          {
+            "id": "openPanel",
+            "title": "Open the Prompt Optimizer panel",
+            "description": "Click the Prompt Optimizer view in the Activity Bar (or press `Ctrl+Alt+P`).\n[Open panel](command:prompt-proxy.focusPanel)",
+            "media": { "markdown": "media/walkthrough/open-panel.md" },
+            "completionEvents": ["onCommand:prompt-proxy.focusPanel"]
+          },
+          {
+            "id": "tryExample",
+            "title": "Optimize your first prompt",
+            "description": "Paste a prompt and press `Ctrl+Enter`, or hit the **Optimize** button in the status bar to optimize whatever is in your editor selection.\n[Optimize now](command:prompt-proxy.optimizeChatPrompt)",
+            "media": { "markdown": "media/walkthrough/optimize.md" },
+            "completionEvents": ["onCommand:prompt-proxy.optimizeChatPrompt"]
+          },
+          {
+            "id": "pickMode",
+            "title": "Pick a default mode",
+            "description": "Agent answers directly, Optimize shows analysis, Direct pre-fills chat.\n[Select mode](command:prompt-proxy.selectMode)",
+            "media": { "markdown": "media/walkthrough/modes.md" },
+            "completionEvents": ["onCommand:prompt-proxy.selectMode"]
+          },
+          {
+            "id": "memory",
+            "title": "Curate workspace memory",
+            "description": "Drop notes into `AGENTS.md`, `CLAUDE.md`, or `.promptoptimizer/memory.md` \u2014 Prompt Optimizer will index them locally for richer prompts.\n[Open memory file](command:prompt-proxy.openMemoryFile)",
+            "media": { "markdown": "media/walkthrough/memory.md" },
+            "completionEvents": ["onCommand:prompt-proxy.openMemoryFile"]
+          }
+        ]
       }
     ]
   },

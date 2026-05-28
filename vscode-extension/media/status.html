@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{CSP_SOURCE}} 'unsafe-inline'; script-src 'nonce-{{NONCE}}'; img-src {{CSP_SOURCE}} data:; font-src {{CSP_SOURCE}};">
+  <title>Prompt Optimizer</title>
+  <link rel="stylesheet" href="{{CSS_URI}}">
+  {{EXTRA_CSS_LINKS}}
+</head>
+<body>
+  <!-- Header -->
+  <div class="hdr">
+    <div class="hdr-title">
+      <div class="hdr-icon">P</div>
+      Prompt Optimizer
+    </div>
+    <div class="hdr-actions">
+      <button class="icon-btn" id="btnSettings" title="Settings">&#9881;</button>
+      <button class="icon-btn" id="btnClose"    title="Close">&#10005;</button>
+    </div>
+  </div>
+
+  <!-- Token savings -->
+  <div class="savings">
+    <div class="savings-lbl">Token savings</div>
+    <div class="savings-row">
+      <div>
+        <span class="savings-big" id="savingsPct">&mdash;</span>
+        <span class="savings-unit">optimized</span>
+      </div>
+      <div class="savings-meta" id="savingsMeta">Analyze a prompt to begin</div>
+    </div>
+    <div class="track"><div class="fill" id="progressFill"></div></div>
+  </div>
+
+  <!-- Info rows -->
+  <div class="rows">
+    <div class="row"><span class="lbl">Cache status</span><span class="val" id="infoCache"><span class="dot dot-miss"></span>cache miss</span></div>
+    <div class="row"><span class="lbl">Input tokens</span><span class="val" id="infoTokens">&mdash; &rarr; &mdash;</span></div>
+    <div class="row"><span class="lbl">Est. output</span><span class="val" id="infoOutput">&mdash; tokens</span></div>
+    <div class="row"><span class="lbl">Total cost</span><span class="val" id="infoCost">$&mdash;</span></div>
+  </div>
+
+  <!-- Analyze -->
+  <div class="analyze">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+      <span style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--vscode-descriptionForeground);">Target model</span>
+      <select id="targetModelSelect" style="flex:1;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid rgba(128,128,128,.35);border-radius:6px;padding:4px 6px;font:inherit;font-size:12px;cursor:pointer;">
+        <option value="gpt">GPT Optimal (markdown)</option>
+        <option value="claude">Claude Optimal (XML schemas)</option>
+        <option value="gemini">Gemini Optimal (bullet highlights)</option>
+        <option value="local">Local Standard (brief tags)</option>
+      </select>
+    </div>
+    <textarea id="promptInput" placeholder="Paste a prompt to analyze… (Ctrl+Enter to run)"></textarea>
+    <div id="alerts" class="alerts"></div>
+    <div class="loading" id="loading">Analyzing with local semantic cache&hellip;</div>
+    <button class="btn-analyze" id="btnAnalyze">Analyze &rarr;</button>
+  </div>
+
+  <!-- Optimized prompt output -->
+  <div class="opt-section" id="optSection">
+    <div class="opt-lbl">Optimized prompt</div>
+    <pre id="optimizedText" class="opt-pre"></pre>
+  </div>
+
+  <!-- Diagnostics Section -->
+  <div class="opt-section" id="diagSection" style="display:none;">
+    <div class="opt-lbl">Lint Diagnostics</div>
+    <ul class="list-sm" id="statusDiagnosticsGrid" style="list-style:none; padding:0; margin:0"></ul>
+  </div>
+
+  <!-- Link rows -->
+  <div>
+    <button class="link-row" id="btnOpenChat">Open @promptoptimizer in Chat <span class="chevron">&#8250;</span></button>
+    <button class="link-row" id="btnCopyOptimized">Copy optimized prompt <span class="chevron">&#8250;</span></button>
+    <button class="link-row" id="btnSendToChat">Send optimized to Chat <span class="chevron">&#8250;</span></button>
+  </div>
+
+  {{EXTRA_JS_SCRIPTS}}
+  <script nonce="{{NONCE}}" src="{{JS_URI}}"></script>
+  <div style="margin:12px 0 2px;padding:5px 8px;border-radius:4px;background:rgba(0,200,100,0.06);border:1px solid rgba(0,200,100,0.15);font-size:10.5px;color:var(--vscode-descriptionForeground);display:flex;align-items:center;gap:5px;">
+    <span>&#x1F512;</span><span><strong>Local until you send.</strong> Prompts stay on your machine; only the Copilot call you trigger leaves the editor.</span>
+  </div>
+</body>
+</html>

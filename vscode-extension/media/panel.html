@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{CSP_SOURCE}} 'unsafe-inline'; script-src 'nonce-{{NONCE}}'; img-src {{CSP_SOURCE}} data:; font-src {{CSP_SOURCE}};">
+  <title>Prompt Optimizer</title>
+  <link rel="stylesheet" href="{{CSS_URI}}">
+  {{EXTRA_CSS_LINKS}}
+</head>
+<body>
+  <main class="stack" role="main" aria-label="Prompt Optimizer panel">
+    <section class="hero" aria-label="Header">
+      <div class="hero-title">
+        <strong>Prompt Optimizer</strong>
+        <div class="hero-actions">
+          <span class="badge" aria-label="Features: Local cache and chat">Local cache + chat</span>
+          <button class="readme-icon-btn" id="btnSettingsMenu" title="Open prompt settings"
+                  aria-haspopup="true" aria-expanded="false" aria-label="Open settings menu">&#9881;</button>
+          <button class="readme-icon-btn" id="btnReadme" title="Open README — extension documentation"
+                  aria-label="Open documentation">?</button>
+          <div class="settings-menu" id="settingsMenu" hidden role="menu" aria-orientation="vertical">
+            <button class="settings-item" id="btnSecretSettings" role="menuitem"
+                    title="Manage secret detection — add or remove scanning patterns">Secret detection</button>
+          </div>
+        </div>
+      </div>
+      <p class="hero-tagline">Compress prompts, reuse local cache, and forecast token cost before they reach Copilot.</p>
+      <div class="quick-chips" aria-label="Quick actions">
+        <button class="chip-btn" id="chipExample" type="button" title="Insert an example prompt">✨ Try example</button>
+        <button class="chip-btn" id="chipMemory" type="button" title="Open the workspace memory file">📓 Memory</button>
+        <button class="chip-btn" id="chipPeers" type="button" title="Manage peer workspaces (cross-workspace cache)">🔗 Peers</button>
+        <button class="chip-btn" id="chipAgents" type="button" title="Enable or disable bundled SDLC agent skills for this workspace">🤖 Agents</button>
+      </div>
+    </section>
+
+    <div class="notice" id="notice" role="status" aria-live="polite"></div>
+
+    <section class="status-strip" id="statusStrip" aria-label="Workspace index status">
+      <span class="status-pill status-indexing" id="pillIndexing" title="Prompt Optimizer is reading project files, instructions, and git history to enrich local memory and the knowledge graph.">
+        <span class="pill-icon">&#9881;</span><span class="pill-lbl" id="indexingLabel">Indexing workspace…</span>
+      </span>
+      <span class="status-pill" id="pillMemory" title="Workspace memory entries (AGENTS.md / CLAUDE.md / .promptoptimizer/memory.md)" hidden>
+        <span class="pill-icon">&#128221;</span><span class="pill-val" id="memoryCount">0</span>
+        <span class="pill-lbl">memory</span>
+      </span>
+      <span class="status-pill" id="pillKg" title="Knowledge graph nodes / edges for this workspace" hidden>
+        <span class="pill-icon">&#128279;</span><span class="pill-val" id="kgCount">0</span>
+        <span class="pill-lbl">graph</span>
+      </span>
+      <span class="status-pill" id="pillCache" title="Local semantic cache entries" hidden>
+        <span class="pill-icon">&#128190;</span><span class="pill-val" id="cacheCount">0</span>
+        <span class="pill-lbl">cache</span>
+      </span>
+      <span class="status-pill" id="pillPeers" title="Peer workspaces (cross-workspace cache federation)" hidden>
+        <span class="pill-icon">&#128268;</span><span class="pill-val" id="peerCount">0</span>
+        <span class="pill-lbl">peers</span>
+      </span>
+    </section>
+
+    <div class="mode-row">
+      <label class="mode-label" for="modeSelect">Mode</label>
+      <select id="modeSelect" aria-label="Run mode">
+        <option value="agent">Agent — optimize + ask Copilot</option>
+        <option value="optimize">Optimize only — show analysis</option>
+        <option value="direct">Direct — send to @promptoptimizer chat</option>
+      </select>
+    </div>
+
+    <div class="mode-row">
+      <label class="mode-label" for="targetModelSelect">Target</label>
+      <select id="targetModelSelect" aria-label="Target model">
+        <option value="gpt">GPT Optimal (markdown headers)</option>
+        <option value="claude">Claude Optimal (XML instruction schemas)</option>
+        <option value="gemini">Gemini Optimal (bold highlights)</option>
+        <option value="local">Local Standard (brief tags)</option>
+      </select>
+    </div>
+
+    <div class="input-wrap">
+      <textarea id="promptInput"
+                aria-label="Prompt input"
+                aria-multiline="true"
+                placeholder="Type a prompt — Agent answers directly, Optimize shows analysis, Direct pre-fills chat. (Ctrl+Enter to run)"></textarea>
+      <button class="send-btn primary" id="btnPrimary" title="Run Agent" aria-label="Run">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M7 2.414V13h2V2.414l3.293 3.293 1.414-1.414L8 .586 2.293 4.293l1.414 1.414z"/></svg>
+      </button>
+    </div>
+
+    <div id="alerts" class="alerts" role="status" aria-live="polite" aria-atomic="false"></div>
+
+    <section class="card" id="optimizedCard" style="display:none" aria-label="Optimized prompt">
+      <h2 class="section-title" style="margin-bottom:6px">Optimized</h2>
+      <pre id="optimizedPrompt" tabindex="0"></pre>
+    </section>
+
+    <div class="loading" id="loading" role="status" aria-live="polite" aria-atomic="true" aria-hidden="true">Packing local context and consulting the semantic cache...</div>
+
+    <section class="card response-card" id="responseCard" aria-label="Copilot response">
+      <div class="response-header">
+        <h2 class="section-title" style="margin:0">Copilot response</h2>
+        <span class="stream-badge" id="streamBadge" style="display:none" aria-live="polite">streaming</span>
+      </div>
+      <div id="responseContent" class="response-text" aria-live="polite"></div>
+    </section>
+
+    <section class="card" id="resultCard" aria-label="Analysis results" aria-hidden="true">
+      <table class="summary-table" hidden aria-hidden="true">
+        <tbody>
+          <tr>
+            <td class="lbl">Cost</td>
+            <td class="val" id="totalCost">$0.00000</td>
+            <td class="lbl">Saved</td>
+            <td class="val" id="tokenSavings">&mdash;</td>
+          </tr>
+          <tr>
+            <td class="lbl">Tokens</td>
+            <td class="val" id="tokenDelta">&mdash;</td>
+            <td class="lbl">Est. out</td>
+            <td class="val" id="outputTokens">&mdash;</td>
+          </tr>
+          <tr>
+            <td class="lbl">Cache</td>
+            <td class="val" id="cacheStatus" colspan="3">&mdash;</td>
+          </tr>
+          <tr>
+            <td class="lbl">Pricing</td>
+            <td class="val" id="pricingBreakdown" colspan="3">&mdash;</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <ul class="chips" id="contextChips" aria-hidden="true"></ul>
+
+      <div class="result-actions">
+        <button class="secondary compact" id="btnOpenChat" title="Open the @promptoptimizer chat participant">@promptoptimizer</button>
+        <button class="secondary compact" id="btnUseOptimized" title="Send the optimized prompt to @promptoptimizer chat">Use optimized</button>
+        <button class="secondary compact" id="btnCopyOptimized" title="Copy the optimized prompt to clipboard">Copy optimized</button>
+      </div>
+
+      <div style="margin-top:10px">
+        <h2 class="section-title">Refinements</h2>
+        <ul class="list-sm" id="improvements" aria-label="Improvement suggestions"></ul>
+      </div>
+
+      <div style="margin-top:10px" id="diagnosticsSection">
+        <h2 class="section-title">Lint Diagnostics</h2>
+        <ul class="list-sm" id="diagnosticsGrid" aria-label="Lint diagnostics" aria-live="polite"></ul>
+      </div>
+    </section>
+  </main>
+
+  <div class="secret-mgr-overlay" id="secretMgrOverlay" role="dialog" aria-modal="true"
+       aria-label="Secret Detection settings" aria-hidden="true">
+    <div class="secret-mgr">
+      <div class="secret-mgr-hdr">
+        <strong>🔒 Secret Detection</strong>
+        <button class="icon-close-btn" id="btnSecretClose" title="Close" aria-label="Close secret detection settings">×</button>
+      </div>
+      <div class="toggle-row">
+        <input type="checkbox" id="secretEnabled" />
+        <label for="secretEnabled">Enable secret scanning in prompts</label>
+      </div>
+      <div class="sub-hdr">Built-in patterns (read-only)</div>
+      <ul class="builtin-list" id="builtinPatternList" aria-label="Built-in patterns"></ul>
+      <div class="sub-hdr-row">
+        <div class="sub-hdr">Custom patterns</div>
+        <div class="hint-tip" tabindex="0">
+          <button type="button" class="hint-icon-btn" aria-label="Custom pattern help">?</button>
+          {{SECRET_PATTERN_HELP_TOOLTIP}}
+        </div>
+      </div>
+      <ul class="list-sm" id="customPatternList" style="margin-bottom:8px" aria-label="Custom patterns"></ul>
+      <button class="secondary compact" id="btnAddPattern" title="Add a custom secret detection rule">+ Add pattern</button>
+      <div class="add-form" id="addPatternForm" role="form" aria-label="Add custom pattern">
+        <input id="patternLabel" placeholder="Label, e.g. My internal token (optional)" aria-label="Pattern label (optional)" />
+        <select id="patternMode" aria-label="Pattern match mode">{{SECRET_PATTERN_MODE_OPTIONS}}</select>
+        <input id="patternValue" placeholder="Regex source, e.g. mytoken-[a-z0-9]{32}" aria-label="Pattern value" aria-required="true" />
+        <div class="form-row">
+          <button class="primary compact" id="btnSavePattern" title="Save this pattern">Save</button>
+          <button class="secondary compact" id="btnCancelPattern" title="Cancel">Cancel</button>
+        </div>
+        <div id="patternError" style="display:none;font-size:11px;color:var(--vscode-inputValidation-errorForeground,#f88)" role="alert"></div>
+      </div>
+      <div class="save-bar">
+        <button class="primary compact" id="btnSaveSecretSettings" title="Save all settings">Save settings</button>
+        <button class="secondary compact" id="btnCancelSecretSettings" title="Close without saving">Cancel</button>
+      </div>
+      <div class="saved-notice" id="savedNotice" role="status" aria-live="polite">✓ Settings saved</div>
+    </div>
+  </div>
+
+  <!-- Constants injected by the extension — must precede sibling scripts. -->
+  <script nonce="{{NONCE}}">
+    var SECRET_PATTERN_MODE_LABELS       = {{SECRET_PATTERN_MODE_LABELS_JSON}};
+    var SECRET_PATTERN_MODE_PLACEHOLDERS = {{SECRET_PATTERN_MODE_PLACEHOLDERS_JSON}};
+  </script>
+  {{EXTRA_JS_SCRIPTS}}
+  <script nonce="{{NONCE}}" src="{{JS_URI}}"></script>
+  <div style="margin:12px 0 2px;padding:5px 8px;border-radius:4px;background:rgba(0,200,100,0.06);border:1px solid rgba(0,200,100,0.15);font-size:10.5px;color:var(--vscode-descriptionForeground);display:flex;align-items:center;gap:5px;">
+    <span>&#x1F512;</span><span><strong>Local until you send.</strong> Prompts stay on your machine; only the Copilot call you trigger leaves the editor.</span>
+  </div>
+</body>
+</html>

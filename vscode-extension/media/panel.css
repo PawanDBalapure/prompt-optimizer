@@ -1,0 +1,239 @@
+/* Panel: base layout, hero, generic controls */
+:root {
+      color-scheme: light dark;
+    }
+    body {
+      margin: 0;
+      padding: 12px;
+      font-family: var(--vscode-font-family, system-ui, sans-serif);
+      font-size: var(--vscode-font-size, 13px);
+      color: var(--vscode-editor-foreground);
+      background: linear-gradient(180deg, rgba(127, 90, 240, 0.08), transparent 120px), var(--vscode-sideBar-background);
+    }
+    .stack {
+      display: grid;
+      gap: 10px;
+    }
+    .hero,
+    .card {
+      border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--vscode-editor-background) 88%, transparent);
+      padding: 12px;
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+    }
+    .hero-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .hero-title strong {
+      font-size: 14px;
+    }
+    .badge {
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--vscode-badge-foreground, #fff);
+      background: var(--vscode-badge-background, #4d4d4d);
+    }
+    .hero p,
+    .subtle {
+      margin: 0;
+      line-height: 1.45;
+      color: var(--vscode-descriptionForeground);
+    }
+    textarea {
+      width: 100%;
+      min-height: 86px;
+      resize: vertical;
+      box-sizing: border-box;
+      border-radius: 10px;
+      border: 1px solid var(--vscode-input-border, rgba(128, 128, 128, 0.35));
+      background: var(--vscode-input-background);
+      color: var(--vscode-input-foreground);
+      padding: 10px 44px 38px 10px;
+      font: inherit;
+      line-height: 1.45;
+    }
+    textarea:focus {
+      outline: 1px solid var(--vscode-focusBorder);
+    }
+    .input-wrap {
+      position: relative;
+    }
+    .send-btn {
+      position: absolute;
+      bottom: 8px;
+      right: 8px;
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.1s, opacity 0.15s;
+      box-shadow: 0 1px 5px rgba(0,0,0,0.28);
+      cursor: pointer;
+    }
+    .send-btn:hover { transform: scale(1.1); }
+    .send-btn:active { transform: scale(0.95); }
+    .actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .actions.compact {
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+    button {
+      border: none;
+      border-radius: 10px;
+      padding: 8px 10px;
+      font: inherit;
+      cursor: pointer;
+    }
+    .primary {
+      background: linear-gradient(135deg, var(--vscode-button-background), color-mix(in srgb, var(--vscode-button-background) 70%, white));
+      color: var(--vscode-button-foreground);
+    }
+    .secondary {
+      background: var(--vscode-button-secondaryBackground, rgba(128, 128, 128, 0.2));
+      color: var(--vscode-button-secondaryForeground, var(--vscode-editor-foreground));
+    }
+    .ghost {
+      background: transparent;
+      color: var(--vscode-textLink-foreground);
+      border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
+    }
+    .compact {
+      padding: 4px 8px;
+      font-size: 11px;
+      border-radius: 6px;
+    }
+    .readme-icon-btn {
+      background: transparent;
+      border: 1px solid var(--vscode-widget-border, rgba(128,128,128,0.25));
+      border-radius: 6px;
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1;
+      color: var(--vscode-descriptionForeground);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: background 0.15s, color 0.15s;
+    }
+    .readme-icon-btn:hover {
+      background: var(--vscode-button-secondaryBackground, rgba(128,128,128,0.2));
+      color: var(--vscode-textLink-foreground);
+    }
+    .hero-actions {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .settings-menu {
+      position: absolute;
+      top: calc(100% + 6px);
+      right: 0;
+      min-width: 150px;
+      padding: 4px;
+      border-radius: 8px;
+      border: 1px solid var(--vscode-widget-border, rgba(128,128,128,0.25));
+      background: var(--vscode-editor-background);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.22);
+      z-index: 30;
+    }
+    .settings-item {
+      width: 100%;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--vscode-editor-foreground);
+      text-align: left;
+      padding: 7px 8px;
+      font: inherit;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .settings-item:hover {
+      background: var(--vscode-list-hoverBackground, rgba(128,128,128,0.14));
+    }
+    .result-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 6px;
+      margin-top: 0;
+    }
+    .hero-tagline {
+      margin: 0;
+      line-height: 1.4;
+      font-size: 12px;
+      color: var(--vscode-descriptionForeground);
+    }
+    .quick-chips {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+      flex-wrap: wrap;
+    }
+    .chip-btn {
+      background: transparent;
+      border: 1px solid var(--vscode-widget-border, rgba(128,128,128,0.3));
+      border-radius: 999px;
+      padding: 3px 10px;
+      font: inherit;
+      font-size: 11px;
+      color: var(--vscode-foreground);
+      cursor: pointer;
+      transition: background 0.12s, border-color 0.12s;
+    }
+    .chip-btn:hover {
+      background: var(--vscode-list-hoverBackground, rgba(128,128,128,0.14));
+      border-color: var(--vscode-focusBorder, rgba(128,128,255,0.5));
+    }
+    .status-strip {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      padding: 6px 8px;
+      background: color-mix(in srgb, var(--vscode-editor-background) 70%, transparent);
+      border: 1px solid var(--vscode-widget-border, rgba(128,128,128,0.2));
+      border-radius: 8px;
+    }
+    .status-strip[hidden] { display: none; }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: var(--vscode-descriptionForeground);
+      padding: 1px 6px;
+      border-radius: 999px;
+      background: rgba(128,128,128,0.08);
+      cursor: default;
+    }
+    .pill-icon { font-size: 11px; }
+    .pill-val { font-weight: 600; color: var(--vscode-foreground); }
+    .pill-lbl { opacity: 0.8; }
+    .status-indexing {
+      background: rgba(120, 160, 255, 0.12);
+      color: var(--vscode-foreground);
+      animation: pillPulse 1.6s ease-in-out infinite;
+    }
+    @keyframes pillPulse {
+      0%, 100% { opacity: 0.65; }
+      50%      { opacity: 1; }
+    }
