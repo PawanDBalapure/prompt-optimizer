@@ -1,5 +1,8 @@
 export { SemanticCacheManager, CacheQueryResult, CacheSearchResult } from './SemanticCacheManager.js';
 export { PromptProxyEngine } from './PromptProxyEngine.js';
+export { PromptEvalEngine, BenchmarkConfig, TestCase, BenchmarkReport, TestResult } from './PromptEvalEngine.js';
+export { parseToPromptIR, lintPrompt, compilePromptIR, explainRewrite } from './PromptIRHelper.js';
+export { RepoStackInfo, inferRepoStack } from './RepoAwareness.js';
 export {
 	IdeContextFile,
 	IdeContextLog,

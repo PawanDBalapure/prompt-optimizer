@@ -11,6 +11,7 @@ const CONFIDENCE_THRESHOLD_EASE = 0.04; // subtracted from threshold when confid
 export interface CacheQueryResult {
   optimizedPrompt: string;
   confidence: number;
+  matchType: 'exact' | 'semantic';
 }
 
 export interface CacheSearchResult extends CacheQueryResult {
@@ -68,6 +69,19 @@ export class SemanticCacheManager {
           timestamp INTEGER
         );
         CREATE INDEX IF NOT EXISTS idx_raw_prompt ON semantic_cache(raw_prompt);
+
+        CREATE TABLE IF NOT EXISTS prompt_versions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          prompt_key TEXT,
+          version INTEGER,
+          raw_prompt TEXT,
+          optimized_prompt TEXT,
+          target_model TEXT,
+          timestamp INTEGER,
+          performance_score REAL DEFAULT 0.0,
+          experiment_branch TEXT DEFAULT 'main'
+        );
+        CREATE INDEX IF NOT EXISTS idx_prompt_versions_key ON prompt_versions(prompt_key);
       `);
 
       // Safe migration — ADD COLUMN is idempotent via try/catch (SQLite <3.35
@@ -177,6 +191,7 @@ export class SemanticCacheManager {
       rawPrompt: row.raw_prompt,
       optimizedPrompt: row.optimized_prompt,
       confidence: similarity,
+      matchType: 'semantic',
       timestamp: row.timestamp,
     };
   }
@@ -250,6 +265,7 @@ export class SemanticCacheManager {
         return {
           optimizedPrompt: exactResult.optimized_prompt,
           confidence: 1,
+          matchType: 'exact',
         };
       }
 
@@ -271,6 +287,7 @@ export class SemanticCacheManager {
           return {
             optimizedPrompt: bestMatch.optimizedPrompt,
             confidence: bestMatch.confidence,
+            matchType: 'semantic',
           };
         }
       }
@@ -354,6 +371,61 @@ export class SemanticCacheManager {
     } catch (error) {
       console.error('[SemanticCacheManager] Prune failed:', error);
       return 0;
+    }
+  }
+
+  public recordVersion(
+    key: string,
+    rawPrompt: string,
+    optimizedPrompt: string,
+    targetModel: string,
+    branch = 'main',
+    performanceScore = 0.0
+  ): number {
+    try {
+      const getVer = this.db.prepare('SELECT MAX(version) as max_v FROM prompt_versions WHERE prompt_key = ?');
+      const row = getVer.get(key) as { max_v: number | null } | undefined;
+      const nextVer = (row?.max_v ?? 0) + 1;
+
+      const insert = this.db.prepare(`
+        INSERT INTO prompt_versions (prompt_key, version, raw_prompt, optimized_prompt, target_model, timestamp, performance_score, experiment_branch)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      insert.run(key, nextVer, rawPrompt, optimizedPrompt, targetModel, Date.now(), performanceScore, branch);
+      return nextVer;
+    } catch (error) {
+      console.error('[SemanticCacheManager] Failed to record version:', error);
+      return -1;
+    }
+  }
+
+  public getVersions(key: string): Array<{
+    version: number;
+    raw_prompt: string;
+    optimized_prompt: string;
+    target_model: string;
+    timestamp: number;
+    performance_score: number;
+    experiment_branch: string;
+  }> {
+    try {
+      const statement = this.db.prepare(
+        'SELECT version, raw_prompt, optimized_prompt, target_model, timestamp, performance_score, experiment_branch FROM prompt_versions WHERE prompt_key = ? ORDER BY version DESC'
+      );
+      return statement.all(key) as any[];
+    } catch {
+      return [];
+    }
+  }
+
+  public rollbackToVersion(key: string, versionNum: number): { raw_prompt: string; optimized_prompt: string } | null {
+    try {
+      const statement = this.db.prepare(
+        'SELECT raw_prompt, optimized_prompt FROM prompt_versions WHERE prompt_key = ? AND version = ?'
+      );
+      return statement.get(key, versionNum) as any || null;
+    } catch {
+      return null;
     }
   }
 

@@ -191,7 +191,8 @@ async function runDemo(): Promise<void> {
   assert.equal(response.analysis.context.selected_files[0], 'src/systemd.ts');
   assert.ok(response.analysis.context.selected_logs.includes('Terminal'));
   assert.ok(response.analysis.cost.total_cost_usd > 0);
-  assert.equal((response.optimized_prompt.match(/const restart = true;/g) ?? []).length, 2);
+  assert.ok(!response.optimized_prompt.includes('[EXAMPLE]'));
+  assert.equal((response.optimized_prompt.match(/const restart = true;/g) ?? []).length, 0);
   console.log(JSON.stringify(response, null, 2));
 
   console.log('\n2. Validating cache reuse does not zero pricing forecasts...');
@@ -201,7 +202,51 @@ async function runDemo(): Promise<void> {
   assert.equal(cachedResponse.optimized_prompt, response.optimized_prompt);
   assert.equal(cachedResponse.analysis.cache.status, 'exact');
 
-  console.log('\n3. Validating VS Code adapter...');
+  console.log('\n3. Validating internal Prompt Optimizer buffers stay out of optimized prompts...');
+  const internalContextResponse = await engine.processRequest({
+    raw_prompt: 'Cost of this token',
+    ide_context: {
+      workspace_root: 'C:/workspace/demo',
+      open_files: [],
+      logs: [
+        {
+          source: 'Prompt Optimizer Session Buffer',
+          kind: 'general',
+          content: 'Turn 1 [panel]\nPrompt: cost of this token\nOptimized: # Request Cost of this token',
+        },
+        {
+          source: 'Prompt Optimizer Chat History',
+          kind: 'general',
+          content: '1. User: Cost of this token',
+        },
+        {
+          source: 'Terminal',
+          kind: 'terminal',
+          content: 'ERROR sample failure',
+        },
+      ],
+    },
+  });
+  assertSchema(internalContextResponse);
+  assert.ok(!internalContextResponse.optimized_prompt.includes('# Prompt Optimizer Session Buffer'));
+  assert.ok(!internalContextResponse.optimized_prompt.includes('# Prompt Optimizer Chat History'));
+
+  console.log('\n4. Validating semantic cache does not reuse stale optimized prompts...');
+  const semanticSeedRequest: PromptOptimizationRequest = {
+    raw_prompt: 'Explain token cost for this prompt',
+    workspace_id: 'semantic-demo',
+  };
+  await engine.processRequest(semanticSeedRequest);
+  const semanticResponse = await engine.processRequest({
+    raw_prompt: 'Explain token cost for this message',
+    workspace_id: 'semantic-demo',
+  });
+  assertSchema(semanticResponse);
+  assert.equal(semanticResponse.analysis.cache.status, 'semantic');
+  assert.ok(semanticResponse.optimized_prompt.includes('Explain token cost for this message'));
+  assert.ok(!semanticResponse.optimized_prompt.includes('Explain token cost for this prompt'));
+
+  console.log('\n5. Validating VS Code adapter...');
   const vscodeAdapter = new VSCodePromptProxyAdapter(new PromptProxyEngine({ db_path: dbFile }));
   await vscodeAdapter.initialize();
   const vscodeResponse = await vscodeAdapter.process({
@@ -229,7 +274,7 @@ async function runDemo(): Promise<void> {
   assertSchema(vscodeResponse);
   vscodeAdapter.close();
 
-  console.log('\n4. Validating IntelliJ adapter...');
+  console.log('\n6. Validating IntelliJ adapter...');
   const intellijAdapter = new IntelliJPromptProxyAdapter(new PromptProxyEngine({ db_path: dbFile }));
   await intellijAdapter.initialize();
   const intellijResponse = await intellijAdapter.process({
@@ -257,7 +302,7 @@ async function runDemo(): Promise<void> {
   assertSchema(intellijResponse);
   intellijAdapter.close();
 
-  console.log('\n5. Validating CLI sidecar output...');
+  console.log('\n7. Validating CLI sidecar output...');
   const cliResult = spawnSync(process.execPath, ['dist/cli.js', '--stdin', '--db', dbFile], {
     input: JSON.stringify(request),
     encoding: 'utf8',

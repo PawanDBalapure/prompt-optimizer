@@ -14,6 +14,8 @@ import {
   PromptProxyEngineOptions,
 } from './contracts.js';
 import { LocalSemanticVectorizer } from './localSemanticVectorizer.js';
+import { parseToPromptIR, lintPrompt, compilePromptIR, explainRewrite } from './PromptIRHelper.js';
+import { inferRepoStack } from './RepoAwareness.js';
 
 const DEFAULT_INPUT_COST_PER_1K = 0.0015;
 const DEFAULT_OUTPUT_COST_PER_1K = 0.002;
@@ -108,9 +110,25 @@ export class PromptProxyEngine {
       console.error('[PromptProxyEngine] Cache search error:', error);
     }
 
-    const optimizedPrompt = cacheResult?.optimizedPrompt ?? this.buildOptimizedPrompt(rawPrompt, contextPack.sections);
+    const targetModel = request.target_model ?? 'local';
+    const structuredIr = parseToPromptIR(rawPrompt);
+    const diagnostics = lintPrompt(rawPrompt, structuredIr, rawInputTokens);
+    const stackInfo = inferRepoStack(request.ide_context?.workspace_root);
+    const compiledRequest = compilePromptIR(structuredIr, targetModel, stackInfo.summary);
+    const cacheStatus = cacheResult?.matchType ?? 'miss';
+    const shouldReuseCachedPrompt = cacheStatus === 'exact' && !this.containsLegacyExampleSection(cacheResult!.optimizedPrompt);
 
-    if (!cacheResult) {
+    // Save prompt versioning info inside the database
+    const hashedKey = rawPrompt.slice(0, 120);
+    this.cacheManager.recordVersion(hashedKey, rawPrompt, compiledRequest, targetModel, 'main', 0.0);
+
+    const optimizedPrompt = this.sanitizeOptimizedPrompt(
+      shouldReuseCachedPrompt
+        ? cacheResult!.optimizedPrompt
+        : this.buildOptimizedPrompt(compiledRequest, contextPack.sections)
+    );
+
+    if (!shouldReuseCachedPrompt) {
       if (mode === 'blocking') {
         await this.cacheManager.writeToCache(rawSnapshot, optimizedPrompt, workspaceId);
       } else {
@@ -124,6 +142,7 @@ export class PromptProxyEngine {
     const estimatedOutputTokens = this.predictOutputTokens(optimizedPrompt, contextPack.files.length, contextPack.logs.length);
     const costInsight = this.calculateCostBreakdown(optimizedInputTokens, estimatedOutputTokens, pricing);
     const estimatedCostUSD = costInsight.total_cost_usd;
+    const explanation = explainRewrite(structuredIr, diagnostics, targetModel);
 
     return {
       metrics: {
@@ -134,12 +153,18 @@ export class PromptProxyEngine {
         estimated_cost_usd: estimatedCostUSD,
       },
       optimized_prompt: optimizedPrompt,
-      improvements: this.selectImprovementSuggestions(optimizedPrompt, request.ide_context),
+      improvements: [
+        ...diagnostics.map((d) => `[${d.code}]: ${d.message} (Suggestion: ${d.fix_suggestion})`),
+        ...this.selectImprovementSuggestions(optimizedPrompt, request.ide_context),
+      ].slice(0, MAX_IMPROVEMENTS),
       analysis: {
-        cache: this.buildCacheInsight(rawSnapshot, cacheResult, cacheCandidates),
+        cache: this.buildCacheInsight(cacheStatus, cacheResult, cacheCandidates),
         context: contextPack.insight,
         cost: costInsight,
       },
+      diagnostics,
+      structured_ir: structuredIr,
+      explanation,
     };
   }
 
@@ -199,18 +224,18 @@ export class PromptProxyEngine {
 
   private buildOptimizedPrompt(rawPrompt: string, contextSections: string[]): string {
     // Strip any injected context blocks that may have leaked from a prior optimized-prompt
-    // being used as new input (e.g. # Problems, # Prompt Proxy Session Buffer).
+    // being used as new input (e.g. # Problems, # Prompt Optimizer Session Buffer).
     const cleanPrompt = rawPrompt
       .replace(/(?:^|\n\n)# Problems\n[\s\S]*?(?=\n\n#|$)/g, '')
-      .replace(/(?:^|\n\n)# Prompt Proxy[^\n]*\n[\s\S]*?(?=\n\n#|$)/g, '')
+      .replace(/(?:^|\n\n)# Prompt (?:Proxy|Optimizer)[^\n]*\n[\s\S]*?(?=\n\n#|$)/g, '')
       .trim();
 
     const optimizedRequest = this.optimizePromptText(cleanPrompt);
     const sections = [`# Request\n${optimizedRequest}`];
 
     for (const section of contextSections) {
-      // Never embed diagnostics/problems blocks in the optimized output.
-      if (/^# Problems\b/i.test(section.trimStart())) {
+      // Never embed diagnostics/problems or internal Prompt Optimizer buffers in the optimized output.
+      if (this.isInternalPromptSection(section)) {
         continue;
       }
 
@@ -218,6 +243,27 @@ export class PromptProxyEngine {
     }
 
     return sections.filter((section) => section.trim() !== '').join('\n\n').trim();
+  }
+
+  private sanitizeOptimizedPrompt(prompt: string): string {
+    return prompt
+      .replace(/(?:^|\n\n)# Problems\n[\s\S]*?(?=\n\n# |$)/g, '')
+      .replace(/(?:^|\n\n)# Prompt (?:Proxy|Optimizer)[^\n]*\n[\s\S]*?(?=\n\n# |$)/gi, '')
+      .replace(/(?:^|\n\n)<examples>[\s\S]*?<\/examples>(?=\n\n# |$)/gi, '')
+      .replace(/(?:^|\n\n)### EXAMPLES[\s\S]*?(?=\n\n# |$)/g, '')
+      .replace(/(?:^|\n\n)\*\*REFERENCE EXAMPLES\*\*[\s\S]*?(?=\n\n# |$)/g, '')
+      .replace(/(?:^|\n\n)\[EXAMPLE\]:[\s\S]*?(?=\n\n# |$)/g, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  private isInternalPromptSection(section: string): boolean {
+    const trimmedSection = section.trimStart();
+    return /^# Problems\b/i.test(trimmedSection) || /^# Prompt (?:Proxy|Optimizer)\b/i.test(trimmedSection);
+  }
+
+  private containsLegacyExampleSection(prompt: string): boolean {
+    return /<examples>|### EXAMPLES|\*\*REFERENCE EXAMPLES\*\*|\[EXAMPLE\]:/i.test(prompt);
   }
 
   private collectRelevantContext(rawPrompt: string, ideContext?: PromptIDEContext): RelevantContextPack {
@@ -681,15 +727,13 @@ export class PromptProxyEngine {
   }
 
   private buildCacheInsight(
-    rawSnapshot: string,
+    cacheStatus: 'exact' | 'semantic' | 'miss',
     cacheResult: CacheQueryResult | null,
     cacheCandidates: PromptCacheCandidate[]
   ): PromptOptimizationAnalysis['cache'] {
-    const exactMatch = cacheCandidates[0]?.raw_prompt === rawSnapshot;
-
     return {
-      status: exactMatch ? 'exact' : cacheResult ? 'semantic' : 'miss',
-      confidence: exactMatch ? 1 : cacheResult?.confidence ?? 0,
+      status: cacheStatus,
+      confidence: cacheStatus === 'exact' ? 1 : cacheResult?.confidence ?? 0,
       candidates: cacheCandidates,
     };
   }

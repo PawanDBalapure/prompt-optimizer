@@ -119,6 +119,12 @@
     "configuration": {
       "title": "Prompt Optimizer",
       "properties": {
+        "promptProxy.targetModel": {
+          "type": "string",
+          "enum": ["claude", "gpt", "gemini", "local"],
+          "default": "gpt",
+          "description": "The compiler target model compiler style to optimize the prompt formatting layout for."
+        },
         "promptProxy.dbPath": {
           "type": "string",
           "default": "",
@@ -159,15 +165,21 @@
                 "type": "string",
                 "description": "Human-readable name shown in the warning (e.g. 'My internal token')."
               },
+              "matchMode": {
+                "type": "string",
+                "enum": ["regex", "like", "contains", "startsWith", "endsWith", "exact"],
+                "default": "regex",
+                "description": "How to evaluate the custom pattern against the full prompt text. 'regex' uses JavaScript regex, 'like' uses SQL LIKE semantics, and the other modes do case-insensitive string matching."
+              },
               "pattern": {
                 "type": "string",
-                "description": "JavaScript regular expression source without delimiters (e.g. 'mytoken-[a-z0-9]{32}')."
+                "description": "The raw match input. For 'regex', provide a JavaScript regex source without delimiters. For 'like', use SQL LIKE syntax. For string modes, provide the literal text to match."
               }
             },
             "required": ["pattern"]
           },
           "default": [],
-          "description": "Additional custom regex patterns for secret detection. Each entry must have a 'pattern' (regex source string) and an optional 'label'."
+          "description": "Additional custom secret-detection rules. Each entry must include a 'pattern', can optionally set 'matchMode' (regex | like | contains | startsWith | endsWith | exact), and can include a 'label'."
         }
       }
     },

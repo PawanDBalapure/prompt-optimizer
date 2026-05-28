@@ -31,12 +31,29 @@ export interface PromptIDEContext {
   logs?: IdeContextLog[];
 }
 
+export interface PromptDiagnostic {
+  severity: 'warning' | 'error' | 'info';
+  message: string;
+  code: string;
+  fix_suggestion?: string;
+}
+
+export interface PromptIR {
+  role?: string;
+  constraints: string[];
+  examples: string[];
+  output_schema?: string;
+  reasoning_policy?: string;
+  inferred_task_type?: 'coding' | 'debugging' | 'research' | 'spec-writing' | 'general';
+}
+
 export interface PromptOptimizationRequest {
   raw_prompt: string;
   mode?: ProcessingMode;
   ide_context?: PromptIDEContext;
   pricing?: PromptPricingConfig;
   workspace_id?: string;
+  target_model?: 'claude' | 'gpt' | 'gemini' | 'local';
 }
 
 export interface PromptCacheCandidate {
@@ -80,6 +97,9 @@ export interface PromptOptimizationResponse {
   optimized_prompt: string;
   improvements: string[];
   analysis: PromptOptimizationAnalysis;
+  diagnostics?: PromptDiagnostic[];
+  structured_ir?: PromptIR;
+  explanation?: string;
 }
 
 export type ProcessPromptResponse = PromptOptimizationResponse;

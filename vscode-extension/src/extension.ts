@@ -9,6 +9,80 @@ const LAST_ANALYSIS_KEY = 'promptProxy.lastAnalysis';
 const MAX_SESSION_ITEMS = 8;
 const MAX_CHAT_HISTORY_ITEMS = 6;
 
+type SecretPatternMatchMode = 'regex' | 'like' | 'contains' | 'startsWith' | 'endsWith' | 'exact';
+
+interface CustomSecretPatternConfig {
+  label?: string;
+  pattern: string;
+  matchMode?: SecretPatternMatchMode;
+}
+
+const SECRET_PATTERN_MODE_VALUES: SecretPatternMatchMode[] = ['regex', 'like', 'contains', 'startsWith', 'endsWith', 'exact'];
+
+const SECRET_PATTERN_MODE_LABELS: Record<SecretPatternMatchMode, string> = {
+  regex: 'Regex',
+  like: 'SQL LIKE',
+  contains: 'Contains',
+  startsWith: 'Starts with',
+  endsWith: 'Ends with',
+  exact: 'Exact text',
+};
+
+const SECRET_PATTERN_MODE_PLACEHOLDERS: Record<SecretPatternMatchMode, string> = {
+  regex: 'Regex source, e.g. mytoken-[a-z0-9]{32}',
+  like: 'SQL LIKE pattern, e.g. %Authorization: Bearer%',
+  contains: 'Literal text contained on any line, e.g. Authorization: Bearer',
+  startsWith: 'Any line starts with this text, e.g. sk-',
+  endsWith: 'Any line ends with this text, e.g. -----END PRIVATE KEY-----',
+  exact: 'Standalone exact text on a line, e.g. ghp_exampletokenvalue',
+};
+
+const SECRET_PATTERN_MODE_HELP: Array<{ mode: SecretPatternMatchMode; note: string; example: string }> = [
+  { mode: 'regex', note: 'Use full JavaScript regex for precise token shapes. Regex is checked against the whole prompt and each individual line.', example: String.raw`\bacme_(live|test)_[A-Za-z0-9]{32}\b` },
+  { mode: 'like', note: 'SQL LIKE semantics checked against the whole prompt and each individual line. `%` matches any run, `_` matches one character.', example: '%Authorization: Bearer%' },
+  { mode: 'contains', note: 'Case-insensitive literal substring checked against the whole prompt and each individual line.', example: 'Authorization: Bearer' },
+  { mode: 'startsWith', note: 'Case-insensitive match when any individual line begins with the value.', example: 'sk-' },
+  { mode: 'endsWith', note: 'Case-insensitive match when any individual line ends with the value.', example: '-----END PRIVATE KEY-----' },
+  { mode: 'exact', note: 'Case-insensitive literal match at token boundaries on the whole prompt or on any individual line, so the value is treated as a standalone secret and not just any substring.', example: 'ghp_exampletokenvalue' },
+];
+
+const SECRET_PATTERN_HELP_EXAMPLES: Array<{ label: string; mode: SecretPatternMatchMode; pattern: string; note: string }> = [
+  { label: 'Acme API token', mode: 'regex', pattern: String.raw`\bacme_(live|test)_[A-Za-z0-9]{32}\b`, note: 'Good when your secrets always start with a known prefix like acme_live_.', },
+  { label: 'JWT bearer token', mode: 'regex', pattern: String.raw`\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b`, note: 'Good for catching raw JWTs that users accidentally paste.', },
+  { label: 'Billing service key', mode: 'regex', pattern: String.raw`\bbill_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b`, note: 'Good when keys use a namespace plus UUID.', },
+  { label: 'Internal DB connection string', mode: 'regex', pattern: String.raw`\bServer=[^;\s]+;Database=[^;\s]+;User Id=[^;\s]+;Password=[^;\s]+;?\b`, note: 'Good for structured credentials that are often pasted whole.', },
+  { label: 'Payments secret env var', mode: 'regex', pattern: String.raw`\bPAYMENTS_SECRET\s*=\s*['"]?[A-Za-z0-9._-]{24,}['"]?`, note: 'Good when developers paste .env snippets into prompts.', },
+  { label: 'Authorization bearer header', mode: 'contains', pattern: 'Authorization: Bearer', note: 'Good for catching copied HTTP headers without writing regex.', },
+  { label: 'PromptProxy staging token', mode: 'regex', pattern: String.raw`\bppx_(dev|staging|prod)_[A-Za-z0-9]{40}\b`, note: 'Good if you own the token format and want very low false positives.', },
+  { label: 'Generic app secret assignment', mode: 'regex', pattern: String.raw`\b(app_secret|client_secret|signing_key)\s*[:=]\s*['"]?[A-Za-z0-9+/=]{24,}['"]?`, note: 'Good when the same secret may appear in config snippets with different values.', },
+  { label: 'SSH private key', mode: 'startsWith', pattern: '-----BEGIN ', note: 'Good for catastrophic copy-paste mistakes, especially key blocks.', },
+  { label: 'Slack token', mode: 'regex', pattern: String.raw`\bxox[baprs]-[A-Za-z0-9-]{10,}\b`, note: 'Good if your team frequently pastes chat or webhook configs.', },
+  { label: 'Internal webhook secret URL', mode: 'regex', pattern: String.raw`\bhttps://hooks\.acme\.internal/[A-Za-z0-9/_-]*token=[A-Za-z0-9]{24,}\b`, note: 'Good when the secret lives inside a URL query or path.', },
+  { label: 'Vector index key', mode: 'regex', pattern: String.raw`\bvec_[A-F0-9]{48}\b`, note: 'Good when you have machine-generated uppercase hex keys.', },
+];
+
+const SECRET_PATTERN_HELP_BEST_PRACTICES = [
+  'Prefer exact prefixes like acme_, ppx_, or bill_ over generic catch-alls.',
+  'Add minimum lengths like {24,} to reduce false positives.',
+  'Use word boundaries like \\b where possible.',
+  'Tie generic values to names like client_secret= instead of matching any long random string.',
+  'Separate patterns by secret family instead of writing one giant regex.',
+];
+
+const SECRET_PATTERN_HELP_AVOID = [
+  'token.*',
+  'secret.*',
+  '[A-Za-z0-9]{20,}',
+  'Anything that matches ordinary IDs, hashes, or filenames.',
+];
+
+const SECRET_PATTERN_HELP_STARTER_SET = [
+  { label: 'Acme API token', mode: 'regex' as SecretPatternMatchMode, pattern: String.raw`\bacme_(live|test)_[A-Za-z0-9]{32}\b` },
+  { label: 'JWT bearer token', mode: 'regex' as SecretPatternMatchMode, pattern: String.raw`\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b` },
+  { label: 'Authorization bearer header', mode: 'contains' as SecretPatternMatchMode, pattern: 'Authorization: Bearer' },
+  { label: 'SSH private key', mode: 'startsWith' as SecretPatternMatchMode, pattern: '-----BEGIN ' },
+];
+
 /** Patterns that may indicate accidental secret exposure in a prompt. */
 const SECRET_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: 'OpenAI API key', pattern: /\bsk-[a-zA-Z0-9]{20,}\b/ },
@@ -19,19 +93,174 @@ const SECRET_PATTERNS: Array<{ label: string; pattern: RegExp }> = [
   { label: 'Generic secret/token assignment', pattern: /(?:password|secret|token|api_?key)\s*[=:]\s*['"]?[a-zA-Z0-9+\/=_\-]{16,}['"]?/i },
 ];
 
-function scanForSecrets(prompt: string): string[] {
-  const config = vscode.workspace.getConfiguration('promptProxy');
-  if (!config.get<boolean>('enableSecretDetection')) { return []; }
+function normalizeSecretPatternMode(value: unknown): SecretPatternMatchMode {
+  switch (value) {
+    case 'like':
+    case 'contains':
+    case 'startsWith':
+    case 'endsWith':
+    case 'exact':
+    case 'regex':
+      return value;
+    default:
+      return 'regex';
+  }
+}
 
-  const custom = config.get<Array<{ label?: string; pattern: string }>>('secretPatterns') ?? [];
-  const allPatterns = [...SECRET_PATTERNS];
-  for (const entry of custom) {
-    try {
-      allPatterns.push({ label: entry.label || 'Custom pattern', pattern: new RegExp(entry.pattern, 'i') });
-    } catch { /* invalid regex — skip silently */ }
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function sqlLikeToRegExp(pattern: string): RegExp {
+  let source = '';
+  for (const char of pattern) {
+    if (char === '%') {
+      source += '.*';
+    } else if (char === '_') {
+      source += '.';
+    } else {
+      source += escapeRegExp(char);
+    }
   }
 
-  return allPatterns.filter((s) => s.pattern.test(prompt)).map((s) => s.label);
+  return new RegExp(source, 'i');
+}
+
+function matchesExactLiteralAtBoundaries(prompt: string, pattern: string): boolean {
+  const escapedPattern = escapeRegExp(pattern.trim());
+  if (escapedPattern === '') {
+    return false;
+  }
+
+  return new RegExp(`(^|[^A-Za-z0-9_])${escapedPattern}(?=$|[^A-Za-z0-9_])`, 'i').test(prompt);
+}
+
+function getPromptLinesForMatching(prompt: string): string[] {
+  return prompt
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
+}
+
+/** Returns the first matched text (truncated) for a custom pattern, or null if no match. */
+function extractCustomSecretMatch(prompt: string, entry: CustomSecretPatternConfig): string | null {
+  const pattern = entry.pattern?.trim() ?? '';
+  if (pattern === '') { return null; }
+
+  const mode = normalizeSecretPatternMode(entry.matchMode);
+  const lowerPattern = pattern.toLowerCase();
+  const targets = [prompt, ...getPromptLinesForMatching(prompt)];
+
+  const clip = (s: string, max = 60) => s.length > max ? s.slice(0, max) + '\u2026' : s;
+
+  switch (mode) {
+    case 'contains':
+      for (const t of targets) { if (t.toLowerCase().includes(lowerPattern)) { return clip(pattern); } }
+      return null;
+    case 'startsWith':
+      for (const t of targets) { if (t.toLowerCase().startsWith(lowerPattern)) { return clip(pattern); } }
+      return null;
+    case 'endsWith':
+      for (const t of targets) { if (t.toLowerCase().endsWith(lowerPattern)) { return clip(pattern); } }
+      return null;
+    case 'exact':
+      for (const t of targets) { if (matchesExactLiteralAtBoundaries(t, pattern)) { return clip(pattern); } }
+      return null;
+    case 'like': {
+      const likeRegex = sqlLikeToRegExp(pattern);
+      for (const t of targets) { const m = likeRegex.exec(t); if (m) { return clip(m[0]); } }
+      return null;
+    }
+    case 'regex':
+    default:
+      try {
+        const regex = new RegExp(pattern, 'i');
+        for (const t of targets) { const m = regex.exec(t); if (m) { return clip(m[0]); } }
+      } catch { }
+      return null;
+  }
+}
+
+function renderSecretPatternHelpTooltip(): string {
+  const modeItems = SECRET_PATTERN_MODE_HELP.map((item) => (
+    `<li><strong>${escapeHtml(SECRET_PATTERN_MODE_LABELS[item.mode])}</strong>: ${escapeHtml(item.note)} <code>${escapeHtml(item.example)}</code></li>`
+  )).join('');
+
+  const exampleItems = SECRET_PATTERN_HELP_EXAMPLES.map((item) => (
+    `<div class="tooltip-pattern"><strong>${escapeHtml(item.label)}</strong><div class="tooltip-note">${escapeHtml(SECRET_PATTERN_MODE_LABELS[item.mode])}</div><code>${escapeHtml(item.pattern)}</code><div class="tooltip-note">${escapeHtml(item.note)}</div></div>`
+  )).join('');
+
+  const bestPracticeItems = SECRET_PATTERN_HELP_BEST_PRACTICES.map((item) => `<li>${escapeHtml(item)}</li>`).join('');
+  const avoidItems = SECRET_PATTERN_HELP_AVOID.map((item) => `<li><code>${escapeHtml(item)}</code></li>`).join('');
+  const starterItems = SECRET_PATTERN_HELP_STARTER_SET.map((item) => (
+    `<div class="tooltip-pattern"><strong>${escapeHtml(item.label)}</strong><div class="tooltip-note">${escapeHtml(SECRET_PATTERN_MODE_LABELS[item.mode])}</div><code>${escapeHtml(item.pattern)}</code></div>`
+  )).join('');
+
+  return [
+    '<div class="tooltip-panel" role="tooltip">',
+    '<div class="tooltip-title">Custom pattern guide</div>',
+    '<div class="tooltip-note">All custom match modes are case-insensitive. Regex and LIKE are the most flexible for long prompts.</div>',
+    '<div class="tooltip-section"><strong>Supported match modes</strong><ul class="tooltip-list">',
+    modeItems,
+    '</ul></div>',
+    '<div class="tooltip-section"><strong>Recommended examples</strong>',
+    exampleItems,
+    '</div>',
+    '<div class="tooltip-section"><strong>What works best</strong><ul class="tooltip-list">',
+    bestPracticeItems,
+    '</ul></div>',
+    '<div class="tooltip-section"><strong>What to avoid</strong><ul class="tooltip-list">',
+    avoidItems,
+    '</ul></div>',
+    '<div class="tooltip-section"><strong>Good starter set</strong>',
+    starterItems,
+    '</div>',
+    '</div>',
+  ].join('');
+}
+
+interface SecretMatch { label: string; matched?: string; }
+
+function scanForSecrets(prompt: string): SecretMatch[] {
+  const config = vscode.workspace.getConfiguration('promptProxy');
+  if (config.get<boolean>('enableSecretDetection') === false) { return []; }
+
+  const custom = config.get<CustomSecretPatternConfig[]>('secretPatterns') ?? [];
+  const results: SecretMatch[] = [];
+  const seen = new Set<string>();
+
+  for (const builtIn of SECRET_PATTERNS) {
+    const m = builtIn.pattern.exec(prompt);
+    if (m) {
+      if (!seen.has(builtIn.label)) {
+        seen.add(builtIn.label);
+        const clip = (s: string, max = 60) => s.length > max ? s.slice(0, max) + '\u2026' : s;
+        results.push({ label: builtIn.label, matched: clip(m[0]) });
+      }
+    }
+  }
+
+  for (const entry of custom) {
+    const matched = extractCustomSecretMatch(prompt, entry);
+    if (matched !== null) {
+      const label = entry.label?.trim() || 'Custom pattern';
+      if (!seen.has(label)) {
+        seen.add(label);
+        results.push({ label, matched });
+      }
+    }
+  }
+
+  return results;
 }
 
 const SEEDING_DONE_KEY = 'promptProxy.seeded';
@@ -199,6 +428,7 @@ interface PromptProxyResponse {
   optimized_prompt: string;
   improvements: string[];
   analysis: PromptProxyAnalysis;
+  diagnostics?: any[];
 }
 
 interface SessionBufferedPrompt {
@@ -220,6 +450,8 @@ interface PromptProxyPanelState {
   improvements: string[];
   analysis: PromptProxyAnalysis;
   warnings?: string[];
+  diagnostics?: any[];
+  secretDetectionEnabled?: boolean;
 }
 
 interface RuntimeSnapshot {
@@ -613,10 +845,11 @@ async function analyzePrompt(
   chatContext?: vscode.ChatContext
 ): Promise<PromptProxyPanelState> {
   // Secret detection — warn in UI (non-blocking).
+  const secretDetectionEnabled = vscode.workspace.getConfiguration('promptProxy').get<boolean>('enableSecretDetection') !== false;
   const secrets = scanForSecrets(rawPrompt);
   if (secrets.length > 0) {
     vscode.window.showWarningMessage(
-      `Prompt Optimizer detected possible secrets in your prompt: ${secrets.join(', ')}. Review before sending to any AI service.`
+      `Prompt Optimizer detected possible secrets: ${secrets.map((s) => s.label).join(', ')}. Review before sending to any AI service.`
     );
   }
 
@@ -630,6 +863,7 @@ async function analyzePrompt(
     pricing: getPricingConfig(),
     ide_context: getIdeContext(context, chatContext),
     workspace_id: computeWorkspaceId(workspaceRoot),
+    target_model: getTargetModel(context),
   };
 
   const response = runEngine(request, dbPath);
@@ -638,6 +872,7 @@ async function analyzePrompt(
   // have survived via a stale cache entry or been carried in the raw input.
   const optimizedClean = response.optimized_prompt
     .replace(/(?:^|\n\n)# Problems\n[\s\S]*?(?=\n\n#|\s*$)/g, '')
+    .replace(/(?:^|\n\n)# Prompt (?:Proxy|Optimizer)[^\n]*\n[\s\S]*?(?=\n\n#|\s*$)/gi, '')
     .trim();
 
   const state: PromptProxyPanelState = {
@@ -648,7 +883,9 @@ async function analyzePrompt(
     metrics: response.metrics,
     improvements: response.improvements,
     analysis: response.analysis,
-    warnings: secrets.map((s) => `Possible secret detected: ${s}. Review before sending.`),
+    warnings: secrets.map((s) => `Possible secret detected: ${s.label}${s.matched ? ` — matched text: "${s.matched}"` : ''}. Review before sending.`),
+    diagnostics: response.diagnostics,
+    secretDetectionEnabled,
   };
 
   await addToSessionBuffer(context, state);
@@ -691,6 +928,27 @@ function getPricingConfig(): { input_cost_per_1k_tokens: number; output_cost_per
 function getProcessingMode(): string {
   const config = vscode.workspace.getConfiguration('promptProxy');
   return config.get<string>('processingMode') ?? 'blocking';
+}
+
+const TARGET_MODEL_KEY = 'promptProxy.targetModel';
+
+function getTargetModel(context: vscode.ExtensionContext): 'claude' | 'gpt' | 'gemini' | 'local' {
+  const config = vscode.workspace.getConfiguration('promptProxy');
+  const stored = context.globalState.get<string>(TARGET_MODEL_KEY);
+  if (stored === 'claude' || stored === 'gpt' || stored === 'gemini' || stored === 'local') {
+    return stored;
+  }
+  const fallback = config.get<string>('targetModel') ?? 'gpt';
+  if (fallback === 'claude' || fallback === 'gpt' || fallback === 'gemini' || fallback === 'local') {
+    return fallback;
+  }
+  return 'gpt';
+}
+
+async function setTargetModel(context: vscode.ExtensionContext, val: string): Promise<void> {
+  if (val === 'claude' || val === 'gpt' || val === 'gemini' || val === 'local') {
+    await context.globalState.update(TARGET_MODEL_KEY, val);
+  }
 }
 
 function getSessionBuffer(context: vscode.ExtensionContext): SessionBufferedPrompt[] {
@@ -1252,7 +1510,7 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
       enableScripts: true,
       localResourceRoots: [this._extensionUri],
     };
-    webviewView.webview.onDidReceiveMessage(async (data: { type?: string; prompt?: string; mode?: string }) => {
+    webviewView.webview.onDidReceiveMessage(async (data: { type?: string; prompt?: string; mode?: string; model?: string }) => {
       switch (data.type) {
         case 'ready': {
           const state = getLastAnalysis(this._context);
@@ -1261,11 +1519,17 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
           }
           // Send the current mode so the selector initialises correctly.
           webviewView.webview.postMessage({ type: 'modeState', mode: getCurrentMode(this._context) });
+          webviewView.webview.postMessage({ type: 'targetModelPattern', model: getTargetModel(this._context) });
           break;
         }
         case 'setMode': {
           const mode = (data.mode ?? 'agent') as ProxyMode;
           await this._context.globalState.update(MODE_KEY, mode);
+          break;
+        }
+        case 'setTargetModel': {
+          const model = data.model ?? 'gpt';
+          await setTargetModel(this._context, model);
           break;
         }
         case 'agentRun': {
@@ -1369,14 +1633,14 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
           const cfg = vscode.workspace.getConfiguration('promptProxy');
           webviewView.webview.postMessage({
             type: 'secretSettingsState',
-            enabled: cfg.get<boolean>('enableSecretDetection') ?? true,
-            customPatterns: cfg.get<Array<{ label?: string; pattern: string }>>('secretPatterns') ?? [],
+            enabled: cfg.get<boolean>('enableSecretDetection') !== false,
+            customPatterns: cfg.get<CustomSecretPatternConfig[]>('secretPatterns') ?? [],
             builtinLabels: SECRET_PATTERNS.map((s) => s.label),
           });
           break;
         }
         case 'saveSecretSettings': {
-          const saveData = data as unknown as { enabled: boolean; customPatterns: Array<{ label?: string; pattern: string }> };
+          const saveData = data as unknown as { enabled: boolean; customPatterns: CustomSecretPatternConfig[] };
           const saveCfg = vscode.workspace.getConfiguration('promptProxy');
           await saveCfg.update('enableSecretDetection', saveData.enabled, vscode.ConfigurationTarget.Global);
           await saveCfg.update('secretPatterns', saveData.customPatterns, vscode.ConfigurationTarget.Global);
@@ -1402,6 +1666,10 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
 
   private _getHtmlForWebview(): string {
     const nonce = getNonce();
+    const secretPatternHelpTooltip = renderSecretPatternHelpTooltip();
+    const secretPatternModeOptions = SECRET_PATTERN_MODE_VALUES
+      .map((mode) => `<option value="${mode}">${SECRET_PATTERN_MODE_LABELS[mode]}</option>`)
+      .join('');
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1549,16 +1817,44 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
       background: var(--vscode-button-secondaryBackground, rgba(128,128,128,0.2));
       color: var(--vscode-textLink-foreground);
     }
+    .hero-actions {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .settings-menu {
+      position: absolute;
+      top: calc(100% + 6px);
+      right: 0;
+      min-width: 150px;
+      padding: 4px;
+      border-radius: 8px;
+      border: 1px solid var(--vscode-widget-border, rgba(128,128,128,0.25));
+      background: var(--vscode-editor-background);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.22);
+      z-index: 30;
+    }
+    .settings-item {
+      width: 100%;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--vscode-editor-foreground);
+      text-align: left;
+      padding: 7px 8px;
+      font: inherit;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .settings-item:hover {
+      background: var(--vscode-list-hoverBackground, rgba(128,128,128,0.14));
+    }
     .result-actions {
       display: grid;
       grid-template-columns: 1fr 1fr 1fr;
       gap: 6px;
-      margin-top: 10px;
-    }
-    .secret-cfg {
-      display: flex;
-      justify-content: flex-end;
-      margin-top: -4px;
+      margin-top: 0;
     }
     /* ── Secret Manager overlay ───────────────────── */
     .secret-mgr-overlay {
@@ -1617,6 +1913,103 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
       color: var(--vscode-descriptionForeground);
       margin: 10px 0 4px;
     }
+    .sub-hdr-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .sub-hdr-row .sub-hdr {
+      margin: 0;
+    }
+    .hint-tip {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .hint-icon-btn {
+      width: 18px;
+      height: 18px;
+      border: 1px solid var(--vscode-widget-border, rgba(128,128,128,0.25));
+      border-radius: 999px;
+      background: transparent;
+      color: var(--vscode-descriptionForeground);
+      font: inherit;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+      cursor: help;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+    }
+    .tooltip-panel {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      width: min(420px, calc(100vw - 48px));
+      max-height: 340px;
+      overflow-y: auto;
+      padding: 10px;
+      border-radius: 10px;
+      border: 1px solid var(--vscode-widget-border, rgba(128,128,128,0.25));
+      background: var(--vscode-editor-background);
+      box-shadow: 0 10px 28px rgba(0,0,0,0.28);
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(-4px);
+      transition: opacity 0.15s ease, transform 0.15s ease;
+      z-index: 50;
+    }
+    .hint-tip:hover .tooltip-panel,
+    .hint-tip:focus-within .tooltip-panel {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0);
+    }
+    .tooltip-title {
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .tooltip-section {
+      margin-top: 10px;
+    }
+    .tooltip-list {
+      margin: 6px 0 0;
+      padding-left: 18px;
+    }
+    .tooltip-list li {
+      margin-bottom: 5px;
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .tooltip-pattern {
+      margin-top: 8px;
+      padding: 7px 8px;
+      border-radius: 8px;
+      background: rgba(127,127,127,0.07);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .tooltip-note {
+      margin-top: 3px;
+      color: var(--vscode-descriptionForeground);
+      font-size: 10.5px;
+    }
+    .tooltip-panel code {
+      display: block;
+      margin-top: 4px;
+      padding: 4px 6px;
+      border-radius: 6px;
+      background: rgba(0,0,0,0.18);
+      font-family: var(--vscode-editor-font-family, monospace);
+      font-size: 10.5px;
+      word-break: break-word;
+    }
     .builtin-list {
       list-style: none;
       margin: 0 0 10px;
@@ -1665,7 +2058,8 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
       gap: 6px;
       margin-top: 8px;
     }
-    .add-form input {
+    .add-form input,
+    .add-form select {
       width: 100%;
       box-sizing: border-box;
       background: var(--vscode-input-background);
@@ -1676,7 +2070,8 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
       font: inherit;
       font-size: 12px;
     }
-    .add-form input:focus { outline: 1px solid var(--vscode-focusBorder); }
+    .add-form input:focus,
+    .add-form select:focus { outline: 1px solid var(--vscode-focusBorder); }
     .form-row { display: flex; gap: 6px; }
     .save-bar {
       display: flex;
@@ -1853,9 +2248,13 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
     <section class="hero">
       <div class="hero-title">
         <strong>Prompt Optimizer</strong>
-        <div style="display:flex;align-items:center;gap:6px">
+        <div class="hero-actions">
           <span class="badge">Local cache + chat</span>
+          <button class="readme-icon-btn" id="btnSettingsMenu" title="Open prompt settings" aria-haspopup="true" aria-expanded="false">&#9881;</button>
           <button class="readme-icon-btn" id="btnReadme" title="Open README — extension documentation">?</button>
+          <div class="settings-menu" id="settingsMenu" hidden>
+            <button class="settings-item" id="btnSecretSettings" title="Manage secret detection — add or remove scanning patterns">Secret detection</button>
+          </div>
         </div>
       </div>
       <p>Use <strong>@promptoptimizer</strong> in Chat or paste a draft prompt here. Prompt Optimizer can pack editor state, diagnostics, its own chat history, and the local session buffer before estimating tokens and cost.</p>
@@ -1872,6 +2271,16 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
       </select>
     </div>
 
+    <div class="mode-row">
+      <span class="mode-label">Target</span>
+      <select id="targetModelSelect">
+        <option value="gpt">GPT Optimal (markdown headers)</option>
+        <option value="claude">Claude Optimal (XML instruction schemas)</option>
+        <option value="gemini">Gemini Optimal (bold highlights)</option>
+        <option value="local">Local Standard (brief tags)</option>
+      </select>
+    </div>
+
     <div class="input-wrap">
     <textarea id="promptInput" placeholder="Type a prompt — Agent mode answers directly, Optimize shows analysis, Direct pre-fills chat."></textarea>
       <button class="send-btn primary" id="btnPrimary" title="Run Agent">
@@ -1885,12 +2294,6 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
       <pre id="optimizedPrompt"></pre>
     </section>
 
-    <div class="secret-cfg">
-      <button class="ghost compact" id="btnSecretSettings" title="Manage secret detection — add or remove scanning patterns">
-        🔒 Secret detection
-      </button>
-    </div>
-
     <div class="loading" id="loading">Packing local context and consulting the semantic cache...</div>
 
     <section class="card response-card" id="responseCard">
@@ -1903,7 +2306,7 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
 
     <section class="card" id="resultCard">
       <!-- Compact summary table: analysis + pricing in one place -->
-      <table class="summary-table">
+      <table class="summary-table" hidden aria-hidden="true">
         <tbody>
           <tr>
             <td class="lbl">Cost</td>
@@ -1932,7 +2335,7 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
       <ul class="chips" id="contextChips" aria-hidden="true"></ul>
 
       <!-- Action buttons below cost table -->
-      <div class="result-actions" style="margin-top:10px">
+      <div class="result-actions">
         <button class="secondary compact" id="btnOpenChat" title="Open the @promptoptimizer chat participant">@promptoptimizer</button>
         <button class="secondary compact" id="btnUseOptimized" title="Send the optimized prompt to @promptoptimizer chat">Use optimized</button>
         <button class="secondary compact" id="btnCopyOptimized" title="Copy the optimized prompt to clipboard">Copy optimized</button>
@@ -1942,6 +2345,12 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
       <div style="margin-top:10px">
         <h2 class="section-title">Refinements</h2>
         <ul class="list-sm" id="improvements"></ul>
+      </div>
+
+      <!-- Diagnostics -->
+      <div style="margin-top:10px" id="diagnosticsSection">
+        <h2 class="section-title">Lint Diagnostics</h2>
+        <ul class="list-sm" id="diagnosticsGrid"></ul>
       </div>
     </section>
   </div>
@@ -1958,17 +2367,24 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
       </div>
       <div class="sub-hdr">Built-in patterns (read-only)</div>
       <ul class="builtin-list" id="builtinPatternList"></ul>
-      <div class="sub-hdr">Custom patterns</div>
+      <div class="sub-hdr-row">
+        <div class="sub-hdr">Custom patterns</div>
+        <div class="hint-tip" tabindex="0">
+          <button type="button" class="hint-icon-btn" aria-label="Custom pattern help">?</button>
+          ${secretPatternHelpTooltip}
+        </div>
+      </div>
       <ul class="list-sm" id="customPatternList" style="margin-bottom:8px"></ul>
-      <button class="secondary compact" id="btnAddPattern" title="Add a custom regex pattern">+ Add pattern</button>
+      <button class="secondary compact" id="btnAddPattern" title="Add a custom secret detection rule">+ Add pattern</button>
       <div class="add-form" id="addPatternForm">
         <input id="patternLabel" placeholder="Label, e.g. My internal token (optional)" />
-        <input id="patternRegex" placeholder="Regex source, e.g. mytoken-[a-z0-9]{32}" />
+        <select id="patternMode">${secretPatternModeOptions}</select>
+        <input id="patternValue" placeholder="Regex source, e.g. mytoken-[a-z0-9]{32}" />
         <div class="form-row">
           <button class="primary compact" id="btnSavePattern" title="Save this pattern">Save</button>
           <button class="secondary compact" id="btnCancelPattern" title="Cancel">Cancel</button>
         </div>
-        <div id="regexError" style="display:none;font-size:11px;color:var(--vscode-inputValidation-errorForeground,#f88)"></div>
+        <div id="patternError" style="display:none;font-size:11px;color:var(--vscode-inputValidation-errorForeground,#f88)"></div>
       </div>
       <div class="save-bar">
         <button class="primary compact" id="btnSaveSecretSettings" title="Save all settings">Save settings</button>
@@ -2000,6 +2416,11 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
     const improvements = document.getElementById('improvements');
     const optimizedPrompt = document.getElementById('optimizedPrompt');
     const optimizedCard = document.getElementById('optimizedCard');
+    const targetModelSelect = document.getElementById('targetModelSelect');
+    const btnSettingsMenu = document.getElementById('btnSettingsMenu');
+    const settingsMenu = document.getElementById('settingsMenu');
+    const SECRET_PATTERN_MODE_LABELS = ${JSON.stringify(SECRET_PATTERN_MODE_LABELS)};
+    const SECRET_PATTERN_MODE_PLACEHOLDERS = ${JSON.stringify(SECRET_PATTERN_MODE_PLACEHOLDERS)};
     let currentState;
     let currentMode = 'agent';
 
@@ -2018,6 +2439,10 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
     modeSelect.addEventListener('change', function() {
       applyMode(modeSelect.value);
       vscode.postMessage({ type: 'setMode', mode: modeSelect.value });
+    });
+
+    targetModelSelect.addEventListener('change', function() {
+      vscode.postMessage({ type: 'setTargetModel', model: targetModelSelect.value });
     });
 
     function formatCurrency(value) {
@@ -2076,12 +2501,37 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
       notice.textContent = message || '';
     }
 
+    function setSettingsMenuOpen(isOpen) {
+      settingsMenu.hidden = !isOpen;
+      btnSettingsMenu.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    }
+
     function clearAlerts() { alertsEl.innerHTML = ''; }
     function addAlert(kind, message) {
       const div = document.createElement('div');
       div.className = 'alert-item alert-' + kind;
       div.textContent = (kind === 'warning' ? '\u26a0\ufe0f  ' : '\u2715  ') + message;
       alertsEl.appendChild(div);
+    }
+
+    function normalizeSecretPatternMode(value) {
+      return Object.prototype.hasOwnProperty.call(SECRET_PATTERN_MODE_LABELS, value) ? value : 'regex';
+    }
+
+    function normalizeCustomPatternEntry(entry) {
+      if (!entry || typeof entry !== 'object') {
+        return null;
+      }
+      var pattern = typeof entry.pattern === 'string' ? entry.pattern.trim() : '';
+      if (!pattern) {
+        return null;
+      }
+      var label = typeof entry.label === 'string' ? entry.label.trim() : '';
+      return {
+        label: label || undefined,
+        pattern: pattern,
+        matchMode: normalizeSecretPatternMode(entry.matchMode),
+      };
     }
 
     function renderState(state) {
@@ -2093,6 +2543,9 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
 
       clearAlerts();
       (state.warnings || []).forEach(function(w) { addAlert('warning', w); });
+      if (state.secretDetectionEnabled === false) {
+        addAlert('warning', '\u{1F515} Secret detection is disabled \u2014 enable it in the Shield (\u{1F6E1}) settings to scan prompts for secrets.');
+      }
 
       const metrics = state.metrics;
       const analysis = state.analysis;
@@ -2120,6 +2573,27 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
       appendChips(contextChips, chipItems);
 
       appendListItems(improvements, state.improvements, 'No extra refinements suggested.');
+
+      const diagnosticsGrid = document.getElementById('diagnosticsGrid');
+      clearChildren(diagnosticsGrid);
+      const diagnostics = state.diagnostics || [];
+      if (diagnostics.length === 0) {
+        const li = document.createElement('li');
+        li.style.color = 'var(--vscode-terminal-ansiGreen, #4ec94e)';
+        li.style.fontSize = '11px';
+        li.innerHTML = '✔ No lint warnings detected. Prompt quality score is optimal!';
+        diagnosticsGrid.appendChild(li);
+      } else {
+        diagnostics.forEach(function(diag) {
+          const li = document.createElement('li');
+          li.style.borderBottom = '1px solid rgba(127,127,127,0.1)';
+          li.style.padding = '5px 0';
+          
+          let severityBadge = diag.severity === 'warning' ? '⚠️' : 'ℹ️';
+          li.innerHTML = '<span style="font-weight: 600; color: ' + (diag.severity === 'warning' ? '#f8d775' : '#70bdf6') + '">' + severityBadge + ' [' + diag.code + ']</span>: ' + diag.message + '<br/><span style="font-size:11px; display:block; margin-top: 3px; font-style: italic; color: var(--vscode-descriptionForeground)">💡 Suggestion: ' + diag.fix_suggestion + '</span>';
+          diagnosticsGrid.appendChild(li);
+        });
+      }
     }
 
     btnPrimary.addEventListener('click', function() {
@@ -2167,12 +2641,35 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
       vscode.postMessage({ type: 'copyPrompt', prompt: currentState.optimized });
     });
 
+    btnSettingsMenu.addEventListener('click', function(event) {
+      event.stopPropagation();
+      setSettingsMenuOpen(settingsMenu.hidden);
+    });
+
+    settingsMenu.addEventListener('click', function(event) {
+      event.stopPropagation();
+    });
+
     document.getElementById('btnSecretSettings').addEventListener('click', function() {
+      setSettingsMenuOpen(false);
       vscode.postMessage({ type: 'openSecretSettings' });
     });
 
     document.getElementById('btnReadme').addEventListener('click', function() {
+      setSettingsMenuOpen(false);
       vscode.postMessage({ type: 'openReadme' });
+    });
+
+    document.addEventListener('click', function() {
+      if (!settingsMenu.hidden) {
+        setSettingsMenuOpen(false);
+      }
+    });
+
+    document.addEventListener('keydown', function(event) {
+      if (event.key === 'Escape' && !settingsMenu.hidden) {
+        setSettingsMenuOpen(false);
+      }
     });
 
     // ── Secret Manager ────────────────────────────────
@@ -2182,10 +2679,16 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
     var customPatternList = document.getElementById('customPatternList');
     var addPatternForm = document.getElementById('addPatternForm');
     var patternLabelInput = document.getElementById('patternLabel');
-    var patternRegexInput = document.getElementById('patternRegex');
-    var regexError = document.getElementById('regexError');
+    var patternModeSelect = document.getElementById('patternMode');
+    var patternValueInput = document.getElementById('patternValue');
+    var patternError = document.getElementById('patternError');
     var savedNotice = document.getElementById('savedNotice');
     var currentCustomPatterns = [];
+
+    function updatePatternValueInput() {
+      var mode = normalizeSecretPatternMode(patternModeSelect.value);
+      patternValueInput.placeholder = SECRET_PATTERN_MODE_PLACEHOLDERS[mode] || SECRET_PATTERN_MODE_PLACEHOLDERS.regex;
+    }
 
     function renderCustomPatterns() {
       customPatternList.innerHTML = '';
@@ -2206,7 +2709,7 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
         lbl.textContent = p.label || 'Pattern ' + (idx + 1);
         var rx = document.createElement('div');
         rx.className = 'ci-regex';
-        rx.textContent = p.pattern;
+        rx.textContent = (SECRET_PATTERN_MODE_LABELS[normalizeSecretPatternMode(p.matchMode)] || 'Regex') + ' · ' + p.pattern;
         info.appendChild(lbl);
         info.appendChild(rx);
         div.appendChild(info);
@@ -2232,20 +2735,26 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
     document.getElementById('btnAddPattern').addEventListener('click', function() {
       addPatternForm.style.display = 'flex';
       patternLabelInput.value = '';
-      patternRegexInput.value = '';
-      regexError.style.display = 'none';
+      patternModeSelect.value = 'regex';
+      patternValueInput.value = '';
+      patternError.style.display = 'none';
+      updatePatternValueInput();
       patternLabelInput.focus();
     });
+    patternModeSelect.addEventListener('change', updatePatternValueInput);
     document.getElementById('btnCancelPattern').addEventListener('click', function() {
       addPatternForm.style.display = 'none';
     });
     document.getElementById('btnSavePattern').addEventListener('click', function() {
-      var rx = patternRegexInput.value.trim();
-      if (!rx) { regexError.textContent = 'Regex is required.'; regexError.style.display = 'block'; return; }
-      try { new RegExp(rx); } catch(e) { regexError.textContent = 'Invalid regex: ' + e.message; regexError.style.display = 'block'; return; }
-      regexError.style.display = 'none';
+      var mode = normalizeSecretPatternMode(patternModeSelect.value);
+      var value = patternValueInput.value.trim();
+      if (!value) { patternError.textContent = 'Pattern value is required.'; patternError.style.display = 'block'; return; }
+      if (mode === 'regex') {
+        try { new RegExp(value, 'i'); } catch(e) { patternError.textContent = 'Invalid regex: ' + e.message; patternError.style.display = 'block'; return; }
+      }
+      patternError.style.display = 'none';
       var lbl = patternLabelInput.value.trim();
-      currentCustomPatterns.push({ label: lbl || undefined, pattern: rx });
+      currentCustomPatterns.push({ label: lbl || undefined, pattern: value, matchMode: mode });
       renderCustomPatterns();
       addPatternForm.style.display = 'none';
     });
@@ -2265,6 +2774,8 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
       const message = event.data;
       if (message.type === 'modeState') {
         applyMode(message.mode);
+      } else if (message.type === 'targetModelPattern') {
+        targetModelSelect.value = message.model;
       } else if (message.type === 'analysisState') {
         renderState(message.payload);
       } else if (message.type === 'responseStart') {
@@ -2288,7 +2799,9 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
         clearAlerts();
         addAlert('error', message.message || 'Prompt Optimizer failed to analyze the prompt.');
       } else if (message.type === 'secretSettingsState') {
-        currentCustomPatterns = (message.customPatterns || []).slice();
+        currentCustomPatterns = (message.customPatterns || [])
+          .map(normalizeCustomPatternEntry)
+          .filter(function(item) { return !!item; });
         secretEnabledChk.checked = !!message.enabled;
         builtinPatternList.innerHTML = '';
         (message.builtinLabels || []).forEach(function(lbl) {
@@ -2298,6 +2811,7 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
         });
         renderCustomPatterns();
         addPatternForm.style.display = 'none';
+        updatePatternValueInput();
         savedNotice.style.display = 'none';
         secretMgrOverlay.style.display = 'block';
       } else if (message.type === 'secretSettingsSaved') {
@@ -2384,11 +2898,17 @@ class ProxyStatusPanel {
     this._panel.dispose();
   }
 
-  private async _handleMessage(data: { type?: string; prompt?: string }): Promise<void> {
+  private async _handleMessage(data: { type?: string; prompt?: string; model?: string }): Promise<void> {
     switch (data.type) {
       case 'ready': {
         const state = getLastAnalysis(this._context);
         if (state) { this.publishAnalysis(state); }
+        this._panel.webview.postMessage({ type: 'targetModelPattern', model: getTargetModel(this._context) });
+        break;
+      }
+      case 'setTargetModel': {
+        const model = data.model ?? 'gpt';
+        await setTargetModel(this._context, model);
         break;
       }
       case 'analyze': {
@@ -2604,6 +3124,15 @@ class ProxyStatusPanel {
 
   <!-- Analyze -->
   <div class="analyze">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+      <span style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--vscode-descriptionForeground);">Target model</span>
+      <select id="targetModelSelect" style="flex:1;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid rgba(128,128,128,.35);border-radius:6px;padding:4px 6px;font:inherit;font-size:12px;cursor:pointer;">
+        <option value="gpt">GPT Optimal (markdown)</option>
+        <option value="claude">Claude Optimal (XML schemas)</option>
+        <option value="gemini">Gemini Optimal (bullet highlights)</option>
+        <option value="local">Local Standard (brief tags)</option>
+      </select>
+    </div>
     <textarea id="promptInput" placeholder="Paste a prompt to analyze&hellip;"></textarea>
     <div id="alerts" class="alerts"></div>
     <div class="loading" id="loading">Analyzing with local semantic cache&hellip;</div>
@@ -2614,6 +3143,12 @@ class ProxyStatusPanel {
   <div class="opt-section" id="optSection">
     <div class="opt-lbl">Optimized prompt</div>
     <pre id="optimizedText" class="opt-pre"></pre>
+  </div>
+
+  <!-- Diagnostics Section -->
+  <div class="opt-section" id="diagSection" style="display:none;">
+    <div class="opt-lbl">Lint Diagnostics</div>
+    <ul class="list-sm" id="statusDiagnosticsGrid" style="list-style:none; padding:0; margin:0"></ul>
   </div>
 
   <!-- Link rows -->
@@ -2660,6 +3195,27 @@ class ProxyStatusPanel {
       el('optimizedText').textContent = state.optimized;
       el('optSection').style.display = 'block';
 
+      const statusGrid = el('statusDiagnosticsGrid');
+      statusGrid.innerHTML = '';
+      const diagnostics = state.diagnostics || [];
+      if (diagnostics.length === 0) {
+        const li = document.createElement('li');
+        li.style.color = 'var(--vscode-terminal-ansiGreen, #4ec94e)';
+        li.style.fontSize = '11px';
+        li.innerHTML = '✔ No lint warnings detected. Optimal!';
+        statusGrid.appendChild(li);
+      } else {
+        diagnostics.forEach(function(diag) {
+          const li = document.createElement('li');
+          li.style.borderBottom = '1px solid rgba(127,127,127,0.1)';
+          li.style.padding = '5px 0';
+          let severityBadge = diag.severity === 'warning' ? '⚠️' : 'ℹ️';
+          li.innerHTML = '<span style="font-weight: 600; color: ' + (diag.severity === 'warning' ? '#f8d775' : '#70bdf6') + '">' + severityBadge + ' [' + diag.code + ']</span>: ' + diag.message + '<br/><span style="font-size:11px; display:block; margin-top: 3px; font-style: italic; color: var(--vscode-descriptionForeground)">💡 Suggestion: ' + diag.fix_suggestion + '</span>';
+          statusGrid.appendChild(li);
+        });
+      }
+      el('diagSection').style.display = 'block';
+
       el('promptInput').value = state.original;
       el('loading').style.display = 'none';
       el('alerts').innerHTML = '';
@@ -2669,6 +3225,12 @@ class ProxyStatusPanel {
         d.textContent = '\u26a0\ufe0f  ' + w;
         el('alerts').appendChild(d);
       });
+      if (state.secretDetectionEnabled === false) {
+        const d = document.createElement('div');
+        d.className = 'alert-item alert-warning';
+        d.textContent = '\uD83D\uDD15 Secret detection is disabled \u2014 enable it in the Shield (\uD83D\uDEE1\uFE0F) settings to scan prompts for secrets.';
+        el('alerts').appendChild(d);
+      }
     }
 
     el('btnAnalyze').addEventListener('click', function() {
@@ -2689,6 +3251,11 @@ class ProxyStatusPanel {
     el('btnOpenChat').addEventListener('click',     () => vscode.postMessage({ type: 'openChat' }));
     el('btnSettings').addEventListener('click',     () => vscode.postMessage({ type: 'openSettings' }));
     el('btnClose').addEventListener('click',        () => vscode.postMessage({ type: 'close' }));
+    
+    el('targetModelSelect').addEventListener('change', function() {
+      vscode.postMessage({ type: 'setTargetModel', model: el('targetModelSelect').value });
+    });
+
     el('btnCopyOptimized').addEventListener('click', function() {
       if (!currentState || !currentState.optimized) {
         el('alerts').innerHTML = '';
@@ -2716,6 +3283,8 @@ class ProxyStatusPanel {
       const msg = event.data;
       if (msg.type === 'analysisState') {
         renderState(msg.payload);
+      } else if (msg.type === 'targetModelPattern') {
+        el('targetModelSelect').value = msg.model;
       } else if (msg.type === 'error') {
         el('loading').style.display = 'none';
         el('alerts').innerHTML = '';

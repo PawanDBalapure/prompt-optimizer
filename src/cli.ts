@@ -6,6 +6,7 @@ import Database from 'better-sqlite3';
 import { PromptOptimizationRequest, PromptProxyEngineOptions } from './contracts.js';
 import { PromptProxyEngine } from './PromptProxyEngine.js';
 import { SemanticCacheManager } from './SemanticCacheManager.js';
+import { PromptEvalEngine } from './PromptEvalEngine.js';
 
 function readStdin(): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -23,7 +24,8 @@ function printHelp(): void {
   process.stderr.write(
     'Usage: prompt-proxy-engine --stdin [--db <path>]\n' +
       '   or: prompt-proxy-engine --file <request.json> [--db <path>]\n' +
-      '   or: prompt-proxy-engine --prompt "your prompt" [--db <path>]\n' +
+      '   or: prompt-proxy-engine --prompt "your prompt" [--target-model <claude|gpt|gemini|local>] [--db <path>]\n' +
+      '   or: prompt-proxy-engine --benchmark <benchmark_config.json> [--db <path>]\n' +
       '   or: prompt-proxy-engine --cache-stats [--db <path>]\n' +
       '   or: prompt-proxy-engine --clear-cache [--db <path>]\n'
   );
@@ -144,8 +146,23 @@ async function handleClearCache(dbPath?: string): Promise<void> {
   process.stdout.write(`${JSON.stringify({ cleared: true, pruned })}\n`);
 }
 
+async function handleBenchmark(benchmarkPath: string, dbPath?: string): Promise<void> {
+  const absolutePath = path.resolve(benchmarkPath);
+  if (!fs.existsSync(absolutePath)) {
+    throw new Error(`Benchmark config file not found at ${absolutePath}`);
+  }
+  const config = JSON.parse(fs.readFileSync(absolutePath, 'utf8'));
+  const engine = new PromptProxyEngine(dbPath ? { db_path: dbPath } : {});
+  await engine.initialize();
+  const evalEngine = new PromptEvalEngine(engine);
+  const report = await evalEngine.runBenchmark(config);
+  engine.close();
+  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+}
+
 async function loadRequest(args: string[]): Promise<{ request: PromptOptimizationRequest; options: PromptProxyEngineOptions }> {
   let dbPath: string | undefined;
+  let targetModel: string | undefined;
   let request: PromptOptimizationRequest | null = null;
 
   for (let index = 0; index < args.length; index++) {
@@ -153,6 +170,12 @@ async function loadRequest(args: string[]): Promise<{ request: PromptOptimizatio
 
     if (arg === '--db') {
       dbPath = args[index + 1];
+      index++;
+      continue;
+    }
+
+    if (arg === '--target-model') {
+      targetModel = args[index + 1];
       index++;
       continue;
     }
@@ -196,6 +219,10 @@ async function loadRequest(args: string[]): Promise<{ request: PromptOptimizatio
     throw new Error('No request payload provided');
   }
 
+  if (targetModel) {
+    request.target_model = targetModel as any;
+  }
+
   return {
     request,
     options: dbPath ? { db_path: dbPath } : {},
@@ -216,6 +243,17 @@ async function main(): Promise<void> {
 
   if (args.includes('--clear-cache')) {
     await handleClearCache(resolveDbPath(args));
+    return;
+  }
+
+  if (args.includes('--benchmark')) {
+    const configPath = resolveArg(args, '--benchmark');
+    if (!configPath) {
+      process.stderr.write('Error: --benchmark requires a configuration file path.\n');
+      process.exitCode = 1;
+      return;
+    }
+    await handleBenchmark(configPath, resolveDbPath(args));
     return;
   }
 
