@@ -1,5 +1,17 @@
 ﻿# Changelog
 
+## 1.0.3
+
+### Improvements
+
+- Secret detection remains enabled by default unless explicitly disabled in settings.
+- Secret warnings now include matched text for faster review.
+- Each detected secret warning includes a Remove from output action when that text exists in optimized output.
+- Clicking remove on highlighted secret text now also removes the corresponding warning alert.
+- When a secret exists in input but not in optimized output, the panel shows an informational alert and hides the remove button.
+- Secret dedup now keys by label + matched text so multiple patterns are shown correctly.
+- VSIX packaging includes required runtime dependencies for better-sqlite3 loading.
+
 ## 1.0.0
 
 ### New features

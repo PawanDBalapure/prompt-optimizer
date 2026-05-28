@@ -1,3 +1,5 @@
+import org.jetbrains.intellij.platform.gradle.TestFrameworkType
+
 plugins {
     id("java")
     id("org.jetbrains.kotlin.jvm") version "1.9.25"
@@ -5,7 +7,7 @@ plugins {
 }
 
 group   = "com.promptproxy"
-version = "1.0.2"
+version = "1.0.3"
 
 repositories {
     mavenCentral()

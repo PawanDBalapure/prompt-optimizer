@@ -10,6 +10,11 @@ yarn-error.log*
 dist/
 out/
 *.tsbuildinfo
+build/
+intellij-plugin/build/
+intellij-plugin/.gradle/
+intellij-plugin/.idea/
+intellij-plugin/.intellijPlatform/
 
 # ── SQLite databases — may contain personal prompt history ────────────────────
 *.db
