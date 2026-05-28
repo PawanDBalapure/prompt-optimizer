@@ -3,7 +3,7 @@
 
     <id>com.promptproxy.intellij</id>
     <name>Local Prompt Optimizer</name>
-    <version>1.0.3</version>
+    <version>2.0.0</version>
 
     <vendor url="https://github.com/PawanDBalapure/prompt-optimizer">
         Pawan Balapure

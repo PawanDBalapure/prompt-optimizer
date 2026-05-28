@@ -6,10 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [1.0.3] - 2026-05-28
+## [2.0.0] - 2026-05-29
 
 ### Changed
-- Version bump to 1.0.3 for IntelliJ plugin release alignment.
+- Version bump to 2.0.0 for IntelliJ plugin release alignment.
 
 ## [1.0.0] — 2026-01-01
 
