@@ -235,28 +235,26 @@ function scanForSecrets(prompt: string): SecretMatch[] {
   if (config.get<boolean>('enableSecretDetection') === false) { return []; }
 
   const custom = config.get<CustomSecretPatternConfig[]>('secretPatterns') ?? [];
+  const clip = (s: string, max = 60) => s.length > max ? s.slice(0, max) + '\u2026' : s;
   const results: SecretMatch[] = [];
+  // Dedup key: label + '::' + matched text — allows same label with different patterns/matches.
   const seen = new Set<string>();
 
   for (const builtIn of SECRET_PATTERNS) {
     const m = builtIn.pattern.exec(prompt);
     if (m) {
-      if (!seen.has(builtIn.label)) {
-        seen.add(builtIn.label);
-        const clip = (s: string, max = 60) => s.length > max ? s.slice(0, max) + '\u2026' : s;
-        results.push({ label: builtIn.label, matched: clip(m[0]) });
-      }
+      const matched = clip(m[0]);
+      const key = builtIn.label + '::' + matched;
+      if (!seen.has(key)) { seen.add(key); results.push({ label: builtIn.label, matched }); }
     }
   }
 
   for (const entry of custom) {
     const matched = extractCustomSecretMatch(prompt, entry);
     if (matched !== null) {
-      const label = entry.label?.trim() || 'Custom pattern';
-      if (!seen.has(label)) {
-        seen.add(label);
-        results.push({ label, matched });
-      }
+      const label = entry.label?.trim() || `Custom pattern ${results.length + 1}`;
+      const key = label + '::' + matched;
+      if (!seen.has(key)) { seen.add(key); results.push({ label, matched }); }
     }
   }
 
@@ -452,6 +450,7 @@ interface PromptProxyPanelState {
   warnings?: string[];
   diagnostics?: any[];
   secretDetectionEnabled?: boolean;
+  secretMatches?: Array<{ label: string; matched: string }>;
 }
 
 interface RuntimeSnapshot {
@@ -886,6 +885,7 @@ async function analyzePrompt(
     warnings: secrets.map((s) => `Possible secret detected: ${s.label}${s.matched ? ` — matched text: "${s.matched}"` : ''}. Review before sending.`),
     diagnostics: response.diagnostics,
     secretDetectionEnabled,
+    secretMatches: secrets.filter((s) => s.matched !== undefined).map((s) => ({ label: s.label, matched: s.matched! })),
   };
 
   await addToSessionBuffer(context, state);
@@ -2113,6 +2113,56 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
       color: var(--vscode-inputValidation-errorForeground, #fff);
       border-left: 3px solid var(--vscode-inputValidation-errorBorder, #be1100);
     }
+    .alert-info {
+      background: color-mix(in srgb, var(--vscode-inputValidation-infoBackground, #1a3a4f) 70%, transparent);
+      color: var(--vscode-inputValidation-infoForeground, #9cdcfe);
+      border-left: 3px solid var(--vscode-inputValidation-infoBorder, #007acc);
+    }
+    .secret-mark {
+      position: relative;
+      background: rgba(232,80,80,.22);
+      border: 1px solid rgba(232,80,80,.5);
+      border-radius: 3px;
+      cursor: default;
+      padding: 0 2px;
+    }
+    .secret-del-wrap {
+      position: absolute;
+      bottom: calc(100% + 5px);
+      left: 50%;
+      transform: translateX(-50%);
+      display: none;
+      z-index: 300;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+    .secret-mark:hover .secret-del-wrap,
+    .secret-mark:focus-within .secret-del-wrap { display: block; pointer-events: auto; }
+    .secret-del {
+      background: #c0392b;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      padding: 3px 10px;
+      font-size: 11px;
+      cursor: pointer;
+      white-space: nowrap;
+      box-shadow: 0 2px 6px rgba(0,0,0,.4);
+    }
+    .secret-del:hover { background: #922b21; }
+    .secret-rm-btn {
+      margin-left: 8px;
+      padding: 2px 7px;
+      font-size: 10.5px;
+      border-radius: 4px;
+      border: 1px solid currentColor;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      opacity: 0.75;
+      vertical-align: middle;
+    }
+    .secret-rm-btn:hover { opacity: 1; }
     .mode-row {
       display: flex;
       align-items: center;
@@ -2514,6 +2564,54 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
       alertsEl.appendChild(div);
     }
 
+    function escHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+    function buildSecretHighlightHtml(text, matchedText) {
+      var lower = text.toLowerCase();
+      var lowerMatch = matchedText.toLowerCase();
+      var result = '';
+      var pos = 0;
+      while (pos < text.length) {
+        var idx = lower.indexOf(lowerMatch, pos);
+        if (idx === -1) { result += escHtml(text.slice(pos)); break; }
+        result += escHtml(text.slice(pos, idx));
+        var actual = text.slice(idx, idx + matchedText.length);
+        result += '<mark class="secret-mark" tabindex="0">' + escHtml(actual) +
+          '<span class="secret-del-wrap"><button class="secret-del" data-remove="' + escHtml(matchedText) +
+          '" title="\u00d7 Remove this text from the output">\u00d7\u2009Remove this text</button></span></mark>';
+        pos = idx + matchedText.length;
+      }
+      return result;
+    }
+    function highlightSecretInOutput(matchedText, outputEl) {
+      if (!matchedText || !currentState) { return; }
+      var text = currentState.optimized || '';
+      if (text.toLowerCase().indexOf(matchedText.toLowerCase()) === -1) { return; }
+      outputEl.innerHTML = buildSecretHighlightHtml(text, matchedText);
+      var firstMark = outputEl.querySelector('.secret-mark');
+      if (firstMark) { firstMark.scrollIntoView({ behavior: 'smooth', block: 'center' }); firstMark.focus(); }
+    }
+    function removeSecretFromOutput(matchedText, outputEl) {
+      if (!matchedText || !currentState) { return; }
+      var text = currentState.optimized || '';
+      var lower = text.toLowerCase();
+      var lowerMatch = matchedText.toLowerCase();
+      var newText = '';
+      var pos = 0;
+      while (pos < text.length) {
+        var idx = lower.indexOf(lowerMatch, pos);
+        if (idx === -1) { newText += text.slice(pos); break; }
+        newText += text.slice(pos, idx);
+        pos = idx + matchedText.length;
+      }
+      currentState.optimized = newText;
+      outputEl.textContent = newText;
+      alertsEl.querySelectorAll('[data-secret-matched]').forEach(function(el) {
+        if (el.getAttribute('data-secret-matched').toLowerCase() === matchedText.toLowerCase()) { el.remove(); }
+      });
+    }
+
     function normalizeSecretPatternMode(value) {
       return Object.prototype.hasOwnProperty.call(SECRET_PATTERN_MODE_LABELS, value) ? value : 'regex';
     }
@@ -2542,7 +2640,42 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
       showNotice('');
 
       clearAlerts();
-      (state.warnings || []).forEach(function(w) { addAlert('warning', w); });
+      var _secMatches = (state.secretMatches && state.secretMatches.length) ? state.secretMatches : null;
+      if (_secMatches) {
+        _secMatches.forEach(function(match) {
+          var d = document.createElement('div');
+          d.className = 'alert-item alert-warning';
+          var inOutput = match.matched && state.optimized &&
+            state.optimized.toLowerCase().indexOf(match.matched.toLowerCase()) !== -1;
+          if (inOutput) { d.setAttribute('data-secret-matched', match.matched); }
+          var txt = document.createElement('span');
+          if (inOutput) {
+            txt.textContent = '\u26a0\ufe0f  Possible secret detected: ' + match.label +
+              ' \u2014 matched: \u201c' + match.matched + '\u201d. Review before sending.';
+          } else if (match.matched) {
+            txt.textContent = '\u26a0\ufe0f  Possible secret detected in input: ' + match.label +
+              ' \u2014 matched: \u201c' + match.matched + '\u201d. Not present in optimized output.';
+            d.className = 'alert-item alert-info';
+          } else {
+            txt.textContent = '\u26a0\ufe0f  Possible secret detected: ' + match.label + '. Review before sending.';
+          }
+          d.appendChild(txt);
+          if (inOutput) {
+            var btn = document.createElement('button');
+            btn.className = 'secret-rm-btn';
+            btn.textContent = 'Remove from output';
+            btn.setAttribute('data-matched', match.matched);
+            btn.addEventListener('click', function() {
+              highlightSecretInOutput(this.getAttribute('data-matched'), optimizedPrompt);
+              optimizedCard.style.display = 'block';
+            });
+            d.appendChild(btn);
+          }
+          alertsEl.appendChild(d);
+        });
+      } else {
+        (state.warnings || []).forEach(function(w) { addAlert('warning', w); });
+      }
       if (state.secretDetectionEnabled === false) {
         addAlert('warning', '\u{1F515} Secret detection is disabled \u2014 enable it in the Shield (\u{1F6E1}) settings to scan prompts for secrets.');
       }
@@ -2630,6 +2763,11 @@ class PromptProxyViewProvider implements vscode.WebviewViewProvider {
         return;
       }
       vscode.postMessage({ type: 'sendPrompt', prompt: currentState.optimized });
+    });
+
+    optimizedPrompt.addEventListener('click', function(e) {
+      var btn = e.target.closest('.secret-del');
+      if (btn) { removeSecretFromOutput(btn.getAttribute('data-remove'), optimizedPrompt); }
     });
 
     document.getElementById('btnCopyOptimized').addEventListener('click', function() {
@@ -3035,6 +3173,56 @@ class ProxyStatusPanel {
       color: var(--vscode-inputValidation-errorForeground, #fff);
       border-left: 3px solid var(--vscode-inputValidation-errorBorder, #be1100);
     }
+    .alert-info {
+      background: color-mix(in srgb, var(--vscode-inputValidation-infoBackground, #1a3a4f) 60%, transparent);
+      color: var(--vscode-inputValidation-infoForeground, #9cdcfe);
+      border-left: 3px solid var(--vscode-inputValidation-infoBorder, #007acc);
+    }
+    .secret-mark {
+      position: relative;
+      background: rgba(232,80,80,.22);
+      border: 1px solid rgba(232,80,80,.5);
+      border-radius: 3px;
+      cursor: default;
+      padding: 0 2px;
+    }
+    .secret-del-wrap {
+      position: absolute;
+      bottom: calc(100% + 5px);
+      left: 50%;
+      transform: translateX(-50%);
+      display: none;
+      z-index: 300;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+    .secret-mark:hover .secret-del-wrap,
+    .secret-mark:focus-within .secret-del-wrap { display: block; pointer-events: auto; }
+    .secret-del {
+      background: #c0392b;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      padding: 3px 10px;
+      font-size: 11px;
+      cursor: pointer;
+      white-space: nowrap;
+      box-shadow: 0 2px 6px rgba(0,0,0,.4);
+    }
+    .secret-del:hover { background: #922b21; }
+    .secret-rm-btn {
+      margin-left: 8px;
+      padding: 2px 7px;
+      font-size: 10.5px;
+      border-radius: 4px;
+      border: 1px solid currentColor;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      opacity: 0.75;
+      vertical-align: middle;
+    }
+    .secret-rm-btn:hover { opacity: 1; }
     textarea {
       width: 100%; min-height: 66px;
       background: var(--vscode-input-background);
@@ -3171,6 +3359,54 @@ class ProxyStatusPanel {
       return { cls: 'dot-miss', label: 'cache miss' };
     }
 
+    function escHtml2(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+    function buildSecretHighlightHtml2(text, matchedText) {
+      var lower = text.toLowerCase();
+      var lowerMatch = matchedText.toLowerCase();
+      var result = '';
+      var pos = 0;
+      while (pos < text.length) {
+        var idx = lower.indexOf(lowerMatch, pos);
+        if (idx === -1) { result += escHtml2(text.slice(pos)); break; }
+        result += escHtml2(text.slice(pos, idx));
+        var actual = text.slice(idx, idx + matchedText.length);
+        result += '<mark class="secret-mark" tabindex="0">' + escHtml2(actual) +
+          '<span class="secret-del-wrap"><button class="secret-del" data-remove="' + escHtml2(matchedText) +
+          '" title="\u00d7 Remove this text from the output">\u00d7\u2009Remove this text</button></span></mark>';
+        pos = idx + matchedText.length;
+      }
+      return result;
+    }
+    function highlightSecretInOutput2(matchedText, outputEl) {
+      if (!matchedText || !currentState) { return; }
+      var text = currentState.optimized || '';
+      if (text.toLowerCase().indexOf(matchedText.toLowerCase()) === -1) { return; }
+      outputEl.innerHTML = buildSecretHighlightHtml2(text, matchedText);
+      var firstMark = outputEl.querySelector('.secret-mark');
+      if (firstMark) { firstMark.scrollIntoView({ behavior: 'smooth', block: 'center' }); firstMark.focus(); }
+    }
+    function removeSecretFromOutput2(matchedText, outputEl) {
+      if (!matchedText || !currentState) { return; }
+      var text = currentState.optimized || '';
+      var lower = text.toLowerCase();
+      var lowerMatch = matchedText.toLowerCase();
+      var newText = '';
+      var pos = 0;
+      while (pos < text.length) {
+        var idx = lower.indexOf(lowerMatch, pos);
+        if (idx === -1) { newText += text.slice(pos); break; }
+        newText += text.slice(pos, idx);
+        pos = idx + matchedText.length;
+      }
+      currentState.optimized = newText;
+      outputEl.textContent = newText;
+      el('alerts').querySelectorAll('[data-secret-matched]').forEach(function(alertEl) {
+        if (alertEl.getAttribute('data-secret-matched').toLowerCase() === matchedText.toLowerCase()) { alertEl.remove(); }
+      });
+    }
+
     function renderState(state) {
       currentState = state;
       const m = state.metrics, a = state.analysis;
@@ -3219,12 +3455,47 @@ class ProxyStatusPanel {
       el('promptInput').value = state.original;
       el('loading').style.display = 'none';
       el('alerts').innerHTML = '';
-      (state.warnings || []).forEach(function(w) {
-        const d = document.createElement('div');
-        d.className = 'alert-item alert-warning';
-        d.textContent = '\u26a0\ufe0f  ' + w;
-        el('alerts').appendChild(d);
-      });
+      var _secMatches2 = (state.secretMatches && state.secretMatches.length) ? state.secretMatches : null;
+      if (_secMatches2) {
+        _secMatches2.forEach(function(match) {
+          var d = document.createElement('div');
+          d.className = 'alert-item alert-warning';
+          var inOutput = match.matched && state.optimized &&
+            state.optimized.toLowerCase().indexOf(match.matched.toLowerCase()) !== -1;
+          if (inOutput) { d.setAttribute('data-secret-matched', match.matched); }
+          var txt = document.createElement('span');
+          if (inOutput) {
+            txt.textContent = '\u26a0\ufe0f  Possible secret detected: ' + match.label +
+              ' \u2014 matched: \u201c' + match.matched + '\u201d. Review before sending.';
+          } else if (match.matched) {
+            txt.textContent = '\u26a0\ufe0f  Possible secret detected in input: ' + match.label +
+              ' \u2014 matched: \u201c' + match.matched + '\u201d. Not present in optimized output.';
+            d.className = 'alert-item alert-info';
+          } else {
+            txt.textContent = '\u26a0\ufe0f  Possible secret detected: ' + match.label + '. Review before sending.';
+          }
+          d.appendChild(txt);
+          if (inOutput) {
+            var btn = document.createElement('button');
+            btn.className = 'secret-rm-btn';
+            btn.textContent = 'Remove from output';
+            btn.setAttribute('data-matched', match.matched);
+            btn.addEventListener('click', function() {
+              highlightSecretInOutput2(this.getAttribute('data-matched'), el('optimizedText'));
+              el('optSection').style.display = 'block';
+            });
+            d.appendChild(btn);
+          }
+          el('alerts').appendChild(d);
+        });
+      } else {
+        (state.warnings || []).forEach(function(w) {
+          const d = document.createElement('div');
+          d.className = 'alert-item alert-warning';
+          d.textContent = '\u26a0\ufe0f  ' + w;
+          el('alerts').appendChild(d);
+        });
+      }
       if (state.secretDetectionEnabled === false) {
         const d = document.createElement('div');
         d.className = 'alert-item alert-warning';
@@ -3254,6 +3525,11 @@ class ProxyStatusPanel {
     
     el('targetModelSelect').addEventListener('change', function() {
       vscode.postMessage({ type: 'setTargetModel', model: el('targetModelSelect').value });
+    });
+
+    el('optimizedText').addEventListener('click', function(e) {
+      var btn = e.target.closest('.secret-del');
+      if (btn) { removeSecretFromOutput2(btn.getAttribute('data-remove'), el('optimizedText')); }
     });
 
     el('btnCopyOptimized').addEventListener('click', function() {
