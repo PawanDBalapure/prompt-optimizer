@@ -2,15 +2,30 @@
 
 ## 2.0.0
 
-### Improvements
+### Added
 
+- Built-in SDLC workflow modes for `/plan`, `/arch`, `/code`, `/test`, `/review`, `/security`, `/qa`, `/devops`, `/docs`, `/pr`, `/full`, `/bug-fix`, and `/refactor`.
+- Custom skill loading from workspace `.promptoptimizer/skills/*.md` and the optional `PROMPT_OPTIMIZER_SKILLS_DIR` directory.
+- Robust skill parsing for comments, block scalars, frontmatter checklists, quoted regex strings, `keywords`, `requires`, `filePatterns`, `priority`, and `tags`.
+- Bundled SDLC agent definitions exposed through the new `Agents` sidebar action.
+- Agent management flows for enabling, disabling, editing, resetting, listing, creating, and diagnosing skills.
+
+### Changed
+
+- Skill selection now uses a score-based picker instead of first-match intent detection.
+- `--list-modes` now returns both registered modes and load errors for diagnostics.
+- The sidebar Agents picker can open workspace copies for direct editing and can reset them back to the bundled defaults.
+- VSIX packaging continues to include required runtime dependencies for `better-sqlite3` loading.
+
+### Fixed
+
+- Historical prompt and chat log buffers are no longer injected into optimized output by default.
 - Secret detection remains enabled by default unless explicitly disabled in settings.
 - Secret warnings now include matched text for faster review.
 - Each detected secret warning includes a Remove from output action when that text exists in optimized output.
 - Clicking remove on highlighted secret text now also removes the corresponding warning alert.
 - When a secret exists in input but not in optimized output, the panel shows an informational alert and hides the remove button.
 - Secret dedup now keys by label + matched text so multiple patterns are shown correctly.
-- VSIX packaging includes required runtime dependencies for better-sqlite3 loading.
 
 ## 1.0.0
 

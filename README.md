@@ -12,6 +12,7 @@ The repository now contains two surfaces:
 - Optimizes a raw prompt locally with code-safe compression.
 - Packs relevant editor context with compact anchors such as `# src/file.ts`.
 - Reuses exact and semantic prompt matches from a local SQLite cache.
+- Applies SDLC modes through slash commands, built-in intent rules, and custom workspace skill definitions.
 - Forecasts token usage with a context-aware heuristic and a pricing breakdown.
 - Returns structured analysis metadata for cache hits, selected context, and cost.
 
@@ -25,6 +26,16 @@ The VS Code extension can read:
 - Prompt Proxy's own `@promptoptimizer` chat history.
 
 The public VS Code API does not expose the private transcript of other chat participants. That means the extension can integrate natively into the Chat view and reuse its own conversation history, but it cannot scrape the built-in Copilot transcript from another participant.
+
+## SDLC Modes And Custom Skills
+
+The engine now supports a scored skill registry on top of the optimizer pipeline.
+
+- Built-in SDLC modes include `/plan`, `/arch`, `/code`, `/test`, `/review`, `/security`, `/qa`, `/devops`, `/docs`, `/pr`, `/full`, `/bug-fix`, and `/refactor`.
+- Custom skills load from `<workspace>/.promptoptimizer/skills/*.md` and from the optional `PROMPT_OPTIMIZER_SKILLS_DIR` environment variable.
+- Skill frontmatter supports `slashAliases`, `intentPatterns`, `keywords`, `requires`, `filePatterns`, `priority`, `tags`, and `rolePreface`, plus checklist items in frontmatter or markdown.
+- Skill files hot-reload on the next prompt, and the CLI `--list-modes` surface reports both registered modes and load errors.
+- The VS Code extension bundles reusable SDLC agent definitions and exposes an Agents panel action to enable, edit, reset, and disable them per workspace.
 
 ## Runtime Dependencies
 
@@ -173,6 +184,12 @@ You can also pass a request file:
 
 ```bash
 node dist/cli.js --file request.json --db prompt_semantic_cache.db
+```
+
+To inspect the active mode/skill registry for a workspace:
+
+```bash
+node dist/cli.js --list-modes --workspace-root .
 ```
 
 ## VS Code Extension Package

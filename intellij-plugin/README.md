@@ -37,7 +37,7 @@ After launching the sandbox IDE:
 ## Build & Package
 
 ```bash
-./gradlew buildPlugin       # produces build/distributions/prompt-proxy-intellij-1.0.0.zip
+./gradlew buildPlugin       # produces build/distributions/prompt-proxy-intellij-2.0.0.zip
 ```
 
 ---
