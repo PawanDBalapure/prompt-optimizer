@@ -408,6 +408,71 @@ function registerCommands(
     }
   }));
 
+  push(vscode.commands.registerCommand('prompt-proxy.fileDigests', async () => {
+    const dbPath = getDbPath(context);
+    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const wsId = computeWorkspaceId(wsRoot);
+    try {
+      const statsRaw = runEngineRaw(['--digest-stats', '--workspace', wsId, '--db', dbPath]);
+      const stats = JSON.parse(statsRaw) as { files: number; total_visits: number; last_updated: number | null };
+      const listRaw = runEngineRaw(['--digest-list', '--workspace', wsId, '--limit', '50', '--db', dbPath]);
+      const rows = JSON.parse(listRaw) as Array<{ path: string; language: string; visitCount: number; summary: string; updatedAt: number }>;
+
+      if (rows.length === 0) {
+        const action = await vscode.window.showInformationMessage(
+          `Studied files (workspace ${wsId}): 0. The optimizer records files the moment they appear in an optimization context.`,
+          'Clear all',
+        );
+        if (action === 'Clear all') {
+          runEngineRaw(['--digest-clear', '--workspace', wsId, '--db', dbPath]);
+        }
+        return;
+      }
+
+      const items = rows.map((row) => ({
+        label: `$(file-code) ${row.path}`,
+        description: `${row.language || '—'} · seen ${row.visitCount}x`,
+        detail: row.summary?.trim() ? row.summary.slice(0, 160) : '(no summary)',
+        path: row.path,
+      }));
+      items.push({
+        label: '$(trash) Clear all studied-file digests for this workspace',
+        description: `${stats.files} file(s) · ${stats.total_visits} visit(s)`,
+        detail: 'Removes the cross-session "I have studied this file" memory. Cache and knowledge graph are not touched.',
+        path: '__clear__',
+      });
+
+      const pick = await vscode.window.showQuickPick(items, {
+        placeHolder: `${stats.files} studied file(s) — ${stats.total_visits} total visits`,
+        matchOnDescription: true,
+        matchOnDetail: true,
+      });
+      if (!pick) { return; }
+      if (pick.path === '__clear__') {
+        const confirm = await vscode.window.showWarningMessage(
+          `Clear all ${stats.files} studied-file digest(s) for workspace ${wsId}?`,
+          { modal: true },
+          'Clear',
+        );
+        if (confirm !== 'Clear') { return; }
+        runEngineRaw(['--digest-clear', '--workspace', wsId, '--db', dbPath]);
+        vscode.window.showInformationMessage('Studied-file digests cleared for this workspace.');
+        return;
+      }
+      if (wsRoot) {
+        try {
+          const fileUri = vscode.Uri.joinPath(vscode.Uri.file(wsRoot), pick.path);
+          const doc = await vscode.workspace.openTextDocument(fileUri);
+          await vscode.window.showTextDocument(doc);
+        } catch {
+          vscode.window.showWarningMessage(`Could not open ${pick.path} — it may have moved or been deleted.`);
+        }
+      }
+    } catch (err) {
+      vscode.window.showErrorMessage(`Studied files command failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }));
+
   // -- Agent skills (SDLC modes) ------------------------------------------
   push(vscode.commands.registerCommand('prompt-proxy.listSkills', async () => {
     try {

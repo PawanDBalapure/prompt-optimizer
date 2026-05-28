@@ -34,6 +34,7 @@ import { containsLegacyExampleSection, sanitizeOptimizedPrompt } from './engine/
 import type { ResolvedPromptPricingConfig } from './engine/types.js';
 import { hashPromptKey, withTimeout } from './engine/utils.js';
 import { KnowledgeGraph } from './engine/knowledgeGraph.js';
+import { FileDigestStore } from './engine/fileDigest.js';
 import {
   formatMemorySections,
   readWorkspaceMemory,
@@ -60,6 +61,7 @@ export class PromptProxyEngine {
   private readonly defaultPricing: ResolvedPromptPricingConfig;
   private knowledgeGraph: KnowledgeGraph | null = null;
   private federation: CrossWorkspaceFederation | null = null;
+  private fileDigests: FileDigestStore | null = null;
 
   constructor(options?: string | PromptProxyEngineOptions) {
     const dbPath = typeof options === 'string' ? options : options?.db_path;
@@ -73,7 +75,13 @@ export class PromptProxyEngine {
     if (db) {
       this.knowledgeGraph = new KnowledgeGraph(db);
       this.federation = new CrossWorkspaceFederation(db);
+      this.fileDigests = new FileDigestStore(db);
     }
+  }
+
+  /** Public accessor for the per-file digest store (used by CLI / extension). */
+  public getFileDigestStore(): FileDigestStore | null {
+    return this.fileDigests;
   }
 
   /** Public accessor for VS Code commands that manage peer workspaces. */
@@ -240,6 +248,23 @@ export class PromptProxyEngine {
         for (const suggestion of suggestions) { sections.push(suggestion.text); }
       }
     } catch { /* KG must never break optimization */ }
+
+    // Per-file digest: record what we have studied this turn, then surface
+    // recall hints for files we have seen before but are NOT re-injecting in
+    // full content this turn.  This is the cross-session "I remember this
+    // file" signal that survives a new chat.
+    try {
+      if (this.fileDigests) {
+        this.fileDigests.recordFromIde(workspaceId, ide);
+        const liveFilePaths = new Set<string>();
+        if (ide?.active_file?.path) { liveFilePaths.add(ide.active_file.path); }
+        for (const f of ide?.open_files ?? []) {
+          if (f?.path) { liveFilePaths.add(f.path); }
+        }
+        const recall = this.fileDigests.formatRecallSections(workspaceId, liveFilePaths);
+        sections.push(...recall);
+      }
+    } catch { /* digest layer must never break optimization */ }
 
     try {
       if (this.federation) {

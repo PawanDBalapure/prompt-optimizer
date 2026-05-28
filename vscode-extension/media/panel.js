@@ -223,28 +223,33 @@ function renderStatusOverview(overview) {
   var kgCount     = document.getElementById('kgCount');
   var cacheCount  = document.getElementById('cacheCount');
   var peerCount   = document.getElementById('peerCount');
+  var digestCount = document.getElementById('digestCount');
   var memoryVal = (overview.memory && overview.memory.entries) || 0;
   var kgNodes   = (overview.kg && overview.kg.nodes) || 0;
   var kgEdges   = (overview.kg && overview.kg.edges) || 0;
   var cacheVal  = (overview.cache && overview.cache.entries) || 0;
   var peerVal   = (overview.peers && overview.peers.enabled) || 0;
+  var digestVal = (overview.digests && overview.digests.files) || 0;
   if (memoryCount) { memoryCount.textContent = String(memoryVal); }
   if (kgCount)     { kgCount.textContent     = String(kgNodes + '/' + kgEdges); }
   if (cacheCount)  { cacheCount.textContent  = String(cacheVal); }
   if (peerCount)   { peerCount.textContent   = String(peerVal); }
+  if (digestCount) { digestCount.textContent = String(digestVal); }
 
-  var hasAnyData = memoryVal > 0 || kgNodes > 0 || cacheVal > 0 || peerVal > 0;
+  var hasAnyData = memoryVal > 0 || kgNodes > 0 || cacheVal > 0 || peerVal > 0 || digestVal > 0;
   var pillIndexing = document.getElementById('pillIndexing');
   var pillMemory   = document.getElementById('pillMemory');
   var pillKg       = document.getElementById('pillKg');
   var pillCache    = document.getElementById('pillCache');
   var pillPeers    = document.getElementById('pillPeers');
+  var pillDigests  = document.getElementById('pillDigests');
   if (hasAnyData) {
     if (pillIndexing) { pillIndexing.hidden = true; }
     if (pillMemory)   { pillMemory.hidden = false; }
     if (pillKg)       { pillKg.hidden = false; }
     if (pillCache)    { pillCache.hidden = false; }
     if (pillPeers)    { pillPeers.hidden = false; }
+    if (pillDigests)  { pillDigests.hidden = false; }
   } else {
     // Bootstrap hasn't produced any rows yet; keep the indexing pill visible
     // so the panel never looks empty after install. A follow-up refresh will
@@ -258,6 +263,7 @@ function renderStatusOverview(overview) {
     if (pillKg)     { pillKg.hidden = true; }
     if (pillCache)  { pillCache.hidden = true; }
     if (pillPeers)  { pillPeers.hidden = true; }
+    if (pillDigests) { pillDigests.hidden = true; }
   }
   strip.hidden = false;
 }

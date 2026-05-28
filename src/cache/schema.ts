@@ -69,6 +69,27 @@ export function initializeSchema(db: Database.Database): void {
       UNIQUE(workspace_id, source)
     );
     CREATE INDEX IF NOT EXISTS idx_ws_memory_ws ON workspace_memory(workspace_id);
+
+    -- Per-file "studied" digest so cross-session prompts can remember which
+    -- files have already been analyzed in this workspace.  Keyed by
+    -- (workspace_id, path); content_hash + mtime + size let us cheaply
+    -- detect when a file has actually changed since the last visit.
+    CREATE TABLE IF NOT EXISTS file_digest (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      workspace_id TEXT NOT NULL,
+      path TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      mtime INTEGER NOT NULL,
+      size INTEGER NOT NULL,
+      language TEXT DEFAULT '',
+      summary TEXT DEFAULT '',
+      visit_count INTEGER DEFAULT 1,
+      first_seen_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(workspace_id, path)
+    );
+    CREATE INDEX IF NOT EXISTS idx_file_digest_ws ON file_digest(workspace_id);
+    CREATE INDEX IF NOT EXISTS idx_file_digest_updated ON file_digest(updated_at);
   `);
 
   // Safe migrations — ADD COLUMN throws if the column already exists in older

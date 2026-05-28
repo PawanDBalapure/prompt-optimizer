@@ -33,7 +33,10 @@ function printHelp(): void {
       '   or: prompt-proxy-engine --peer-add --label <name> --peer-db <path> [--db <path>]\n' +
       '   or: prompt-proxy-engine --peer-remove --peer-db <path> [--db <path>]\n' +
       '   or: prompt-proxy-engine --peer-toggle --peer-db <path> [--enabled true|false] [--db <path>]\n' +
-      '   or: prompt-proxy-engine --kg-stats [--workspace <id>] [--db <path>]\n'
+      '   or: prompt-proxy-engine --kg-stats [--workspace <id>] [--db <path>]\n' +
+      '   or: prompt-proxy-engine --digest-stats [--workspace <id>] [--db <path>]\n' +
+      '   or: prompt-proxy-engine --digest-list --workspace <id> [--limit <n>] [--db <path>]\n' +
+      '   or: prompt-proxy-engine --digest-clear [--workspace <id>] [--db <path>]\n'
   );
 }
 
@@ -223,6 +226,52 @@ async function handleKgStats(args: string[]): Promise<void> {
   }
 }
 
+async function handleDigestStats(args: string[]): Promise<void> {
+  const engine = new PromptProxyEngine(resolveDbPath(args) ? { db_path: resolveDbPath(args) } : {});
+  await engine.initialize();
+  try {
+    const store = engine.getFileDigestStore();
+    const workspace = resolveArg(args, '--workspace');
+    const stats = store ? store.stats(workspace) : { files: 0, total_visits: 0, last_updated: null };
+    process.stdout.write(`${JSON.stringify(stats)}\n`);
+  } finally {
+    engine.close();
+  }
+}
+
+async function handleDigestList(args: string[]): Promise<void> {
+  const workspace = resolveArg(args, '--workspace');
+  if (!workspace) {
+    process.stderr.write('Error: --digest-list requires --workspace <id>.\n');
+    process.exitCode = 1;
+    return;
+  }
+  const limitStr = resolveArg(args, '--limit');
+  const limit = limitStr ? Math.max(1, Math.min(500, Number(limitStr) || 50)) : 50;
+  const engine = new PromptProxyEngine(resolveDbPath(args) ? { db_path: resolveDbPath(args) } : {});
+  await engine.initialize();
+  try {
+    const store = engine.getFileDigestStore();
+    const rows = store ? store.list(workspace, limit) : [];
+    process.stdout.write(`${JSON.stringify(rows)}\n`);
+  } finally {
+    engine.close();
+  }
+}
+
+async function handleDigestClear(args: string[]): Promise<void> {
+  const workspace = resolveArg(args, '--workspace');
+  const engine = new PromptProxyEngine(resolveDbPath(args) ? { db_path: resolveDbPath(args) } : {});
+  await engine.initialize();
+  try {
+    const store = engine.getFileDigestStore();
+    const removed = store ? store.clear(workspace) : 0;
+    process.stdout.write(`${JSON.stringify({ removed })}\n`);
+  } finally {
+    engine.close();
+  }
+}
+
 /**
  * Combined snapshot used by the VS Code panel to show users that their local
  * indexing is active and growing.  Returns counts for cache, knowledge graph,
@@ -249,11 +298,14 @@ async function handleStatusOverview(args: string[]): Promise<void> {
         memoryCount = row?.c ?? 0;
       } catch { /* ignore */ }
     }
+    const digestStore = engine.getFileDigestStore();
+    const digestStats = digestStore ? digestStore.stats(workspace) : { files: 0, total_visits: 0, last_updated: null };
     process.stdout.write(`${JSON.stringify({
       cache: { entries: cacheStats.total_entries, hits: cacheStats.total_hits, avg_confidence: cacheStats.avg_confidence },
       kg: kgStats,
       peers: { total: peers.length, enabled: peers.filter((p) => p.enabled).length },
       memory: { entries: memoryCount },
+      digests: digestStats,
     })}\n`);
   } finally {
     engine.close();
@@ -367,6 +419,21 @@ async function main(): Promise<void> {
 
   if (args.includes('--kg-stats')) {
     await handleKgStats(args);
+    return;
+  }
+
+  if (args.includes('--digest-stats')) {
+    await handleDigestStats(args);
+    return;
+  }
+
+  if (args.includes('--digest-list')) {
+    await handleDigestList(args);
+    return;
+  }
+
+  if (args.includes('--digest-clear')) {
+    await handleDigestClear(args);
     return;
   }
 

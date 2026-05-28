@@ -537,4 +537,71 @@ export async function runRegressionScenarios(): Promise<void> {
   promptModes._resetSkillCacheForTests();
   resetDatabase(robustDbFile);
   console.log('  robust skill parsing + smart picker: PASSED');
+
+  console.log('\n16. Validating cross-session per-file digest memory...');
+  const digestDbFile = 'prompt_semantic_cache_digest_test.db';
+  resetDatabase(digestDbFile);
+
+  // Session 1: open an engine, study a file, then close.
+  const sess1 = new PromptProxyEngine({ db_path: digestDbFile });
+  await sess1.initialize();
+  const studiedFile = {
+    path: 'src/api/auth.ts',
+    content: 'export function verifyJwt(token: string): boolean {\n  return token.length > 0;\n}\n',
+    language: 'ts',
+  };
+  await sess1.processRequest({
+    raw_prompt: 'Explain the verifyJwt helper',
+    workspace_id: 'digest-test',
+    ide_context: { workspace_root: '/virtual/digest-test', active_file: studiedFile },
+  });
+  const sess1Stats = sess1.getFileDigestStore()!.stats('digest-test');
+  assert.ok(sess1Stats.files >= 1, 'session 1 must persist at least one file digest');
+  sess1.close();
+
+  // Session 2: brand new engine reading the same DB; without re-injecting the
+  // file content we should still get a "previously analyzed" recall section.
+  const sess2 = new PromptProxyEngine({ db_path: digestDbFile });
+  await sess2.initialize();
+  const recallResp = await sess2.processRequest({
+    raw_prompt: 'What did we change in auth recently?',
+    workspace_id: 'digest-test',
+    ide_context: { workspace_root: '/virtual/digest-test' },
+  });
+  assertSchema(recallResp);
+  assert.ok(
+    recallResp.optimized_prompt.includes('previously analyzed file: src/api/auth.ts'),
+    `Expected cross-session recall hint for studied file. Got:\n${recallResp.optimized_prompt}`,
+  );
+  assert.ok(
+    recallResp.optimized_prompt.includes('verifyJwt'),
+    'recall section should include the captured summary',
+  );
+
+  // When the file IS re-injected as full content, we must NOT also duplicate
+  // it as a recall hint.
+  const liveResp = await sess2.processRequest({
+    raw_prompt: 'Refactor verifyJwt to accept an options bag',
+    workspace_id: 'digest-test',
+    ide_context: { workspace_root: '/virtual/digest-test', active_file: studiedFile },
+  });
+  assertSchema(liveResp);
+  assert.ok(
+    !liveResp.optimized_prompt.includes('previously analyzed file: src/api/auth.ts'),
+    'recall hint must be suppressed when the file is provided as live content',
+  );
+
+  // Visit count should grow across the three calls.
+  const finalStats = sess2.getFileDigestStore()!.stats('digest-test');
+  assert.ok(finalStats.total_visits >= 2, `expected visits to accumulate, got ${finalStats.total_visits}`);
+
+  // Clearing wipes only this workspace.
+  const removed = sess2.getFileDigestStore()!.clear('digest-test');
+  assert.ok(removed >= 1, 'clear should remove at least one row');
+  const afterClear = sess2.getFileDigestStore()!.stats('digest-test');
+  assert.equal(afterClear.files, 0, 'workspace digests should be empty after clear');
+
+  sess2.close();
+  resetDatabase(digestDbFile);
+  console.log('  cross-session per-file digest memory: PASSED');
 }

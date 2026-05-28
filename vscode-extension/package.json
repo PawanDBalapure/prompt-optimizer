@@ -237,6 +237,10 @@
         "title": "Prompt Optimizer: Show Knowledge Graph Stats"
       },
       {
+        "command": "prompt-proxy.fileDigests",
+        "title": "Prompt Optimizer: Show Studied Files (Cross-Session Memory)"
+      },
+      {
         "command": "prompt-proxy.selectMode",
         "title": "Prompt Optimizer: Select Mode (Agent / Optimize / Direct)"
       },
