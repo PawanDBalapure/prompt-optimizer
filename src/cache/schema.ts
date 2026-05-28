@@ -1,7 +1,43 @@
 import type Database from 'better-sqlite3';
 
+/**
+ * Current logical schema version.  Bumped whenever an additive migration is
+ * appended below.  The on-disk DB tracks its own version in `schema_version`
+ * so we never re-run an already-applied migration.
+ */
+export const CURRENT_SCHEMA_VERSION = 3;
+
+/**
+ * Apply SQLite-level safety pragmas before any DML runs.  Idempotent: each
+ * pragma is safe to set repeatedly.  Tuned for VS Code's multi-window pattern
+ * where several extension hosts may share one workspace DB.
+ *
+ * - `journal_mode=WAL`     readers never block writers (within the same fs)
+ * - `busy_timeout=5000`    wait 5 s before raising SQLITE_BUSY on contention
+ * - `synchronous=NORMAL`   durable enough for a cache; ~2x faster than FULL
+ * - `foreign_keys=ON`      future FKs are enforced
+ * - `temp_store=MEMORY`    avoid scratch files in user temp dirs
+ */
+export function applyDatabasePragmas(db: Database.Database): void {
+  try { db.pragma('journal_mode = WAL'); } catch { /* readonly fs — skip */ }
+  try { db.pragma('busy_timeout = 5000'); } catch { /* noop */ }
+  try { db.pragma('synchronous = NORMAL'); } catch { /* noop */ }
+  try { db.pragma('foreign_keys = ON'); } catch { /* noop */ }
+  try { db.pragma('temp_store = MEMORY'); } catch { /* noop */ }
+}
+
 /** Idempotently create tables, indexes, and migrations for the semantic cache. */
 export function initializeSchema(db: Database.Database): void {
+  applyDatabasePragmas(db);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS schema_version (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      version INTEGER NOT NULL,
+      applied_at INTEGER NOT NULL
+    );
+  `);
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS semantic_cache (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,5 +141,33 @@ export function initializeSchema(db: Database.Database): void {
   try {
     db.exec('CREATE INDEX IF NOT EXISTS idx_workspace ON semantic_cache(workspace_id)');
   } catch { /* already exists */ }
+
+  // Enterprise: local-only operation counters for the --metrics CLI.
+  // Append-only (UPSERT) so concurrent writers can't corrupt the totals.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS engine_metrics (
+      metric TEXT PRIMARY KEY,
+      count INTEGER NOT NULL DEFAULT 0,
+      last_at INTEGER NOT NULL DEFAULT 0
+    );
+  `);
+
+  // Record the resolved schema version after all migrations applied.
+  try {
+    db.prepare(`
+      INSERT INTO schema_version (id, version, applied_at) VALUES (1, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET version = excluded.version, applied_at = excluded.applied_at
+    `).run(CURRENT_SCHEMA_VERSION, Date.now());
+  } catch { /* schema_version may not exist on truly ancient DBs — ignore */ }
+}
+
+/** Read the on-disk schema version (0 if uninitialised). */
+export function readSchemaVersion(db: Database.Database): number {
+  try {
+    const row = db.prepare('SELECT version FROM schema_version WHERE id = 1').get() as { version: number } | undefined;
+    return row?.version ?? 0;
+  } catch {
+    return 0;
+  }
 }
 

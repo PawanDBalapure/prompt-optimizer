@@ -192,6 +192,47 @@ To inspect the active mode/skill registry for a workspace:
 node dist/cli.js --list-modes --workspace-root .
 ```
 
+## Enterprise Operations
+
+The engine ships production-grade operability for self-hosted deployments. All commands write a single JSON object to stdout.
+
+```bash
+# Run integrity + schema + table checks (PRAGMA quick_check + required tables + pragmas + sizes)
+node dist/cli.js --health-check --db prompt_semantic_cache.db
+
+# Inspect persisted counters (requests, cache hits/writes, redaction hits, maintenance)
+node dist/cli.js --metrics --db prompt_semantic_cache.db
+node dist/cli.js --metrics --reset --db prompt_semantic_cache.db
+
+# Retention / eviction with overridable caps and optional VACUUM
+node dist/cli.js --db-prune --max-cache 10000 --max-digests 5000 --max-kg 20000 \
+  --older-than-days 90 --vacuum --db prompt_semantic_cache.db
+
+# Online backup (uses better-sqlite3 db.backup() with a WAL checkpoint+copy fallback)
+node dist/cli.js --export-db ./backup.db --db prompt_semantic_cache.db
+
+# Validate that the redactor catches representative secrets
+node dist/cli.js --redact-test
+```
+
+### Environment knobs
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `PROMPT_OPT_LOG_LEVEL` | `warn` | `debug` / `info` / `warn` / `error` / `silent` — controls stderr logging |
+| `PROMPT_OPT_LOG_FORMAT` | `text` | Set to `json` for structured logs in shipping pipelines |
+| `PROMPT_OPT_REDACT` | `1` | Set to `0` to disable persistence-time secret redaction (not recommended) |
+| `PROMPT_OPT_REDACT_PII` | `0` | Set to `1` to additionally redact email / phone / SSN / credit card |
+
+### What is hardened
+
+- **SQLite**: WAL journaling, 5s busy timeout, `synchronous=NORMAL`, `foreign_keys=ON`, schema-version row (currently 3) for forward-compatible migrations.
+- **Secret / PII redaction** at every persistence boundary (semantic cache writes, workspace memory snapshots, file digest summaries).
+- **Metrics** persisted in an `engine_metrics` table; counters are incremented on every request, cache outcome, write, redaction hit, and maintenance run.
+- **Retention** caps the database row growth per workspace and prunes stale entries.
+- **Health check** validates integrity, schema version, and that all 9 required tables exist.
+- **Online backup** produces a consistent point-in-time copy without stopping the engine.
+
 ## VS Code Extension Package
 
 The extension-specific README that shows up in VS Code now lives in `vscode-extension/README.md`.

@@ -8,6 +8,9 @@ import { PromptProxyEngine } from './PromptProxyEngine.js';
 import { SemanticCacheManager } from './SemanticCacheManager.js';
 import { PromptEvalEngine } from './PromptEvalEngine.js';
 import { listRegisteredModes, listSkillErrors } from './engine/promptModes.js';
+import { runHealthCheck } from './engine/health.js';
+import { exportDatabase } from './engine/backup.js';
+import { redactForPersistence } from './engine/redactor.js';
 
 function readStdin(): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -36,7 +39,12 @@ function printHelp(): void {
       '   or: prompt-proxy-engine --kg-stats [--workspace <id>] [--db <path>]\n' +
       '   or: prompt-proxy-engine --digest-stats [--workspace <id>] [--db <path>]\n' +
       '   or: prompt-proxy-engine --digest-list --workspace <id> [--limit <n>] [--db <path>]\n' +
-      '   or: prompt-proxy-engine --digest-clear [--workspace <id>] [--db <path>]\n'
+      '   or: prompt-proxy-engine --digest-clear [--workspace <id>] [--db <path>]\n' +
+      '   or: prompt-proxy-engine --health-check [--db <path>]\n' +
+      '   or: prompt-proxy-engine --metrics [--reset] [--db <path>]\n' +
+      '   or: prompt-proxy-engine --db-prune [--max-cache N] [--max-digests N] [--max-kg N] [--older-than-days N] [--vacuum] [--db <path>]\n' +
+      '   or: prompt-proxy-engine --export-db <destination.db> [--db <path>]\n' +
+      '   or: prompt-proxy-engine --redact-test (reads stdin, prints redacted output)\n'
   );
 }
 
@@ -272,6 +280,101 @@ async function handleDigestClear(args: string[]): Promise<void> {
   }
 }
 
+async function handleHealthCheck(args: string[]): Promise<void> {
+  const dbPath = resolveDbPath(args) ?? 'prompt_semantic_cache.db';
+  const engine = new PromptProxyEngine({ db_path: dbPath });
+  await engine.initialize();
+  try {
+    const db = engine.getCacheManager().rawDatabase();
+    const report = runHealthCheck(db, engine.getCacheManager().databasePath());
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    if (!report.ok) { process.exitCode = 2; }
+  } finally {
+    engine.close();
+  }
+}
+
+async function handleMetrics(args: string[]): Promise<void> {
+  const reset = args.includes('--reset');
+  const engine = new PromptProxyEngine(resolveDbPath(args) ? { db_path: resolveDbPath(args) } : {});
+  await engine.initialize();
+  try {
+    const metrics = engine.getCacheManager().metrics();
+    if (!metrics) {
+      process.stdout.write(`${JSON.stringify({ counters: [] })}\n`);
+      return;
+    }
+    if (reset) {
+      const removed = metrics.reset();
+      process.stdout.write(`${JSON.stringify({ reset: true, removed })}\n`);
+      return;
+    }
+    process.stdout.write(`${JSON.stringify({ counters: metrics.snapshot() }, null, 2)}\n`);
+  } finally {
+    engine.close();
+  }
+}
+
+async function handleDbPrune(args: string[]): Promise<void> {
+  const numArg = (flag: string): number | undefined => {
+    const v = resolveArg(args, flag);
+    if (v === undefined) { return undefined; }
+    const n = Number(v);
+    return Number.isFinite(n) ? n : undefined;
+  };
+  const engine = new PromptProxyEngine(resolveDbPath(args) ? { db_path: resolveDbPath(args) } : {});
+  await engine.initialize();
+  try {
+    const service = engine.getMaintenanceService();
+    if (!service) {
+      process.stdout.write(`${JSON.stringify({ ok: false, error: 'maintenance unavailable' })}\n`);
+      process.exitCode = 1;
+      return;
+    }
+    const report = service.run({
+      maxCacheEntries:        numArg('--max-cache'),
+      maxDigestsPerWorkspace: numArg('--max-digests'),
+      maxKgNodesPerWorkspace: numArg('--max-kg'),
+      staleCacheAgeDays:      numArg('--older-than-days'),
+      staleDigestAgeDays:     numArg('--older-than-days'),
+      vacuum:                 args.includes('--vacuum'),
+    });
+    engine.getCacheManager().metrics()?.increment('maintenance.runs');
+    engine.getCacheManager().metrics()?.increment(
+      'maintenance.entries_evicted',
+      report.evicted.cache_rows + report.evicted.digest_rows + report.evicted.kg_nodes,
+    );
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  } finally {
+    engine.close();
+  }
+}
+
+async function handleExportDb(args: string[]): Promise<void> {
+  const dest = resolveArg(args, '--export-db');
+  if (!dest) {
+    process.stderr.write('Error: --export-db requires a destination path.\n');
+    process.exitCode = 1;
+    return;
+  }
+  const engine = new PromptProxyEngine(resolveDbPath(args) ? { db_path: resolveDbPath(args) } : {});
+  await engine.initialize();
+  try {
+    const cm = engine.getCacheManager();
+    const report = await exportDatabase(cm.rawDatabase(), cm.databasePath(), dest);
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    if (!report.ok) { process.exitCode = 1; }
+  } finally {
+    engine.close();
+  }
+}
+
+async function handleRedactTest(): Promise<void> {
+  const input = await readStdin();
+  const result = redactForPersistence(input);
+  process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+}
+
 /**
  * Combined snapshot used by the VS Code panel to show users that their local
  * indexing is active and growing.  Returns counts for cache, knowledge graph,
@@ -434,6 +537,31 @@ async function main(): Promise<void> {
 
   if (args.includes('--digest-clear')) {
     await handleDigestClear(args);
+    return;
+  }
+
+  if (args.includes('--health-check')) {
+    await handleHealthCheck(args);
+    return;
+  }
+
+  if (args.includes('--metrics')) {
+    await handleMetrics(args);
+    return;
+  }
+
+  if (args.includes('--db-prune')) {
+    await handleDbPrune(args);
+    return;
+  }
+
+  if (args.includes('--export-db')) {
+    await handleExportDb(args);
+    return;
+  }
+
+  if (args.includes('--redact-test')) {
+    await handleRedactTest();
     return;
   }
 

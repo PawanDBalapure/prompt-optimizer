@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
+import Database from 'better-sqlite3';
 import { PromptProxyEngine } from '../PromptProxyEngine.js';
 import { IntelliJPromptProxyAdapter } from '../adapters/IntelliJPromptProxyAdapter.js';
 import { VSCodePromptProxyAdapter } from '../adapters/VSCodePromptProxyAdapter.js';
@@ -302,7 +303,7 @@ export async function runRegressionScenarios(): Promise<void> {
     'mode should be surfaced in improvements',
   );
 
-  // Intent words: "fix the bug" → bug-fix mode without explicit trigger.
+  // Intent words: "fix the bug" â†’ bug-fix mode without explicit trigger.
   const bugResp = await modeEngine.processRequest({
     raw_prompt: 'Please fix the bug where the login button crashes the page',
     workspace_id: 'mode-test',
@@ -312,7 +313,7 @@ export async function runRegressionScenarios(): Promise<void> {
   assert.equal(bugResp.sdlc_mode?.trigger, null);
   assert.ok(bugResp.optimized_prompt.startsWith('# Role — Bug Fix workflow'));
 
-  // Neutral prompt: no slash, no intent words → no mode applied.
+  // Neutral prompt: no slash, no intent words â†’ no mode applied.
   const neutralResp = await modeEngine.processRequest({
     raw_prompt: 'Summarise the difference between TCP and UDP.',
     workspace_id: 'mode-test',
@@ -604,4 +605,127 @@ export async function runRegressionScenarios(): Promise<void> {
   sess2.close();
   resetDatabase(digestDbFile);
   console.log('  cross-session per-file digest memory: PASSED');
+
+  console.log('\n17. Validating enterprise hardening (redaction, retention, metrics, health, backup)...');
+  const { redactForPersistence } = await import('../engine/redactor.js');
+  const { runHealthCheck } = await import('../engine/health.js');
+  const { exportDatabase } = await import('../engine/backup.js');
+  const { CURRENT_SCHEMA_VERSION, readSchemaVersion } = await import('../cache/schema.js');
+
+  // (a) Redactor: each rule fires on representative input.
+  const sampleSecrets = [
+    'AKIAABCDEFGHIJKLMNOP',
+    'ghp_' + 'a'.repeat(40),
+    'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c',
+    'Authorization: Bearer abcdef1234567890abcdef1234567890',
+    'DATABASE_PASSWORD=super-secret-pa55word!',
+  ].join('\n');
+  const redaction = redactForPersistence(sampleSecrets);
+  assert.ok(redaction.hits.length >= 4, `expected multiple redaction hits, got ${redaction.hits.length}`);
+  assert.ok(!redaction.redacted.includes('AKIAABCDEFGHIJKLMNOP'), 'AWS key must be redacted');
+  assert.ok(!redaction.redacted.includes('ghp_aaaaaaaaaa'), 'GitHub PAT must be redacted');
+  assert.ok(!redaction.redacted.includes('super-secret-pa55word'), 'env secret must be redacted');
+  assert.ok(!redaction.redacted.includes('eyJzdWIiOiIxMjM0NTY3ODkwIn0'), 'JWT body must be redacted');
+  console.log('  redaction rules cover secrets: PASSED');
+
+  // (b) Persistence redaction: secrets in workspace memory + file digests do
+  // not survive a round-trip through the DB.
+  const entDbFile = 'prompt_semantic_cache_enterprise_test.db';
+  resetDatabase(entDbFile);
+  const entRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-opt-ent-'));
+  fs.writeFileSync(
+    path.join(entRoot, 'AGENTS.md'),
+    'Team conventions: rotate the OPENAI_API_KEY=sk-proj-aaaaaaaaaaaaaaaaaaaaaaaa weekly.\n- Never log PII.',
+  );
+  const entEngine = new PromptProxyEngine({ db_path: entDbFile });
+  await entEngine.initialize();
+  await entEngine.processRequest({
+    raw_prompt: 'Sketch the authentication helper API',
+    workspace_id: 'ent-test',
+    ide_context: {
+      workspace_root: entRoot,
+      active_file: {
+        path: 'src/api/auth.ts',
+        content: 'export const TOKEN = "ghp_' + 'b'.repeat(40) + '";\nexport function verify() { return true; }',
+        language: 'ts',
+      },
+    },
+  });
+  const entDb = entEngine.getCacheManager().rawDatabase();
+  const memRow = entDb
+    .prepare('SELECT content FROM workspace_memory WHERE workspace_id = ?')
+    .get('ent-test') as { content: string } | undefined;
+  assert.ok(memRow, 'workspace memory row should exist');
+  assert.ok(!memRow!.content.includes('sk-proj-aaaaaaaa'),
+    `OPENAI_API_KEY must be redacted in stored memory. Got: ${memRow!.content}`);
+  const digestRow = entDb
+    .prepare('SELECT summary FROM file_digest WHERE workspace_id = ? AND path = ?')
+    .get('ent-test', 'src/api/auth.ts') as { summary: string } | undefined;
+  assert.ok(digestRow, 'file digest row should exist');
+  assert.ok(!digestRow!.summary.includes('ghp_bbbbbbb'),
+    `GitHub PAT must be redacted in stored digest summary. Got: ${digestRow!.summary}`);
+  console.log('  persistence redaction (memory + digests): PASSED');
+
+  // (c) Schema hardening: version row matches expected, WAL pragma set.
+  assert.equal(readSchemaVersion(entDb), CURRENT_SCHEMA_VERSION,
+    `schema_version should be ${CURRENT_SCHEMA_VERSION}`);
+  const journal = entDb.pragma('journal_mode', { simple: true });
+  assert.equal(String(journal).toLowerCase(), 'wal', `journal_mode should be wal, got ${journal}`);
+  console.log('  schema_version + WAL pragmas: PASSED');
+
+  // (d) Metrics: counters populated after a request.
+  const metrics = entEngine.getCacheManager().metrics()!;
+  const snap = metrics.snapshot();
+  assert.ok(snap.some((m) => m.metric === 'requests.total' && m.count >= 1),
+    'requests.total should be at least 1');
+  assert.ok(snap.some((m) => m.metric === 'cache.writes' && m.count >= 1),
+    'cache.writes should be at least 1');
+  console.log('  metrics counters populated: PASSED');
+
+  // (e) Health check: ok=true, all required tables present, schema match.
+  const health = runHealthCheck(entDb, entDbFile);
+  assert.equal(health.ok, true, `health should be ok, got: ${JSON.stringify(health)}`);
+  assert.equal(health.schema_version.on_disk, CURRENT_SCHEMA_VERSION);
+  assert.ok(health.tables.semantic_cache >= 0);
+  assert.ok(health.tables.file_digest >= 0);
+  assert.ok(health.tables.engine_metrics >= 0);
+  console.log('  --health-check report green: PASSED');
+
+  // (f) Maintenance: cap cache to 1 row, verify eviction count.
+  for (let i = 0; i < 3; i++) {
+    await entEngine.processRequest({ raw_prompt: `extra prompt #${i}`, workspace_id: 'ent-test' });
+  }
+  const beforeCap = entDb.prepare('SELECT COUNT(*) AS c FROM semantic_cache').get() as { c: number };
+  assert.ok(beforeCap.c >= 2, `expected multiple cache rows before cap, got ${beforeCap.c}`);
+  const maintenanceReport = entEngine.getMaintenanceService()!.run({
+    maxCacheEntries: 1,
+    maxDigestsPerWorkspace: 100,
+    maxKgNodesPerWorkspace: 100,
+    staleCacheAgeDays: 365,
+    staleDigestAgeDays: 365,
+  });
+  assert.ok(maintenanceReport.evicted.cache_rows >= 1,
+    `expected cache eviction, got ${JSON.stringify(maintenanceReport.evicted)}`);
+  const afterCap = entDb.prepare('SELECT COUNT(*) AS c FROM semantic_cache').get() as { c: number };
+  assert.equal(afterCap.c, 1, 'cache should be capped to 1 row');
+  console.log('  retention/eviction caps applied: PASSED');
+
+  // (g) Backup: online backup produces a valid second DB file with content.
+  const backupDest = path.join(os.tmpdir(), `prompt-opt-backup-${Date.now()}.db`);
+  const backupReport = await exportDatabase(entDb, entDbFile, backupDest);
+  assert.equal(backupReport.ok, true, `backup should succeed: ${backupReport.error}`);
+  assert.ok(backupReport.bytes > 0, 'backup file must be non-empty');
+  const cloned = new Database(backupDest, { readonly: true });
+  const clonedCount = cloned.prepare('SELECT COUNT(*) AS c FROM semantic_cache').get() as { c: number };
+  assert.equal(clonedCount.c, 1, 'backup should contain the post-eviction row');
+  cloned.close();
+  fs.rmSync(backupDest, { force: true });
+  console.log('  --export-db online backup: PASSED');
+
+  entEngine.close();
+  fs.rmSync(entRoot, { recursive: true, force: true });
+  resetDatabase(entDbFile);
+  console.log('  enterprise hardening: PASSED');
 }
+
+

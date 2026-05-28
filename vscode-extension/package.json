@@ -265,6 +265,22 @@
       {
         "command": "prompt-proxy.manageAgentSkills",
         "title": "Prompt Optimizer: Manage SDLC Agent Skills"
+      },
+      {
+        "command": "prompt-proxy.healthCheck",
+        "title": "Prompt Optimizer: Health Check"
+      },
+      {
+        "command": "prompt-proxy.showMetrics",
+        "title": "Prompt Optimizer: Show Engine Metrics"
+      },
+      {
+        "command": "prompt-proxy.runMaintenance",
+        "title": "Prompt Optimizer: Run Database Maintenance (Retention / Eviction)"
+      },
+      {
+        "command": "prompt-proxy.exportDatabase",
+        "title": "Prompt Optimizer: Export Database (Online Backup)"
       }
     ],
     "menus": {

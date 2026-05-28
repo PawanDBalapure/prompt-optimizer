@@ -11,6 +11,11 @@ import {
   recordVersion as recordVersionImpl,
   rollbackToVersion as rollbackToVersionImpl,
 } from './cache/versioning.js';
+import { createLogger } from './engine/logger.js';
+import { redactForPersistence } from './engine/redactor.js';
+import { MetricsRegistry } from './engine/metrics.js';
+
+const log = createLogger('SemanticCacheManager');
 
 export interface CacheQueryResult {
   optimizedPrompt: string;
@@ -48,13 +53,16 @@ const ROW_COLUMNS = 'id, raw_prompt, optimized_prompt, embedding, timestamp, usa
 export class SemanticCacheManager {
   private readonly db: Database.Database;
   private readonly vectorizer = new LocalSemanticVectorizer();
+  private readonly dbPath: string;
   private isInitialized = false;
+  private metricsRegistry: MetricsRegistry | null = null;
 
   constructor(dbPath: string = 'prompt_semantic_cache.db') {
+    this.dbPath = dbPath;
     try {
       this.db = new Database(dbPath);
     } catch (error) {
-      console.error('[SemanticCacheManager] Failed to open SQLite database:', error);
+      log.error('Failed to open SQLite database', { dbPath, error: String(error) });
       throw error;
     }
   }
@@ -63,12 +71,19 @@ export class SemanticCacheManager {
     if (this.isInitialized) { return; }
     try {
       initializeSchema(this.db);
+      this.metricsRegistry = new MetricsRegistry(this.db);
       this.isInitialized = true;
     } catch (error) {
-      console.error('[SemanticCacheManager] Initialization error:', error);
+      log.error('Initialization error', { error: String(error) });
       throw error;
     }
   }
+
+  /** Path used to open the underlying SQLite DB (for backup / health). */
+  public databasePath(): string { return this.dbPath; }
+
+  /** Lazy accessor for the metrics registry. */
+  public metrics(): MetricsRegistry | null { return this.metricsRegistry; }
 
   public async searchSimilarPrompts(
     rawPrompt: string,
@@ -166,6 +181,16 @@ export class SemanticCacheManager {
       const buffer = this.vectorizer.serialize(embedding);
       const wsId = workspaceId ?? 'global';
 
+      // Redact the *persisted* copy of the optimized prompt only.  The version
+      // returned synchronously to the caller is untouched (see processRequest);
+      // this prevents secrets from leaking into the on-disk cache while
+      // keeping the live response faithful to the user's intent.
+      const redaction = redactForPersistence(optimizedPrompt);
+      if (redaction.hits.length > 0) {
+        this.metricsRegistry?.increment('cache.redaction_hits', redaction.hits.reduce((s, h) => s + h.count, 0));
+        log.debug('Redacted secrets before cache persistence', { hits: redaction.hits });
+      }
+
       // workspace_id is intentionally not updated on conflict: the first writer
       // owns the entry; cross-workspace queries still get a semantic hit.
       this.db.prepare(`
@@ -175,9 +200,10 @@ export class SemanticCacheManager {
           optimized_prompt = excluded.optimized_prompt,
           embedding = excluded.embedding,
           timestamp = excluded.timestamp
-      `).run(rawPrompt, optimizedPrompt, buffer, Date.now(), wsId);
+      `).run(rawPrompt, redaction.redacted, buffer, Date.now(), wsId);
+      this.metricsRegistry?.increment('cache.writes');
     } catch (error) {
-      console.error('[SemanticCacheManager] Write to cache failed:', error);
+      log.error('Write to cache failed', { error: String(error) });
     }
   }
 
@@ -252,7 +278,7 @@ export class SemanticCacheManager {
     try {
       this.db.close();
     } catch (error) {
-      console.error('[SemanticCacheManager] Error closing SQLite connection:', error);
+      log.error('Error closing SQLite connection', { error: String(error) });
     }
   }
 

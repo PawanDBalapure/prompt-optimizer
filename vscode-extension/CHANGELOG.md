@@ -1,5 +1,27 @@
 ﻿# Changelog
 
+## 2.1.0 — Enterprise hardening
+
+### Added
+
+- **SQLite hardening**: WAL journaling, 5s busy timeout, `synchronous=NORMAL`, `foreign_keys=ON`, and a `schema_version` row (current: 3) for forward-compatible migrations.
+- **Structured leveled logger** controlled by `PROMPT_OPT_LOG_LEVEL` (`debug|info|warn|error|silent`, default `warn`) and `PROMPT_OPT_LOG_FORMAT` (`text|json`). All `console.error` calls in persistence code replaced.
+- **Secret / PII redaction** at every persistence boundary (semantic cache writes, workspace memory snapshots, file digest summaries). Covers PEM keys, AWS/GCP/Slack/Stripe/GitHub PATs, JWT, Bearer/Token headers, env-style secret assignments, and (opt-in) email/phone/SSN/credit-card PII. Toggle with `PROMPT_OPT_REDACT=0` (disable) or `PROMPT_OPT_REDACT_PII=1` (enable PII).
+- **`engine_metrics` table + `MetricsRegistry`**: counters for `requests.total`, `requests.cache_exact|semantic|miss`, `cache.writes`, `cache.redaction_hits`, and `maintenance.runs|entries_evicted`.
+- **Retention / eviction service** (`MaintenanceService`) with per-workspace caps for cache rows, file digests, and KG nodes, plus stale-age pruning and optional `VACUUM`.
+- **Online backup** via better-sqlite3 `db.backup()` with a checkpoint+copy fallback.
+- **Health check** that runs `PRAGMA quick_check`, verifies all 9 required tables, reports pragmas, file sizes, redaction status, and log level.
+- New CLI commands: `--health-check`, `--metrics [--reset]`, `--db-prune [--max-cache --max-digests --max-kg --older-than-days --vacuum]`, `--export-db <dest>`, `--redact-test`.
+- New VS Code commands:
+  - **Prompt Optimizer: Health Check**
+  - **Prompt Optimizer: Show Engine Metrics**
+  - **Prompt Optimizer: Run Database Maintenance (Retention / Eviction)**
+  - **Prompt Optimizer: Export Database (Online Backup)**
+
+### Validation
+
+- Scenario 17 (`enterprise hardening`) added to the test harness, covering redactor coverage, persisted-data redaction round-trips, schema/WAL pragmas, metrics counters, health-check report, retention eviction caps, and online backup integrity. All 17 scenarios pass.
+
 ## 2.0.0
 
 ### Added

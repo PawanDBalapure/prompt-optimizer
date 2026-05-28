@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type Database from 'better-sqlite3';
+import { redactForPersistence } from './redactor.js';
 
 /**
  * Workspace knowledge base: harvests durable instruction files that the user
@@ -93,7 +94,11 @@ export function persistMemorySnapshot(db: Database.Database, snapshot: Workspace
   `);
   const txn = db.transaction((entries: WorkspaceMemoryEntry[]) => {
     for (const entry of entries) {
-      stmt.run(snapshot.workspaceId, entry.source, entry.content, Math.floor(entry.mtime));
+      // Persist a redacted copy so secrets in AGENTS.md / README excerpts /
+      // .cursorrules never get cached on disk.  In-memory entries returned
+      // to the optimizer remain unchanged.
+      const safe = redactForPersistence(entry.content).redacted;
+      stmt.run(snapshot.workspaceId, entry.source, safe, Math.floor(entry.mtime));
     }
   });
   try { txn(snapshot.entries); } catch { /* DB write failure must never break optimization */ }

@@ -793,6 +793,118 @@ function registerCommands(
       );
     }
   }));
+
+  // --- Enterprise hardening commands ---------------------------------------
+  push(vscode.commands.registerCommand('prompt-proxy.healthCheck', async () => {
+    const dbPath = getDbPath(context);
+    try {
+      const raw = runEngineRaw(['--health-check', '--db', dbPath]);
+      const report = JSON.parse(raw) as {
+        ok: boolean;
+        schema_version: { on_disk: number; expected: number };
+        sqlite: { integrity: string };
+        tables: Record<string, number>;
+        pragmas: Record<string, unknown>;
+        size_bytes: { db: number; wal: number };
+        redaction: { enabled: boolean; redact_pii: boolean };
+        log_level: string;
+      };
+      const status = report.ok ? '$(pass) Healthy' : '$(error) Issues detected';
+      const doc = await vscode.workspace.openTextDocument({
+        language: 'json',
+        content: `// Prompt Optimizer health report\n// ${status}\n${JSON.stringify(report, null, 2)}\n`,
+      });
+      await vscode.window.showTextDocument(doc, { preview: true });
+    } catch (err) {
+      vscode.window.showErrorMessage(
+        `Health check failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }));
+
+  push(vscode.commands.registerCommand('prompt-proxy.showMetrics', async () => {
+    const dbPath = getDbPath(context);
+    try {
+      const raw = runEngineRaw(['--metrics', '--db', dbPath]);
+      const rows = JSON.parse(raw) as Array<{ metric: string; count: number; last_at: number }>;
+      if (rows.length === 0) {
+        vscode.window.showInformationMessage('No metrics recorded yet. Optimize a prompt to populate counters.');
+        return;
+      }
+      const lines = rows
+        .sort((a, b) => b.count - a.count)
+        .map((r) => `${r.metric.padEnd(36)} ${String(r.count).padStart(8)}  (last: ${new Date(r.last_at).toISOString()})`);
+      const doc = await vscode.workspace.openTextDocument({
+        language: 'plaintext',
+        content: `Prompt Optimizer metrics\n${'='.repeat(72)}\n${lines.join('\n')}\n`,
+      });
+      await vscode.window.showTextDocument(doc, { preview: true });
+    } catch (err) {
+      vscode.window.showErrorMessage(
+        `Show metrics failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }));
+
+  push(vscode.commands.registerCommand('prompt-proxy.runMaintenance', async () => {
+    const confirm = await vscode.window.showWarningMessage(
+      'Run retention/eviction maintenance on the prompt-optimizer database?',
+      { modal: true, detail: 'Default caps: 10k cache rows, 5k digests/workspace, 20k KG nodes/workspace. Stale entries older than 90 days (cache) / 180 days (digests) are pruned.' },
+      'Run',
+      'Run + VACUUM',
+    );
+    if (!confirm) return;
+    const dbPath = getDbPath(context);
+    try {
+      const args = ['--db-prune', '--db', dbPath];
+      if (confirm === 'Run + VACUUM') args.push('--vacuum');
+      const raw = runEngineRaw(args);
+      const report = JSON.parse(raw) as {
+        evicted: Record<string, number>;
+        scanned: Record<string, number>;
+        vacuumed: boolean;
+        duration_ms: number;
+      };
+      const total = Object.values(report.evicted).reduce((a, b) => a + b, 0);
+      vscode.window.showInformationMessage(
+        `Maintenance complete: ${total} entries evicted in ${report.duration_ms}ms${report.vacuumed ? ' (VACUUM run)' : ''}.`,
+      );
+    } catch (err) {
+      vscode.window.showErrorMessage(
+        `Maintenance failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }));
+
+  push(vscode.commands.registerCommand('prompt-proxy.exportDatabase', async () => {
+    const dbPath = getDbPath(context);
+    const defaultName = `prompt-optimizer-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.db`;
+    const target = await vscode.window.showSaveDialog({
+      title: 'Export prompt-optimizer database',
+      defaultUri: vscode.Uri.file(path.join(process.env.USERPROFILE || process.env.HOME || '.', defaultName)),
+      filters: { 'SQLite database': ['db', 'sqlite'] },
+    });
+    if (!target) return;
+    try {
+      const raw = runEngineRaw(['--export-db', target.fsPath, '--db', dbPath]);
+      const report = JSON.parse(raw) as { ok: boolean; bytes: number; duration_ms: number; error?: string };
+      if (report.ok) {
+        const open = await vscode.window.showInformationMessage(
+          `Database exported (${report.bytes} bytes, ${report.duration_ms}ms).`,
+          'Reveal in Explorer',
+        );
+        if (open) {
+          await vscode.commands.executeCommand('revealFileInOS', target);
+        }
+      } else {
+        vscode.window.showErrorMessage(`Export failed: ${report.error}`);
+      }
+    } catch (err) {
+      vscode.window.showErrorMessage(
+        `Export failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }));
 }
 
 function registerPassiveListeners(

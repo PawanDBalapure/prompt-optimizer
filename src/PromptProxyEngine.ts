@@ -41,6 +41,7 @@ import {
   persistMemorySnapshot,
 } from './engine/workspaceMemory.js';
 import { CrossWorkspaceFederation } from './engine/crossWorkspace.js';
+import { MaintenanceService } from './engine/maintenance.js';
 import {
   describeMode,
   detectMode,
@@ -62,6 +63,7 @@ export class PromptProxyEngine {
   private knowledgeGraph: KnowledgeGraph | null = null;
   private federation: CrossWorkspaceFederation | null = null;
   private fileDigests: FileDigestStore | null = null;
+  private maintenanceService: MaintenanceService | null = null;
 
   constructor(options?: string | PromptProxyEngineOptions) {
     const dbPath = typeof options === 'string' ? options : options?.db_path;
@@ -76,12 +78,18 @@ export class PromptProxyEngine {
       this.knowledgeGraph = new KnowledgeGraph(db);
       this.federation = new CrossWorkspaceFederation(db);
       this.fileDigests = new FileDigestStore(db);
+      this.maintenanceService = new MaintenanceService(db);
     }
   }
 
   /** Public accessor for the per-file digest store (used by CLI / extension). */
   public getFileDigestStore(): FileDigestStore | null {
     return this.fileDigests;
+  }
+
+  /** Public accessor for the maintenance service (used by CLI --db-prune). */
+  public getMaintenanceService(): MaintenanceService | null {
+    return this.maintenanceService;
   }
 
   /** Public accessor for VS Code commands that manage peer workspaces. */
@@ -157,6 +165,15 @@ export class PromptProxyEngine {
       cacheStatus === 'exact'
       && cacheResult !== null
       && !containsLegacyExampleSection(cacheResult.optimizedPrompt);
+
+    // Per-request observability counters.
+    const metrics = this.cacheManager.metrics();
+    if (metrics) {
+      metrics.increment('requests.total');
+      if (cacheStatus === 'exact')   { metrics.increment('requests.cache_exact'); }
+      if (cacheStatus === 'semantic'){ metrics.increment('requests.cache_semantic'); }
+      if (cacheStatus === 'miss')    { metrics.increment('requests.cache_miss'); }
+    }
 
     // Save prompt version regardless of cache hit so rollback always has data.
     const hashedKey = hashPromptKey(rawPrompt);

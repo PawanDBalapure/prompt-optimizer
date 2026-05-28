@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import type { IdeContextFile, PromptIDEContext } from '../contracts.js';
+import { redactForPersistence } from './redactor.js';
 
 /**
  * Per-file "studied" digest.  Closes the cross-session memory gap: the
@@ -224,7 +225,11 @@ function summarize(content: string): string {
     if (head.length >= 6 || charBudget <= 0) { break; }
   }
   const joined = head.join(' \u2022 ');
-  return joined.length <= MAX_SUMMARY_CHARS ? joined : joined.slice(0, MAX_SUMMARY_CHARS - 1) + '\u2026';
+  const clipped = joined.length <= MAX_SUMMARY_CHARS ? joined : joined.slice(0, MAX_SUMMARY_CHARS - 1) + '\u2026';
+  // Final pass: scrub anything that looks like a secret before it ever
+  // touches disk.  Faithful to the in-memory `content`; only the persisted
+  // summary loses sensitive tokens.
+  return redactForPersistence(clipped).redacted;
 }
 
 function normalisePath(p: string): string {
