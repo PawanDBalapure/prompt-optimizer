@@ -285,6 +285,16 @@
       {
         "command": "prompt-proxy.syncCopilotInstructions",
         "title": "Prompt Optimizer: Sync .github/copilot-instructions.md From Workspace Memory"
+      },
+      {
+        "command": "prompt-proxy.suggestMemoryImprovements",
+        "title": "Prompt Optimizer: Suggest Improvements For This Memory File",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "prompt-proxy.showMemoryBudget",
+        "title": "Prompt Optimizer: Show Memory File Budget",
+        "icon": "$(graph)"
       }
     ],
     "languageModelTools": [

@@ -2,6 +2,9 @@ import * as vscode from 'vscode';
 
 import { registerRecallMemoryTool } from './recallTool';
 import { registerCopilotInstructionsSync } from './instructionsSync';
+import { registerMemoryGuard } from './memoryGuard';
+import { registerMemoryHover } from './memoryHover';
+import { registerMemoryCodeLens } from './memoryCodeLens';
 
 /**
  * One-stop bootstrap for Phase A memory features.  Each capability lives
@@ -14,6 +17,9 @@ import { registerCopilotInstructionsSync } from './instructionsSync';
 export function registerMemoryFeatures(context: vscode.ExtensionContext): void {
   safeRegister(context, 'recall LM tool',            registerRecallMemoryTool);
   safeRegister(context, 'copilot-instructions sync', registerCopilotInstructionsSync);
+  safeRegister(context, 'memory file guardrail',     registerMemoryGuard);
+  safeRegister(context, 'memory file hover',         registerMemoryHover);
+  safeRegister(context, 'memory file CodeLens',      registerMemoryCodeLens);
 }
 
 function safeRegister(
