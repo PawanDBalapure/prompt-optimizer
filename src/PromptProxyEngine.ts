@@ -41,6 +41,7 @@ import {
   persistMemorySnapshot,
 } from './engine/workspaceMemory.js';
 import { CrossWorkspaceFederation } from './engine/crossWorkspace.js';
+import { ensureGlobalPeer } from './engine/globalMemory.js';
 import { MaintenanceService } from './engine/maintenance.js';
 import {
   describeMode,
@@ -79,6 +80,10 @@ export class PromptProxyEngine {
       this.federation = new CrossWorkspaceFederation(db);
       this.fileDigests = new FileDigestStore(db);
       this.maintenanceService = new MaintenanceService(db);
+      // Auto-register the user-global memory DB so workspace recall is
+      // automatically federated against the user's L1 memory tier.
+      try { ensureGlobalPeer(this.federation, this.cacheManager.databasePath()); }
+      catch { /* never fail init on federation hiccup */ }
     }
   }
 

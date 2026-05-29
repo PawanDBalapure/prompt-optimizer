@@ -5,6 +5,11 @@ import {
   runRegressionScenarios,
 } from './tests/scenarios.js';
 
+// Keep regression tests hermetic: prevent the user-global L1 memory DB
+// (~/.promptoptimizer/global.db) from being auto-registered as a peer.
+// Scenario 18 re-enables it locally to exercise that path explicitly.
+process.env.PROMPT_OPT_DISABLE_GLOBAL = '1';
+
 async function runDemo(): Promise<void> {
   console.log('========================================================================');
   console.log('LOCAL PROMPT PROXY ENGINE: VERIFICATION HARNESS');

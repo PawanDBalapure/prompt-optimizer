@@ -281,6 +281,39 @@
       {
         "command": "prompt-proxy.exportDatabase",
         "title": "Prompt Optimizer: Export Database (Online Backup)"
+      },
+      {
+        "command": "prompt-proxy.syncCopilotInstructions",
+        "title": "Prompt Optimizer: Sync .github/copilot-instructions.md From Workspace Memory"
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "prompt-optimizer_recallMemory",
+        "displayName": "Recall Prompt Optimizer memory",
+        "modelDescription": "Recalls long-lived workspace, user, and team memory persisted by Prompt Optimizer. Returns the most relevant notes from AGENTS.md, CLAUDE.md, .promptoptimizer/memory.md, the project knowledge graph, prior optimized prompts, and the user-global memory tier. Call this whenever the user asks about project conventions, prior decisions, related past prompts, framework choices, or anything that might be captured in long-lived project memory.",
+        "toolReferenceName": "pomemory",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(sparkle)",
+        "tags": ["memory", "context", "prompt-optimizer"],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Topic, question, or keywords to find memory about. Leave empty to return the most recent general memory entries."
+            },
+            "scope": {
+              "type": "string",
+              "enum": ["workspace", "user", "all"],
+              "description": "Which memory tier to search. 'workspace' = this repo only, 'user' = the user-global tier shared across all repos, 'all' = both. Defaults to 'all'."
+            },
+            "limit": {
+              "type": "number",
+              "description": "Maximum number of entries to return (1-50). Defaults to 8."
+            }
+          }
+        }
       }
     ],
     "menus": {

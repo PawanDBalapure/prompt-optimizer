@@ -726,6 +726,96 @@ export async function runRegressionScenarios(): Promise<void> {
   fs.rmSync(entRoot, { recursive: true, force: true });
   resetDatabase(entDbFile);
   console.log('  enterprise hardening: PASSED');
+
+  await runPhaseAMemoryScenario();
+}
+
+async function runPhaseAMemoryScenario(): Promise<void> {
+  console.log('\n18. Validating Phase A modular memory (recall + global peer + copilot writer)...');
+  const { recallMemory } = await import('../engine/memoryRecall.js');
+  const { ensureGlobalPeer, getGlobalDbPath } = await import('../engine/globalMemory.js');
+  const { syncCopilotInstructions, MANAGED_BEGIN, MANAGED_END } =
+    await import('../engine/copilotInstructions.js');
+
+  // Hermetic global DB lives inside a tmpdir so we never touch the real one.
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'po-phaseA-'));
+  const previousGlobalDb = process.env.PROMPT_OPT_GLOBAL_DB;
+  const previousDisable = process.env.PROMPT_OPT_DISABLE_GLOBAL;
+  process.env.PROMPT_OPT_GLOBAL_DB = path.join(tmpRoot, 'global.db');
+  delete process.env.PROMPT_OPT_DISABLE_GLOBAL;
+
+  try {
+    // Seed AGENTS.md in a sandbox workspace and bring an engine up against it.
+    const workspaceRoot = path.join(tmpRoot, 'workspace');
+    fs.mkdirSync(workspaceRoot, { recursive: true });
+    fs.writeFileSync(path.join(workspaceRoot, 'AGENTS.md'),
+      '# Project rules\n\nUse TypeScript strict mode.\nPrefer better-sqlite3 over knex.\n', 'utf8');
+
+    const dbFile = path.join(tmpRoot, 'phaseA.db');
+    const engine = new PromptProxyEngine({ db_path: dbFile });
+    await engine.initialize();
+
+    // (a) Global peer auto-registered by initialize().
+    const fed = engine.getFederation();
+    assert.ok(fed, 'federation should be available');
+    const peers = fed!.list();
+    assert.ok(peers.some((p) => p.label === '__user_global__'),
+      `expected user-global peer to be auto-registered, got ${JSON.stringify(peers)}`);
+    assert.ok(fs.existsSync(getGlobalDbPath()), 'global DB file should exist after init');
+
+    // (b) Re-running ensureGlobalPeer is idempotent (no duplicate row).
+    ensureGlobalPeer(fed!, dbFile);
+    const peersAfter = fed!.list().filter((p) => p.label === '__user_global__');
+    assert.equal(peersAfter.length, 1, 'global peer should be registered exactly once');
+
+    // (c) Recall service finds workspace memory entries via live-disk read.
+    const db = (engine as unknown as { cacheManager: { rawDatabase(): Database.Database } })
+      .cacheManager.rawDatabase();
+    const recall = recallMemory(db, fed!, {
+      query: 'typescript strict',
+      workspaceRoot,
+      workspaceId: 'phaseA-ws',
+      scope: 'workspace',
+    });
+    assert.ok(recall.entries.length > 0, 'recall should find at least one workspace entry');
+    assert.ok(recall.entries.some((e) => /TypeScript strict mode/i.test(e.content)),
+      `recall content missing seeded note. Got:\n${recall.formatted}`);
+    assert.ok(recall.formatted.includes('Prompt Optimizer memory'),
+      'formatted recall should carry the section header');
+
+    // (d) Copilot instructions writer round-trips with idempotent markers.
+    const firstReport  = syncCopilotInstructions({ workspaceRoot, workspaceId: 'phaseA-ws' });
+    assert.equal(firstReport.ok, true, 'sync should succeed');
+    assert.equal(firstReport.created, true, 'file should be created on first run');
+    const fileContents = fs.readFileSync(firstReport.path, 'utf8');
+    assert.ok(fileContents.includes(MANAGED_BEGIN), 'managed begin marker missing');
+    assert.ok(fileContents.includes(MANAGED_END), 'managed end marker missing');
+    assert.ok(fileContents.includes('TypeScript strict mode'),
+      'AGENTS.md content should be inlined inside the managed block');
+
+    // User-edited content outside the markers must survive a re-sync.
+    const userAddition = '\n## My personal note (do not touch)\nKeep PRs small.\n';
+    fs.writeFileSync(firstReport.path, userAddition + '\n' + fileContents, 'utf8');
+    const secondReport = syncCopilotInstructions({ workspaceRoot, workspaceId: 'phaseA-ws' });
+    assert.equal(secondReport.created, false, 'second sync should not re-create');
+    const afterSecond = fs.readFileSync(firstReport.path, 'utf8');
+    assert.ok(afterSecond.includes('My personal note'),
+      'user-authored content outside managed markers must be preserved');
+    assert.equal(
+      (afterSecond.match(new RegExp(MANAGED_BEGIN, 'g')) ?? []).length, 1,
+      'managed block must appear exactly once after re-sync',
+    );
+
+    engine.close();
+    console.log('  Phase A memory: PASSED');
+  } finally {
+    if (previousGlobalDb === undefined) { delete process.env.PROMPT_OPT_GLOBAL_DB; }
+    else { process.env.PROMPT_OPT_GLOBAL_DB = previousGlobalDb; }
+    if (previousDisable === undefined) { delete process.env.PROMPT_OPT_DISABLE_GLOBAL; }
+    else { process.env.PROMPT_OPT_DISABLE_GLOBAL = previousDisable; }
+    process.env.PROMPT_OPT_DISABLE_GLOBAL = '1'; // keep hermetic for any later scenarios
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  }
 }
 
 

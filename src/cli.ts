@@ -11,6 +11,11 @@ import { listRegisteredModes, listSkillErrors } from './engine/promptModes.js';
 import { runHealthCheck } from './engine/health.js';
 import { exportDatabase } from './engine/backup.js';
 import { redactForPersistence } from './engine/redactor.js';
+import {
+  handleRecallMemory,
+  handleExportMemory,
+  handleSyncCopilotInstructions,
+} from './cli/memoryCommands.js';
 
 function readStdin(): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -44,6 +49,9 @@ function printHelp(): void {
       '   or: prompt-proxy-engine --metrics [--reset] [--db <path>]\n' +
       '   or: prompt-proxy-engine --db-prune [--max-cache N] [--max-digests N] [--max-kg N] [--older-than-days N] [--vacuum] [--db <path>]\n' +
       '   or: prompt-proxy-engine --export-db <destination.db> [--db <path>]\n' +
+      '   or: prompt-proxy-engine --recall-memory [--query "..."] [--workspace <id>] [--scope workspace|user|all] [--limit N] [--format json|markdown] [--db <path>]\n' +
+      '   or: prompt-proxy-engine --export-memory [--tier workspace|user|all] [--workspace <id>] [--out <file.json|.md>] [--db <path>]\n' +
+      '   or: prompt-proxy-engine --sync-copilot-instructions --workspace-root <path> [--workspace <id>]\n' +
       '   or: prompt-proxy-engine --redact-test (reads stdin, prints redacted output)\n'
   );
 }
@@ -562,6 +570,21 @@ async function main(): Promise<void> {
 
   if (args.includes('--redact-test')) {
     await handleRedactTest();
+    return;
+  }
+
+  if (args.includes('--recall-memory')) {
+    await handleRecallMemory(args);
+    return;
+  }
+
+  if (args.includes('--export-memory')) {
+    await handleExportMemory(args);
+    return;
+  }
+
+  if (args.includes('--sync-copilot-instructions')) {
+    await handleSyncCopilotInstructions(args);
     return;
   }
 

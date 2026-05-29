@@ -15,6 +15,7 @@ import {
 } from './commands/open';
 import { seedCacheFromWorkspace, enrichFromChatHistory, ingestMemoryFiles } from './engine/seeder';
 import { runEngineRaw } from './engine/runner';
+import { registerMemoryFeatures } from './memory';
 import { PromptProxyViewProvider } from './panel/PromptProxyViewProvider';
 import { ProxyStatusPanel } from './panel/ProxyStatusPanel';
 import {
@@ -87,6 +88,8 @@ export function activate(context: vscode.ExtensionContext) {
 
   registerCommands(context, provider, statusBarItem);
   registerPassiveListeners(context, provider);
+  // Phase A: LM tool + copilot-instructions auto-sync + (auto) global memory peer.
+  registerMemoryFeatures(context);
 
   const participant = vscode.chat.createChatParticipant(
     CHAT_PARTICIPANT_ID,
