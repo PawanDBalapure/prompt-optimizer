@@ -16,7 +16,8 @@ const ALLOWED_TYPES = new Set([
   'openReadme', 'openSecretSettings', 'saveSecretSettings',
   'openSettings', 'close',
   'openMemoryFile', 'openPeerWorkspaces', 'requestStatusOverview',
-  'manageAgentSkills',
+  'manageAgentSkills', 'openUserGuide', 'showHistory',
+  'commitPrompt', 'showPromptLog', 'switchPromptBranch',
 ]);
 
 const ALLOWED_MODES = new Set(['agent', 'optimize', 'direct']);
@@ -43,6 +44,7 @@ function clampString(v: unknown, max: number): string | undefined {
 export interface ValidWebviewMessage {
   type: string;
   prompt?: string;
+  optimized?: string;
   mode?: string;
   model?: string;
   enabled?: boolean;
@@ -65,6 +67,12 @@ export function validateMessage(raw: unknown): ValidWebviewMessage | null {
     const prompt = clampString(data.prompt, MAX_PROMPT_CHARS);
     if (prompt === undefined) { return null; }
     out.prompt = prompt;
+  }
+
+  if (data.optimized !== undefined) {
+    const optimized = clampString(data.optimized, MAX_PROMPT_CHARS);
+    if (optimized === undefined) { return null; }
+    out.optimized = optimized;
   }
 
   if (data.mode !== undefined) {

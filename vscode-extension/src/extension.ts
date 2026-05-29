@@ -16,6 +16,10 @@ import {
 import { seedCacheFromWorkspace, enrichFromChatHistory, ingestMemoryFiles } from './engine/seeder';
 import { runEngineRaw } from './engine/runner';
 import { registerMemoryFeatures } from './memory';
+import { registerUserGuide } from './commands/userGuide';
+import { registerHistoryCommand } from './commands/history';
+import { registerVersionCommands } from './commands/versions';
+import { highlightStatusBarOnActivate } from './panel/welcomeHighlight';
 import { PromptProxyViewProvider } from './panel/PromptProxyViewProvider';
 import { ProxyStatusPanel } from './panel/ProxyStatusPanel';
 import {
@@ -72,24 +76,29 @@ export function activate(context: vscode.ExtensionContext) {
     }),
   );
 
-  const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
+  const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   updateStatusBarItem(statusBarItem, getCurrentMode(context));
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
 
-  // Dedicated "Optimize prompt" status bar button — always visible so the
-  // optimize action is one click away from the chat surface.
-  const optimizeBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  optimizeBarItem.text = '$(sparkle) Optimize';
-  optimizeBarItem.tooltip = 'Prompt Optimizer: optimize the current selection or clipboard, then send to Copilot Chat (Ctrl+Alt+O)';
-  optimizeBarItem.command = 'prompt-proxy.optimizeChatPrompt';
-  optimizeBarItem.show();
-  context.subscriptions.push(optimizeBarItem);
+  // NOTE: a second "Optimize" status bar item used to live here. Removed
+  // for a minimalist single-item UX — the mode item above now carries the
+  // optimize action (click) and surfaces mode-switch / panel / chat / guide
+  // via its rich MarkdownString tooltip.
 
   registerCommands(context, provider, statusBarItem);
   registerPassiveListeners(context, provider);
   // Phase A: LM tool + copilot-instructions auto-sync + (auto) global memory peer.
   registerMemoryFeatures(context);
+  // Minimalist single-entrypoint user guide (Ctrl+Shift+P → "User Guide").
+  registerUserGuide(context);
+  // Prompt history browser (QuickPick with side-by-side diff button).
+  registerHistoryCommand(context);
+  // Git-style prompt versioning: commit, log, branch, checkout, diff.
+  registerVersionCommands(context, provider);
+  // Briefly highlight the status-bar item on install / update / reload so
+  // the user can find the Optimize action.
+  highlightStatusBarOnActivate(context, statusBarItem);
 
   const participant = vscode.chat.createChatParticipant(
     CHAT_PARTICIPANT_ID,
@@ -125,7 +134,16 @@ export function activate(context: vscode.ExtensionContext) {
   // memory is primed before the very first user prompt.
   setTimeout(() => {
     void (async () => {
-      await seedCacheFromWorkspace(context);
+      // ProgressLocation.Window renders as a tiny spinner + label in the
+      // bottom status bar — exactly the minimalist treatment we want for
+      // background indexing (no notification toast, no panel pill).
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Window,
+          title: 'Prompt Optimizer: indexing workspace…',
+        },
+        async () => { await seedCacheFromWorkspace(context); },
+      );
       provider.refreshStatusOverview();
     })();
   }, 3000);
@@ -134,7 +152,13 @@ export function activate(context: vscode.ExtensionContext) {
   // new prompts from the Copilot chat database into the knowledge graph.
   const enrichTimer = setInterval(() => {
     void (async () => {
-      await enrichFromChatHistory(context);
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Window,
+          title: 'Prompt Optimizer: refreshing index…',
+        },
+        async () => { await enrichFromChatHistory(context); },
+      );
       provider.refreshStatusOverview();
     })();
   }, ENRICH_INTERVAL_MS);
@@ -200,36 +224,170 @@ function registerCommands(
   // prompt prefilled.  Bound to a keybinding and a dedicated status-bar
   // button so users can optimize whatever is in their editor with one click.
   push(vscode.commands.registerCommand('prompt-proxy.optimizeChatPrompt', async () => {
-    let source = '';
+    // 1. Gather every available source, then resolve according to the
+    //    user-configured strategy.  Tracking each candidate (instead of
+    //    only the winner) is what enables the 'ask' picker and the diff view.
+    const cfg = vscode.workspace.getConfiguration('promptProxy');
+    const strategy = cfg.get<string>('optimize.sourcePicker') ?? 'ask';
+    const autoOpenChat = cfg.get<boolean>('optimize.autoOpenChat') === true;
+
+    interface Candidate { label: 'selection' | 'editor' | 'clipboard' | 'typed'; text: string; }
+    const candidates: Candidate[] = [];
     const editor = vscode.window.activeTextEditor;
     if (editor) {
       const sel = editor.selection;
-      source = sel.isEmpty ? editor.document.getText() : editor.document.getText(sel);
+      if (!sel.isEmpty) {
+        const t = editor.document.getText(sel).trim();
+        if (t) { candidates.push({ label: 'selection', text: t }); }
+      }
+      const full = editor.document.getText().trim();
+      if (full && !candidates.some(c => c.text === full)) {
+        candidates.push({ label: 'editor', text: full });
+      }
     }
-    if (!source.trim()) {
-      source = (await vscode.env.clipboard.readText()) || '';
+    const clip = ((await vscode.env.clipboard.readText()) || '').trim();
+    if (clip && !candidates.some(c => c.text === clip)) {
+      candidates.push({ label: 'clipboard', text: clip });
     }
-    source = source.trim();
-    if (!source) {
+
+    let chosen: Candidate | undefined;
+    if (candidates.length === 0) {
       const typed = await vscode.window.showInputBox({
         title: 'Optimize prompt',
         prompt: 'Paste or type the prompt you want to optimize before sending to Copilot Chat',
+        placeHolder: 'e.g. Refactor the auth middleware to async/await and add unit tests',
         ignoreFocusOut: true,
       });
       if (!typed || !typed.trim()) { return; }
-      source = typed.trim();
+      chosen = { label: 'typed', text: typed.trim() };
+    } else if (candidates.length === 1) {
+      chosen = candidates[0];
+    } else {
+      const order: Record<string, Array<Candidate['label']>> = {
+        'selection-first': ['selection', 'editor', 'clipboard'],
+        'clipboard-first': ['clipboard', 'selection', 'editor'],
+        'auto':            ['selection', 'editor', 'clipboard'],
+      };
+      if (strategy === 'ask') {
+        const items = candidates.map<vscode.QuickPickItem & { c: Candidate }>(c => ({
+          label: ({ selection: '$(selection) Editor selection', editor: '$(file) Full editor file', clipboard: '$(clippy) Clipboard', typed: '$(edit) Typed' })[c.label]!,
+          description: `${c.text.length} chars`,
+          detail: c.text.replace(/\s+/g, ' ').slice(0, 120) + (c.text.length > 120 ? '…' : ''),
+          c,
+        }));
+        const picked = await vscode.window.showQuickPick(items, {
+          placeHolder: 'Multiple prompt sources detected — pick one to optimize',
+          matchOnDetail: true,
+        });
+        if (!picked) { return; }
+        chosen = picked.c;
+      } else {
+        const preferred = (order[strategy] ?? order.auto);
+        for (const lbl of preferred) {
+          const hit = candidates.find(c => c.label === lbl);
+          if (hit) { chosen = hit; break; }
+        }
+        chosen ??= candidates[0];
+      }
     }
+
+    const source = chosen.text;
+    const sourceLabel = chosen.label;
+    const charCount = source.length;
+    const sourceTitle: Record<typeof sourceLabel, string> = {
+      selection: `editor selection (${charCount} chars)`,
+      editor:    `full editor file (${charCount} chars)`,
+      clipboard: `clipboard (${charCount} chars)`,
+      typed:     `typed prompt (${charCount} chars)`,
+    };
+
+    // 2. Flip the status-bar item into a spinning busy state for the
+    //    duration of the optimize call (mirrors GitLens / Git behavior).
+    const originalText = statusBarItem.text;
+    const originalCmd  = statusBarItem.command;
+    statusBarItem.text    = '$(sync~spin) Optimizing…';
+    statusBarItem.command = undefined;
+    const restoreStatusBar = () => {
+      statusBarItem.command = originalCmd;
+      statusBarItem.text    = originalText;
+      updateStatusBarItem(statusBarItem, getCurrentMode(context));
+    };
+
     try {
-      const state = await analyzePrompt(context, source, 'clipboard');
+      const state = await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: `Prompt Optimizer — optimizing ${sourceTitle[sourceLabel]}…`,
+          cancellable: true,
+        },
+        async (progress, token) => {
+          progress.report({ message: 'Consulting local cache + workspace memory…' });
+          const op = analyzePrompt(context, source, 'clipboard');
+          const cancelled = new Promise<null>((resolve) => {
+            token.onCancellationRequested(() => resolve(null));
+          });
+          const result = await Promise.race([op, cancelled]);
+          if (!result) { throw new Error('Cancelled by user'); }
+          return result;
+        },
+      );
+
+      restoreStatusBar();
       provider.publishAnalysis(state);
       await vscode.env.clipboard.writeText(state.optimized);
-      await openChatWithPrompt(state.optimized, false);
-      vscode.window.showInformationMessage(
-        `Prompt optimized \u2014 saved ${state.metrics.tokens_saved} tokens (~${formatCurrency(state.metrics.estimated_cost_usd)}). Copied to clipboard.`,
+
+      if (autoOpenChat) {
+        await openChatWithPrompt(state.optimized, false);
+      }
+
+      // 3. Actionable toast — four buttons covering the most common next
+      //    steps so the click doesn't dead-end at a copy.
+      const SEND   = autoOpenChat ? 'Reopen Chat' : 'Send to Copilot Chat';
+      const DIFF   = 'Show diff';
+      const PANEL  = 'Open Panel';
+      const COPY   = 'Copy again';
+      const saved  = state.metrics.tokens_saved;
+      const cost   = formatCurrency(state.metrics.estimated_cost_usd);
+      const summary = `Optimized ${sourceTitle[sourceLabel]} — saved ${saved} tokens (~${cost}). Already copied to clipboard.`;
+      const choice = await vscode.window.showInformationMessage(
+        summary, SEND, DIFF, PANEL, COPY,
       );
+      if (choice === SEND || choice === 'Reopen Chat') {
+        await openChatWithPrompt(state.optimized, false);
+      } else if (choice === DIFF) {
+        const original = await vscode.workspace.openTextDocument({
+          content: source, language: 'markdown',
+        });
+        const optimized = await vscode.workspace.openTextDocument({
+          content: state.optimized, language: 'markdown',
+        });
+        await vscode.commands.executeCommand(
+          'vscode.diff', original.uri, optimized.uri,
+          `Prompt Optimizer: original ↔ optimized (saved ${saved} tokens, ~${cost})`,
+          { preview: true, viewColumn: vscode.ViewColumn.Active },
+        );
+      } else if (choice === PANEL) {
+        await vscode.commands.executeCommand('prompt-proxy.focusPanel');
+      } else if (choice === COPY) {
+        await vscode.env.clipboard.writeText(state.optimized);
+      }
     } catch (error) {
+      restoreStatusBar();
       const message = error instanceof Error ? error.message : String(error);
-      vscode.window.showErrorMessage(`Prompt Optimizer could not optimize: ${message}`);
+      if (message === 'Cancelled by user') {
+        vscode.window.setStatusBarMessage('$(circle-slash) Prompt Optimizer: cancelled', 3000);
+        return;
+      }
+      const RETRY = 'Retry';
+      const OPEN  = 'Open Panel';
+      const pick  = await vscode.window.showErrorMessage(
+        `Prompt Optimizer could not optimize: ${message}`, RETRY, OPEN,
+      );
+      if (pick === RETRY) {
+        await vscode.commands.executeCommand('prompt-proxy.optimizeChatPrompt');
+      } else if (pick === OPEN) {
+        await vscode.commands.executeCommand('prompt-proxy.focusPanel');
+      }
     }
   }));
 
@@ -686,6 +844,14 @@ function registerCommands(
     qp.items = entries.map(buildItem);
     qp.selectedItems = qp.items.filter((i) => i.entry.installed);
 
+    // Title-bar action: create a brand-new custom agent in the workspace
+    // skill folder (in addition to the bundled library entries above).
+    const newButton: vscode.QuickInputButton = {
+      iconPath: new vscode.ThemeIcon('add'),
+      tooltip: 'Create a new custom agent in this workspace',
+    };
+    qp.buttons = [newButton];
+
     const refresh = (): void => {
       // Re-stat to pick up files that were just created by an edit action.
       for (const e of entries) { e.installed = fs.existsSync(e.targetPath); }
@@ -697,6 +863,110 @@ function registerCommands(
       qp.items = newItems;
       qp.selectedItems = newItems.filter((i) => stillSelectedIds.has(i.entry.id));
     };
+
+    // Re-scan the workspace skills directory for files that aren't in the
+    // bundled library (i.e. user-created agents) and merge them into the
+    // entries list so they appear ticked and editable.
+    const reloadCustom = (): void => {
+      const knownIds = new Set(entries.map((e) => e.id));
+      let files: string[] = [];
+      try { files = fs.readdirSync(targetDir).filter((f) => /\.md$/i.test(f)); }
+      catch { files = []; }
+      for (const f of files) {
+        const id = path.basename(f, '.md');
+        if (knownIds.has(id)) { continue; }
+        const targetPath = path.join(targetDir, f);
+        const raw = (() => { try { return fs.readFileSync(targetPath, 'utf8'); } catch { return ''; } })();
+        const labelMatch = /^label:\s*(.+)$/m.exec(raw);
+        const tagsMatch = /^tags:\s*\[([^\]]*)\]/m.exec(raw);
+        entries.push({
+          id,
+          label: (labelMatch?.[1] ?? id).trim(),
+          readOnly: false,
+          tags: (tagsMatch?.[1] ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+          libPath: targetPath,     // no bundled origin — treat the workspace file as canonical
+          targetPath,
+          installed: true,
+        });
+        knownIds.add(id);
+      }
+      entries.sort((a, b) => a.id.localeCompare(b.id));
+    };
+    reloadCustom();
+    qp.items = entries.map(buildItem);
+    qp.selectedItems = qp.items.filter((i) => i.entry.installed);
+
+    qp.onDidTriggerButton(async (btn) => {
+      if (btn !== newButton) { return; }
+      // Hide the QuickPick so the input boxes get focus cleanly; reopen
+      // afterwards with the freshly-added entry pre-ticked.
+      qp.hide();
+      const idRaw = await vscode.window.showInputBox({
+        title: 'New agent — id',
+        prompt: 'Short slug used as filename and /command (lowercase, hyphens).',
+        placeHolder: 'e.g. release-notes-writer',
+        validateInput: (v) => {
+          const s = (v ?? '').trim();
+          if (!s) { return 'Required.'; }
+          if (!/^[a-z0-9][a-z0-9-]{1,40}$/.test(s)) { return 'Use lowercase letters, digits, and hyphens (2–41 chars).'; }
+          if (entries.some((e) => e.id === s)) { return `An agent with id "${s}" already exists.`; }
+          return undefined;
+        },
+      });
+      const id = (idRaw ?? '').trim();
+      if (!id) { return; }
+      const label = (await vscode.window.showInputBox({
+        title: 'New agent — display label',
+        prompt: 'Human-friendly name shown in the picker.',
+        placeHolder: 'e.g. Release Notes Writer',
+        value: id.split('-').map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(' '),
+      }))?.trim() || id;
+
+      const targetPath = path.join(targetDir, `${id}.md`);
+      const template =
+`---
+id: ${id}
+label: ${label}
+readOnly: false
+tags: [custom]
+---
+
+# ${label}
+
+## Role
+Describe what this agent does in one or two sentences.
+
+## Instructions
+- Step 1: …
+- Step 2: …
+- Step 3: …
+
+## Output format
+Explain the structure of the response you want this agent to produce.
+`;
+      try {
+        fs.writeFileSync(targetPath, template, { encoding: 'utf8', flag: 'wx' });
+      } catch (err) {
+        vscode.window.showErrorMessage(
+          `Could not create agent "${id}": ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return;
+      }
+      entries.push({
+        id, label, readOnly: false, tags: ['custom'],
+        libPath: targetPath, targetPath, installed: true,
+      });
+      entries.sort((a, b) => a.id.localeCompare(b.id));
+      try {
+        const doc = await vscode.workspace.openTextDocument(targetPath);
+        await vscode.window.showTextDocument(doc, { preview: false });
+      } catch { /* non-fatal */ }
+      vscode.window.showInformationMessage(
+        `Created agent "${id}". Edit the file then re-run a prompt — skills hot-reload.`,
+      );
+      // Reopen the manage panel with the new entry visible & ticked.
+      void vscode.commands.executeCommand('prompt-proxy.manageAgentSkills');
+    });
 
     qp.onDidTriggerItemButton(async (ev) => {
       const e = ev.item.entry;

@@ -43,6 +43,14 @@ export async function openExtensionReadme(
     return;
   }
 
-  const document = await vscode.workspace.openTextDocument(readmePath);
-  await vscode.window.showTextDocument(document, { preview: false });
+  // Open the README in Markdown preview mode by default — much friendlier
+  // than raw markdown source.  Fall back to the text editor if the
+  // built-in markdown extension is somehow unavailable.
+  const uri = vscode.Uri.file(readmePath);
+  try {
+    await vscode.commands.executeCommand('markdown.showPreview', uri);
+  } catch {
+    const document = await vscode.workspace.openTextDocument(readmePath);
+    await vscode.window.showTextDocument(document, { preview: false });
+  }
 }

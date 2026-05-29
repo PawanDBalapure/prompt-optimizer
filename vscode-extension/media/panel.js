@@ -127,10 +127,55 @@ document.addEventListener('keydown', function(event) {
 });
 
 // ── Quick chips ──────────────────────────────────────────────────────────────
+var chipGuide   = document.getElementById('chipGuide');
+var chipHistory = document.getElementById('chipHistory');
 var chipExample = document.getElementById('chipExample');
 var chipMemory  = document.getElementById('chipMemory');
 var chipPeers   = document.getElementById('chipPeers');
 var chipAgents  = document.getElementById('chipAgents');
+var btnClearInput     = document.getElementById('btnClearInput');
+var btnClearOptimized = document.getElementById('btnClearOptimized');
+var optimizedCard     = document.getElementById('optimizedCard');
+if (chipGuide) {
+  chipGuide.addEventListener('click', function() {
+    vscode.postMessage({ type: 'openUserGuide' });
+  });
+}
+if (chipHistory) {
+  chipHistory.addEventListener('click', function() {
+    vscode.postMessage({ type: 'showHistory' });
+  });
+}
+var chipVersions = document.getElementById('chipVersions');
+if (chipVersions) {
+  chipVersions.addEventListener('click', function() {
+    vscode.postMessage({ type: 'showPromptLog' });
+  });
+}
+var btnCommitOptimized = document.getElementById('btnCommitOptimized');
+if (btnCommitOptimized) {
+  btnCommitOptimized.addEventListener('click', function() {
+    var promptText = (promptInput && promptInput.value) || '';
+    var optimizedText = (optimizedPrompt && optimizedPrompt.textContent) || '';
+    vscode.postMessage({
+      type: 'commitPrompt',
+      prompt: promptText.trim(),
+      optimized: optimizedText.trim(),
+    });
+  });
+}
+if (btnClearInput) {
+  btnClearInput.addEventListener('click', function() {
+    promptInput.value = '';
+    promptInput.focus();
+  });
+}
+if (btnClearOptimized) {
+  btnClearOptimized.addEventListener('click', function() {
+    if (optimizedPrompt) { optimizedPrompt.textContent = ''; }
+    if (optimizedCard) { optimizedCard.style.display = 'none'; }
+  });
+}
 if (chipExample) {
   chipExample.addEventListener('click', function() {
     promptInput.value = 'Refactor the auth middleware to use async/await and add unit tests for the happy path and 401 case.';
@@ -168,6 +213,16 @@ window.addEventListener('message', function(event) {
       break;
     case 'analysisState':
       renderState(msg.payload);
+      break;
+    case 'restorePrompt':
+      if (promptInput && typeof msg.prompt === 'string') {
+        promptInput.value = msg.prompt;
+        promptInput.focus();
+        try { promptInput.setSelectionRange(promptInput.value.length, promptInput.value.length); } catch (_) {}
+      }
+      break;
+    case 'versionsChanged':
+      // Reserved for future badge updates; no-op for now.
       break;
     case 'responseStart':
       responseContent.textContent = '';
@@ -237,35 +292,27 @@ function renderStatusOverview(overview) {
   if (digestCount) { digestCount.textContent = String(digestVal); }
 
   var hasAnyData = memoryVal > 0 || kgNodes > 0 || cacheVal > 0 || peerVal > 0 || digestVal > 0;
-  var pillIndexing = document.getElementById('pillIndexing');
   var pillMemory   = document.getElementById('pillMemory');
   var pillKg       = document.getElementById('pillKg');
   var pillCache    = document.getElementById('pillCache');
   var pillPeers    = document.getElementById('pillPeers');
   var pillDigests  = document.getElementById('pillDigests');
   if (hasAnyData) {
-    if (pillIndexing) { pillIndexing.hidden = true; }
     if (pillMemory)   { pillMemory.hidden = false; }
     if (pillKg)       { pillKg.hidden = false; }
     if (pillCache)    { pillCache.hidden = false; }
     if (pillPeers)    { pillPeers.hidden = false; }
     if (pillDigests)  { pillDigests.hidden = false; }
   } else {
-    // Bootstrap hasn't produced any rows yet; keep the indexing pill visible
-    // so the panel never looks empty after install. A follow-up refresh will
-    // populate the real counts.
-    if (pillIndexing) {
-      pillIndexing.hidden = false;
-      var label = document.getElementById('indexingLabel');
-      if (label) { label.textContent = 'Indexing workspace…'; }
-    }
+    // No data rows yet — hide everything; the status-bar item shows the
+    // "Indexing workspace…" state in a minimalist way.
     if (pillMemory) { pillMemory.hidden = true; }
     if (pillKg)     { pillKg.hidden = true; }
     if (pillCache)  { pillCache.hidden = true; }
     if (pillPeers)  { pillPeers.hidden = true; }
     if (pillDigests) { pillDigests.hidden = true; }
   }
-  strip.hidden = false;
+  strip.hidden = !hasAnyData;
 }
 
 vscode.postMessage({ type: 'ready' });

@@ -17,11 +17,21 @@ import { computeWorkspaceId } from '../util/workspace';
  */
 
 const DEBOUNCE_MS = 1500;
+/** Per-workspace flag — set after the first successful bootstrap toast. */
+const BOOTSTRAP_NOTIFIED_KEY = 'promptProxy.bootstrapInstructionsNotified';
 
 const MEMORY_FILE_NAMES = new Set([
   'memory.md', 'knowledge.md', 'AGENTS.md', 'CLAUDE.md', 'CLAUDE.local.md',
   '.cursorrules', '.clinerules',
 ]);
+
+interface SyncReport {
+  ok: boolean;
+  path: string;
+  created: boolean;
+  changed: boolean;
+  entries_written?: number;
+}
 
 export function registerCopilotInstructionsSync(context: vscode.ExtensionContext): void {
   let pendingTimer: NodeJS.Timeout | undefined;
@@ -66,12 +76,45 @@ export function registerCopilotInstructionsSync(context: vscode.ExtensionContext
       }
     }),
   );
+
+  // Bootstrap on activation: ensure `.github/copilot-instructions.md` exists
+  // so the very first chat turn after install already has Prompt Optimizer
+  // memory wired into Copilot.  Runs once per workspace, then notifies the
+  // user with a one-time toast if the file (or the .github folder) had to
+  // be created.
+  void bootstrapInstructions(context);
+}
+
+async function bootstrapInstructions(context: vscode.ExtensionContext): Promise<void> {
+  const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!wsRoot) { return; }
+  // Defer slightly so activation isn't blocked on the engine subprocess.
+  await new Promise((r) => setTimeout(r, 1200));
+  const report = await runSync(context, wsRoot);
+  if (!report?.ok || !report.created) { return; }
+
+  const alreadyNotified = context.workspaceState.get<boolean>(BOOTSTRAP_NOTIFIED_KEY) === true;
+  if (alreadyNotified) { return; }
+  await context.workspaceState.update(BOOTSTRAP_NOTIFIED_KEY, true);
+
+  const OPEN = 'Open file';
+  const GUIDE = 'What is this?';
+  const choice = await vscode.window.showInformationMessage(
+    `Prompt Optimizer created \`.github/copilot-instructions.md\` so GitHub Copilot will automatically see your workspace memory on every chat turn. ${report.entries_written ?? 0} memory source(s) wired in.`,
+    OPEN, GUIDE,
+  );
+  if (choice === OPEN) {
+    const uri = vscode.Uri.file(report.path);
+    await vscode.window.showTextDocument(uri, { preview: false });
+  } else if (choice === GUIDE) {
+    await vscode.commands.executeCommand('prompt-proxy.userGuide');
+  }
 }
 
 async function runSync(
   context: vscode.ExtensionContext,
   workspaceRoot: string,
-): Promise<{ ok: boolean; path: string; changed: boolean } | undefined> {
+): Promise<SyncReport | undefined> {
   const dbPath = getDbPath(context);
   const wsId = computeWorkspaceId(workspaceRoot);
   try {
@@ -81,7 +124,7 @@ async function runSync(
       '--workspace', wsId,
       '--db', dbPath,
     ]);
-    return JSON.parse(raw);
+    return JSON.parse(raw) as SyncReport;
   } catch (error) {
     // Non-fatal — log to the extension console only.
     console.warn('[prompt-optimizer] copilot-instructions sync failed:', error);

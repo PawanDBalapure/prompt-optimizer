@@ -90,6 +90,23 @@ export class PromptProxyViewProvider implements vscode.WebviewViewProvider {
     this._view?.webview.postMessage({ type: 'modeState', mode });
   }
 
+  /**
+   * Push a previously-committed prompt back into the panel textarea
+   * (Git-style `checkout` updating the working tree).
+   */
+  public restorePromptInPanel(text: string): void {
+    this._view?.webview.postMessage({ type: 'restorePrompt', prompt: text });
+  }
+
+  /**
+   * Hook for the versions command to nudge the webview after a commit
+   * (so it can refresh a count badge or similar in the future).  Safe
+   * no-op today; kept so the call sites stay simple.
+   */
+  public notifyVersionsChanged(): void {
+    this._view?.webview.postMessage({ type: 'versionsChanged' });
+  }
+
   public refreshStatusOverview(): void {
     if (!this._view) { return; }
     void this._sendStatusOverview(this._view);
@@ -126,6 +143,24 @@ export class PromptProxyViewProvider implements vscode.WebviewViewProvider {
         return;
       case 'manageAgentSkills':
         await vscode.commands.executeCommand('prompt-proxy.manageAgentSkills');
+        return;
+      case 'openUserGuide':
+        await vscode.commands.executeCommand('prompt-proxy.userGuide');
+        return;
+      case 'showHistory':
+        await vscode.commands.executeCommand('prompt-proxy.showHistory');
+        return;
+      case 'commitPrompt':
+        await vscode.commands.executeCommand('prompt-proxy.commitPrompt', {
+          prompt: data.prompt ?? '',
+          optimized: data.optimized,
+        });
+        return;
+      case 'showPromptLog':
+        await vscode.commands.executeCommand('prompt-proxy.showPromptLog');
+        return;
+      case 'switchPromptBranch':
+        await vscode.commands.executeCommand('prompt-proxy.switchPromptBranch');
         return;
       case 'requestStatusOverview':
         return this._sendStatusOverview(webviewView);

@@ -27,19 +27,19 @@
       </div>
       <p class="hero-tagline">Compress prompts, reuse local cache, and forecast token cost before they reach Copilot.</p>
       <div class="quick-chips" aria-label="Quick actions">
-        <button class="chip-btn" id="chipExample" type="button" title="Insert an example prompt">✨ Try example</button>
-        <button class="chip-btn" id="chipMemory" type="button" title="Open the workspace memory file">📓 Memory</button>
-        <button class="chip-btn" id="chipPeers" type="button" title="Manage peer workspaces (cross-workspace cache)">🔗 Peers</button>
-        <button class="chip-btn" id="chipAgents" type="button" title="Enable or disable bundled SDLC agent skills for this workspace">🤖 Agents</button>
+        <button class="chip-btn" id="chipGuide" type="button" title="Open the User Guide — a single-screen list of every common action with detailed descriptions.">🎓 Guide</button>
+        <button class="chip-btn" id="chipHistory" type="button" title="Browse prior prompts for this workspace, with side-by-side diff of original ↔ optimized.">🕒 History</button>
+        <button class="chip-btn" id="chipVersions" type="button" title="Git-style prompt versioning: open the prompt log to checkout/diff/tag prior commits, or switch branches.">🌿 Versions</button>
+        <button class="chip-btn" id="chipExample" type="button" title="Insert an example prompt so you can try the optimizer in one click.">✨ Try example</button>
+        <button class="chip-btn" id="chipMemory" type="button" title="Open the workspace memory file (AGENTS.md / CLAUDE.md / .promptoptimizer/memory.md). Its contents are auto-injected into every optimized prompt.">📓 Memory</button>
+        <button class="chip-btn" id="chipPeers" type="button" title="Manage peer workspaces — federate this workspace's local cache with peers so similar prompts hit the cache across repos.">🔗 Peers</button>
+        <button class="chip-btn" id="chipAgents" type="button" title="Enable or disable bundled SDLC agent skills (planner, reviewer, security-auditor, …) for this workspace.">🤖 Agents</button>
       </div>
     </section>
 
     <div class="notice" id="notice" role="status" aria-live="polite"></div>
 
     <section class="status-strip" id="statusStrip" aria-label="Workspace index status">
-      <span class="status-pill status-indexing" id="pillIndexing" title="Prompt Optimizer is reading project files, instructions, and git history to enrich local memory and the knowledge graph.">
-        <span class="pill-icon">&#9881;</span><span class="pill-lbl" id="indexingLabel">Indexing workspace…</span>
-      </span>
       <span class="status-pill" id="pillMemory" title="Workspace memory entries (AGENTS.md / CLAUDE.md / .promptoptimizer/memory.md)" hidden>
         <span class="pill-icon">&#128221;</span><span class="pill-val" id="memoryCount">0</span>
         <span class="pill-lbl">memory</span>
@@ -86,6 +86,9 @@
                 aria-label="Prompt input"
                 aria-multiline="true"
                 placeholder="Type a prompt — Agent answers directly, Optimize shows analysis, Direct pre-fills chat. (Ctrl+Enter to run)"></textarea>
+      <button class="send-btn" id="btnClearInput" type="button" title="Clear the prompt input" aria-label="Clear input" style="right:46px;background:transparent;">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/></svg>
+      </button>
       <button class="send-btn primary" id="btnPrimary" title="Run Agent" aria-label="Run">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M7 2.414V13h2V2.414l3.293 3.293 1.414-1.414L8 .586 2.293 4.293l1.414 1.414z"/></svg>
       </button>
@@ -94,7 +97,13 @@
     <div id="alerts" class="alerts" role="status" aria-live="polite" aria-atomic="false"></div>
 
     <section class="card" id="optimizedCard" style="display:none" aria-label="Optimized prompt">
-      <h2 class="section-title" style="margin-bottom:6px">Optimized</h2>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;gap:8px">
+        <h2 class="section-title" style="margin:0">Optimized</h2>
+        <div style="display:flex;gap:6px">
+          <button class="secondary compact" id="btnCommitOptimized" type="button" title="Commit this prompt + optimized output as a Git-style version (creates a sha you can checkout later)." aria-label="Commit version">💾 Commit</button>
+          <button class="secondary compact" id="btnClearOptimized" type="button" title="Clear the optimized prompt card" aria-label="Clear optimized">✕ Clear</button>
+        </div>
+      </div>
       <pre id="optimizedPrompt" tabindex="0"></pre>
     </section>
 

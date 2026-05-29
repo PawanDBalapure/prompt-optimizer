@@ -2,7 +2,7 @@
   "name": "vscode-prompt-optimizer",
   "displayName": "Local Prompt Optimizer",
   "description": "Fully local prompt optimization, semantic cache, and token cost forecasting for VS Code. Your prompts and code never leave your machine — no telemetry, no cloud processing. Works with GitHub Copilot.",
-  "version": "2.1.0",
+  "version": "2.5.0",
   "publisher": "PawanBalapure",
   "license": "MIT",
   "icon": "images/icon.png",
@@ -194,6 +194,33 @@
           "maximum": 128000,
           "description": "Total byte cap for the harvested workspace-memory block (sum across all memory files). Default 24000."
         },
+        "promptProxy.suppressWelcome": {
+          "type": "boolean",
+          "default": false,
+          "description": "Suppress the post-install / post-update status-bar highlight and welcome toast."
+        },
+        "promptProxy.versions.author": {
+          "type": "string",
+          "default": "",
+          "description": "Author name recorded on prompt version commits (Git-style). Leave empty to use the OS username."
+        },
+        "promptProxy.optimize.autoOpenChat": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, the Optimize action automatically opens Copilot Chat with the optimized prompt pre-filled (legacy behaviour). When false (default), the success toast offers a 'Send to Copilot Chat' button so chat only opens when you ask."
+        },
+        "promptProxy.optimize.sourcePicker": {
+          "type": "string",
+          "enum": ["auto", "ask", "selection-first", "clipboard-first"],
+          "default": "ask",
+          "enumDescriptions": [
+            "Use the first non-empty source in this order: selection → full editor → clipboard.",
+            "When both the editor selection and clipboard are non-empty AND differ, show a Quick Pick so you choose explicitly.",
+            "Always prefer the editor selection, fall back to clipboard, then full editor.",
+            "Always prefer the clipboard, fall back to selection, then full editor."
+          ],
+          "description": "Controls how the Optimize action picks its input when multiple sources are available."
+        },
         "promptProxy.secretPatterns": {
           "type": "array",
           "items": {
@@ -342,6 +369,36 @@
         "command": "prompt-proxy.showMemoryBudget",
         "title": "Prompt Optimizer: Show Memory File Budget",
         "icon": "$(graph)"
+      },
+      {
+        "command": "prompt-proxy.userGuide",
+        "title": "Prompt Optimizer: User Guide (Common Actions)",
+        "icon": "$(book)"
+      },
+      {
+        "command": "prompt-proxy.showHistory",
+        "title": "Prompt Optimizer: Show Prompt History (Side-by-Side Diff)",
+        "icon": "$(history)"
+      },
+      {
+        "command": "prompt-proxy.commitPrompt",
+        "title": "Prompt Optimizer: Commit Current Prompt (Versioning)",
+        "icon": "$(git-commit)"
+      },
+      {
+        "command": "prompt-proxy.showPromptLog",
+        "title": "Prompt Optimizer: Show Prompt Log (Versions)",
+        "icon": "$(git-branch)"
+      },
+      {
+        "command": "prompt-proxy.createPromptBranch",
+        "title": "Prompt Optimizer: Create Prompt Branch",
+        "icon": "$(git-pull-request-create)"
+      },
+      {
+        "command": "prompt-proxy.switchPromptBranch",
+        "title": "Prompt Optimizer: Switch Prompt Branch",
+        "icon": "$(git-pull-request)"
       }
     ],
     "languageModelTools": [
