@@ -20,21 +20,34 @@ import { redactForPersistence } from './redactor.js';
  *   - README.md                    (fallback summary only)
  */
 
+// NOTE: `.github/copilot-instructions.md` is intentionally NOT listed here.
+// Copilot reads that file natively on every chat turn, and our
+// `syncCopilotInstructions` writer derives it from these sources. Including
+// it would double-feed the same bytes into every prompt.
 const MEMORY_SOURCES: { source: string; relative: string; isFallback?: boolean }[] = [
   { source: 'project memory',         relative: '.promptoptimizer/memory.md' },
   { source: 'project knowledge',      relative: '.promptoptimizer/knowledge.md' },
   { source: 'AGENTS.md',              relative: 'AGENTS.md' },
   { source: 'CLAUDE.md',              relative: 'CLAUDE.md' },
   { source: 'CLAUDE.local.md',        relative: 'CLAUDE.local.md' },
-  { source: 'Copilot instructions',   relative: '.github/copilot-instructions.md' },
   { source: 'Cursor rules',           relative: '.cursorrules' },
   { source: 'Cline rules',            relative: '.clinerules' },
   { source: 'README (excerpt)',       relative: 'README.md', isFallback: true },
 ];
 
-/** Hard cap to keep token usage predictable. */
-const MAX_BYTES_PER_FILE = 12_000;
-const MAX_TOTAL_BYTES = 24_000;
+/**
+ * Hard cap to keep token usage predictable.  Both can be overridden via
+ * env vars so the VS Code extension (and CLI users) can tune the budget
+ * without rebuilding the engine.
+ */
+function envInt(name: string, fallback: number, min = 256): number {
+  const raw = process.env[name];
+  if (!raw) { return fallback; }
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n >= min ? n : fallback;
+}
+const MAX_BYTES_PER_FILE = envInt('POMEMORY_MAX_BYTES_PER_FILE', 12_000);
+const MAX_TOTAL_BYTES    = envInt('POMEMORY_MAX_TOTAL_BYTES',    24_000);
 
 export interface WorkspaceMemoryEntry {
   source: string;
@@ -66,10 +79,11 @@ export function readWorkspaceMemory(workspaceRoot?: string, workspaceId = 'globa
       const stat = fs.statSync(fullPath);
       if (!stat.isFile()) { continue; }
       const raw = fs.readFileSync(fullPath, 'utf8');
-      const content = clampContent(raw, candidate.isFallback ? MAX_BYTES_PER_FILE / 3 : MAX_BYTES_PER_FILE);
-      if (totalBytes + content.length > MAX_TOTAL_BYTES) { continue; }
+      const content = clampContent(raw, candidate.isFallback ? Math.floor(MAX_BYTES_PER_FILE / 3) : MAX_BYTES_PER_FILE);
+      const entryBytes = Buffer.byteLength(content, 'utf8');
+      if (totalBytes + entryBytes > MAX_TOTAL_BYTES) { continue; }
       collected.push({ source: candidate.source, content, mtime: stat.mtimeMs });
-      totalBytes += content.length;
+      totalBytes += entryBytes;
       if (!candidate.isFallback) { haveAuthoritative = true; }
     } catch { /* unreadable — skip */ }
   }
@@ -129,6 +143,16 @@ function safeJoin(root: string, relative: string): string | null {
 }
 
 function clampContent(text: string, maxBytes: number): string {
-  if (text.length <= maxBytes) { return text; }
-  return text.slice(0, maxBytes) + '\n... (truncated)';
+  // Byte-accurate truncation: walk the string until we cross `maxBytes` in
+  // UTF-8, so multibyte content (emoji, accented chars) cannot sneak past
+  // the cap and balloon the per-turn token cost.
+  if (Buffer.byteLength(text, 'utf8') <= maxBytes) { return text; }
+  let accumulated = 0;
+  let cutIndex = text.length;
+  for (let i = 0; i < text.length; i++) {
+    const charBytes = Buffer.byteLength(text[i], 'utf8');
+    if (accumulated + charBytes > maxBytes) { cutIndex = i; break; }
+    accumulated += charBytes;
+  }
+  return text.slice(0, cutIndex) + '\n... (truncated)';
 }

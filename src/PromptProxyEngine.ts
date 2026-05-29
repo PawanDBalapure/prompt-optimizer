@@ -295,7 +295,7 @@ export class PromptProxyEngine {
       }
     } catch { /* peer search must never break optimization */ }
 
-    return sections;
+    return enforceAugmentedBudget(sections);
   }
 
   private async lookupCache(
@@ -345,6 +345,35 @@ export class PromptProxyEngine {
       console.error('[PromptProxyEngine] Async background write error:', error);
     });
   }
+}
+
+/**
+ * Top-level byte ceiling for the combined augmented context (memory + KG +
+ * digests + peer matches) that the engine prepends to every optimized
+ * prompt.  Without this cap the per-turn cost would scale linearly with
+ * the number of memory files, KG nodes, and federated peers.
+ *
+ * 18 KB \u2248 4.5 K tokens \u2014 generous for serious projects, well below the
+ * point where it starts pushing the user's actual prompt out of context.
+ * Overridable via `POMEMORY_MAX_AUGMENTED_BYTES` env var.
+ */
+const MAX_AUGMENTED_BYTES = (() => {
+  const raw = process.env.POMEMORY_MAX_AUGMENTED_BYTES;
+  if (!raw) { return 18_000; }
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 1_024 ? n : 18_000;
+})();
+
+function enforceAugmentedBudget(sections: string[]): string[] {
+  const out: string[] = [];
+  let used = 0;
+  for (const section of sections) {
+    const cost = Buffer.byteLength(section, 'utf8') + 2;
+    if (used + cost > MAX_AUGMENTED_BYTES) { break; }
+    out.push(section);
+    used += cost;
+  }
+  return out;
 }
 
 /**

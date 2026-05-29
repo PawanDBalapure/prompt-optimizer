@@ -58,7 +58,9 @@
     "type": "git",
     "url": "https://github.com/PawanDBalapure/prompt-optimizer"
   },
-  "activationEvents": ["onStartupFinished"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "chatParticipants": [
@@ -121,7 +123,12 @@
       "properties": {
         "promptProxy.targetModel": {
           "type": "string",
-          "enum": ["claude", "gpt", "gemini", "local"],
+          "enum": [
+            "claude",
+            "gpt",
+            "gemini",
+            "local"
+          ],
           "default": "gpt",
           "description": "The compiler target model compiler style to optimize the prompt formatting layout for."
         },
@@ -132,7 +139,10 @@
         },
         "promptProxy.processingMode": {
           "type": "string",
-          "enum": ["blocking", "non-blocking"],
+          "enum": [
+            "blocking",
+            "non-blocking"
+          ],
           "default": "blocking",
           "description": "Query processing mode for the cache lookup: 'blocking' stands for precise sequential execution; 'non-blocking' uses an async background lookup."
         },
@@ -156,6 +166,34 @@
           "default": true,
           "description": "Scan prompts for potential secrets (API keys, tokens, passwords) before sending and show a warning in the panel."
         },
+        "promptProxy.tokenBudget.augmentedBytes": {
+          "type": "number",
+          "default": 18000,
+          "minimum": 1024,
+          "maximum": 200000,
+          "description": "Maximum total bytes of augmented context (workspace memory + knowledge graph + file digests + peer matches) injected into every optimized prompt. Lower this to reduce per-turn token cost; raise it for large codebases. Default 18000 (~4.5K tokens)."
+        },
+        "promptProxy.tokenBudget.managedBytes": {
+          "type": "number",
+          "default": 8000,
+          "minimum": 512,
+          "maximum": 64000,
+          "description": "Maximum bytes Prompt Optimizer is allowed to write inside its managed block in .github/copilot-instructions.md. Default 8000 (~2K tokens always-on)."
+        },
+        "promptProxy.tokenBudget.perFileBytes": {
+          "type": "number",
+          "default": 12000,
+          "minimum": 256,
+          "maximum": 64000,
+          "description": "Per-memory-file byte cap (AGENTS.md / CLAUDE.md / .promptoptimizer/memory.md / etc.) when harvesting workspace memory for the engine. Default 12000."
+        },
+        "promptProxy.tokenBudget.totalBytes": {
+          "type": "number",
+          "default": 24000,
+          "minimum": 512,
+          "maximum": 128000,
+          "description": "Total byte cap for the harvested workspace-memory block (sum across all memory files). Default 24000."
+        },
         "promptProxy.secretPatterns": {
           "type": "array",
           "items": {
@@ -167,7 +205,14 @@
               },
               "matchMode": {
                 "type": "string",
-                "enum": ["regex", "like", "contains", "startsWith", "endsWith", "exact"],
+                "enum": [
+                  "regex",
+                  "like",
+                  "contains",
+                  "startsWith",
+                  "endsWith",
+                  "exact"
+                ],
                 "default": "regex",
                 "description": "How to evaluate the custom pattern against the full prompt text. 'regex' uses JavaScript regex, 'like' uses SQL LIKE semantics, and the other modes do case-insensitive string matching."
               },
@@ -176,7 +221,9 @@
                 "description": "The raw match input. For 'regex', provide a JavaScript regex source without delimiters. For 'like', use SQL LIKE syntax. For string modes, provide the literal text to match."
               }
             },
-            "required": ["pattern"]
+            "required": [
+              "pattern"
+            ]
           },
           "default": [],
           "description": "Additional custom secret-detection rules. Each entry must include a 'pattern', can optionally set 'matchMode' (regex | like | contains | startsWith | endsWith | exact), and can include a 'label'."
@@ -305,7 +352,11 @@
         "toolReferenceName": "pomemory",
         "canBeReferencedInPrompt": true,
         "icon": "$(sparkle)",
-        "tags": ["memory", "context", "prompt-optimizer"],
+        "tags": [
+          "memory",
+          "context",
+          "prompt-optimizer"
+        ],
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -315,7 +366,11 @@
             },
             "scope": {
               "type": "string",
-              "enum": ["workspace", "user", "all"],
+              "enum": [
+                "workspace",
+                "user",
+                "all"
+              ],
               "description": "Which memory tier to search. 'workspace' = this repo only, 'user' = the user-global tier shared across all repos, 'all' = both. Defaults to 'all'."
             },
             "limit": {
@@ -357,29 +412,45 @@
             "id": "openPanel",
             "title": "Open the Prompt Optimizer panel",
             "description": "Click the Prompt Optimizer view in the Activity Bar (or press `Ctrl+Alt+P`).\n[Open panel](command:prompt-proxy.focusPanel)",
-            "media": { "markdown": "media/walkthrough/open-panel.md" },
-            "completionEvents": ["onCommand:prompt-proxy.focusPanel"]
+            "media": {
+              "markdown": "media/walkthrough/open-panel.md"
+            },
+            "completionEvents": [
+              "onCommand:prompt-proxy.focusPanel"
+            ]
           },
           {
             "id": "tryExample",
             "title": "Optimize your first prompt",
             "description": "Paste a prompt and press `Ctrl+Enter`, or hit the **Optimize** button in the status bar to optimize whatever is in your editor selection.\n[Optimize now](command:prompt-proxy.optimizeChatPrompt)",
-            "media": { "markdown": "media/walkthrough/optimize.md" },
-            "completionEvents": ["onCommand:prompt-proxy.optimizeChatPrompt"]
+            "media": {
+              "markdown": "media/walkthrough/optimize.md"
+            },
+            "completionEvents": [
+              "onCommand:prompt-proxy.optimizeChatPrompt"
+            ]
           },
           {
             "id": "pickMode",
             "title": "Pick a default mode",
             "description": "Agent answers directly, Optimize shows analysis, Direct pre-fills chat.\n[Select mode](command:prompt-proxy.selectMode)",
-            "media": { "markdown": "media/walkthrough/modes.md" },
-            "completionEvents": ["onCommand:prompt-proxy.selectMode"]
+            "media": {
+              "markdown": "media/walkthrough/modes.md"
+            },
+            "completionEvents": [
+              "onCommand:prompt-proxy.selectMode"
+            ]
           },
           {
             "id": "memory",
             "title": "Curate workspace memory",
-            "description": "Drop notes into `AGENTS.md`, `CLAUDE.md`, or `.promptoptimizer/memory.md` \u2014 Prompt Optimizer will index them locally for richer prompts.\n[Open memory file](command:prompt-proxy.openMemoryFile)",
-            "media": { "markdown": "media/walkthrough/memory.md" },
-            "completionEvents": ["onCommand:prompt-proxy.openMemoryFile"]
+            "description": "Drop notes into `AGENTS.md`, `CLAUDE.md`, or `.promptoptimizer/memory.md` — Prompt Optimizer will index them locally for richer prompts.\n[Open memory file](command:prompt-proxy.openMemoryFile)",
+            "media": {
+              "markdown": "media/walkthrough/memory.md"
+            },
+            "completionEvents": [
+              "onCommand:prompt-proxy.openMemoryFile"
+            ]
           }
         ]
       }
@@ -392,7 +463,8 @@
   },
   "dependencies": {
     "better-sqlite3": "^11.8.0",
-    "gpt-tokenizer": "^2.8.1"
+    "gpt-tokenizer": "^2.8.1",
+    "js-tiktoken": "^1.0.21"
   },
   "devDependencies": {
     "@types/node": "^20.11.24",

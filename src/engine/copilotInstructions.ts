@@ -20,6 +20,22 @@ export const MANAGED_END   = '<!-- prompt-optimizer:memory:end -->';
 
 const HEADER_PREFIX = '# Project notes (managed by Prompt Optimizer)\n';
 
+/**
+ * Hard cap on the auto-generated managed block. Copilot loads
+ * copilot-instructions.md on EVERY chat turn, so an unbounded managed
+ * section would silently bloat every request. 8 KB ≈ 2 K tokens; combined
+ * with whatever the user authored outside the markers this keeps the
+ * always-on context cost predictable.
+ */
+function envInt(name: string, fallback: number, min = 512): number {
+  const raw = process.env[name];
+  if (!raw) { return fallback; }
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n >= min ? n : fallback;
+}
+const MAX_MANAGED_BYTES   = envInt('POMEMORY_MAX_MANAGED_BYTES',   8_000);
+const MAX_PER_ENTRY_BYTES = envInt('POMEMORY_MAX_PER_ENTRY_BYTES', 2_500);
+
 export interface CopilotInstructionsReport {
   ok: boolean;
   path: string;
@@ -72,7 +88,7 @@ export function syncCopilotInstructions(options: SyncOptions): CopilotInstructio
 }
 
 function buildManagedSection(entries: Array<{ source: string; content: string }>): string {
-  const lines: string[] = [
+  const header: string[] = [
     MANAGED_BEGIN,
     '',
     '> Auto-generated from Prompt Optimizer workspace memory.',
@@ -80,20 +96,56 @@ function buildManagedSection(entries: Array<{ source: string; content: string }>
     '',
   ];
   if (entries.length === 0) {
-    lines.push(
+    header.push(
       '_No project memory found yet. Create `AGENTS.md` or `.promptoptimizer/memory.md` ' +
       'to populate this section._',
     );
-  } else {
-    for (const entry of entries) {
-      lines.push(`### ${entry.source}`);
-      lines.push('');
-      lines.push(entry.content.trim());
-      lines.push('');
+    header.push(MANAGED_END);
+    return header.join('\n');
+  }
+
+  // Allocate a fair byte budget per entry so one large file cannot starve
+  // the others. Highest-priority sources are written first so any cap
+  // overflow drops the lowest-priority ones — not the user's authoritative
+  // AGENTS.md / memory.md content.
+  const perEntryCap = Math.min(
+    MAX_PER_ENTRY_BYTES,
+    Math.floor(MAX_MANAGED_BYTES / Math.max(1, entries.length)),
+  );
+  const lines = [...header];
+  let used = Buffer.byteLength(lines.join('\n'), 'utf8');
+  const endMarkerCost = Buffer.byteLength(`\n${MANAGED_END}`, 'utf8');
+
+  for (const entry of entries) {
+    const trimmed = entry.content.trim();
+    const clipped = clampUtf8(trimmed, perEntryCap);
+    const block = `### ${entry.source}\n\n${clipped}\n`;
+    const blockBytes = Buffer.byteLength(block, 'utf8');
+    if (used + blockBytes + endMarkerCost > MAX_MANAGED_BYTES) {
+      lines.push(`_(${entries.length - lines.filter(l => l.startsWith('### ')).length} more source(s) omitted to fit the ${MAX_MANAGED_BYTES} B managed cap.)_`);
+      break;
     }
+    lines.push(`### ${entry.source}`);
+    lines.push('');
+    lines.push(clipped);
+    lines.push('');
+    used += blockBytes;
   }
   lines.push(MANAGED_END);
   return lines.join('\n');
+}
+
+/** Byte-accurate UTF-8 truncation — mirrors workspaceMemory.clampContent. */
+function clampUtf8(text: string, maxBytes: number): string {
+  if (Buffer.byteLength(text, 'utf8') <= maxBytes) { return text; }
+  let accumulated = 0;
+  let cutIndex = text.length;
+  for (let i = 0; i < text.length; i++) {
+    const charBytes = Buffer.byteLength(text[i], 'utf8');
+    if (accumulated + charBytes > maxBytes) { cutIndex = i; break; }
+    accumulated += charBytes;
+  }
+  return text.slice(0, cutIndex) + '\n... (truncated)';
 }
 
 function composeFinal(preserved: string, managedSection: string): string {

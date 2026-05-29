@@ -17,6 +17,38 @@ import { computeWorkspaceId } from '../util/workspace';
 
 const TOOL_NAME = 'prompt-optimizer_recallMemory';
 
+/**
+ * Per-turn dedup window.  Copilot agent mode can occasionally invoke a
+ * tool multiple times in rapid succession with the same arguments while
+ * planning; serving cached results inside a short TTL prevents the same
+ * memory block from being billed multiple times in one turn.
+ */
+const DEDUP_TTL_MS = 3_000;
+const DEDUP_MAX_ENTRIES = 16;
+interface DedupEntry { at: number; result: RecallToolOutput; }
+const dedupCache = new Map<string, DedupEntry>();
+function dedupKey(input: RecallToolInput): string {
+  return JSON.stringify({
+    q: (input.query ?? '').trim().toLowerCase(),
+    s: input.scope ?? 'all',
+    l: input.limit ?? 8,
+  });
+}
+function dedupGet(key: string): RecallToolOutput | null {
+  const hit = dedupCache.get(key);
+  if (!hit) { return null; }
+  if (Date.now() - hit.at > DEDUP_TTL_MS) { dedupCache.delete(key); return null; }
+  return hit.result;
+}
+function dedupSet(key: string, result: RecallToolOutput): void {
+  if (dedupCache.size >= DEDUP_MAX_ENTRIES) {
+    // Evict oldest entry — Map preserves insertion order.
+    const oldest = dedupCache.keys().next().value;
+    if (oldest !== undefined) { dedupCache.delete(oldest); }
+  }
+  dedupCache.set(key, { at: Date.now(), result });
+}
+
 interface RecallToolInput {
   query?: string;
   scope?: 'workspace' | 'user' | 'all';
@@ -51,9 +83,15 @@ export function registerRecallMemoryTool(context: vscode.ExtensionContext): void
 
     async invoke(options, token) {
       const input = options.input ?? {};
-      const result = await runRecall(context, input, token);
+      const key = dedupKey(input);
+      const cached = dedupGet(key);
+      const result = cached ?? await runRecall(context, input, token);
+      if (!cached) { dedupSet(key, result); }
+      const headerNote = cached
+        ? `\n\n<!--prompt-optimizer:recall:dedup--> (served from per-turn cache, age ${Date.now() - (dedupCache.get(key)?.at ?? Date.now())}ms)`
+        : '';
       const parts: Array<vscode.LanguageModelTextPart> = [
-        new vscode.LanguageModelTextPart(result.formatted),
+        new vscode.LanguageModelTextPart(result.formatted + headerNote),
         // Compact JSON payload so downstream tools can parse entries
         // without re-implementing markdown parsing.
         new vscode.LanguageModelTextPart(

@@ -183,17 +183,35 @@ function recallFromCache(
        WHERE workspace_id = ? AND (${clauses})
        ORDER BY timestamp DESC LIMIT ?`,
     ).all(...params) as Array<{ raw_prompt: string; optimized_prompt: string; timestamp: number }>;
-    return rows.map((row) => ({
-      tier: 'cache' as const,
-      source: `Past prompt: ${row.raw_prompt.slice(0, 60).replace(/\s+/g, ' ')}`,
-      content: clampText(row.optimized_prompt, MAX_ENTRY_BYTES),
-      score: scoreContent(`${row.raw_prompt} ${row.optimized_prompt}`, terms)
-           + recencyScore(row.timestamp) - 0.35,
-      updated_at: row.timestamp,
-    }));
+    return rows.map((row) => {
+      // Strip injected memory / KG / peer sections from cached optimized
+      // prompts so recall does not echo memory back into itself across turns.
+      const cleaned = stripAugmentedSections(row.optimized_prompt);
+      return {
+        tier: 'cache' as const,
+        source: `Past prompt: ${row.raw_prompt.slice(0, 60).replace(/\s+/g, ' ')}`,
+        content: clampText(cleaned, MAX_ENTRY_BYTES),
+        score: scoreContent(`${row.raw_prompt} ${cleaned}`, terms)
+             + recencyScore(row.timestamp) - 0.35,
+        updated_at: row.timestamp,
+      };
+    }).filter((entry) => entry.content.trim().length > 0);
   } catch {
     return [];
   }
+}
+
+/**
+ * Remove the `# Workspace memory \u2014 \u2026`, `# Knowledge graph hint`, and
+ * `# Peer workspace \u2026` sections that the engine prepends so a cached
+ * optimized prompt does not re-feed those bytes when surfaced via recall.
+ */
+function stripAugmentedSections(optimized: string): string {
+  return optimized
+    .split(/\n(?=# (?:Workspace memory|Knowledge graph|Peer workspace|Previously studied))/g)
+    .filter((chunk, idx) => idx === 0 || !/^# (?:Workspace memory|Knowledge graph|Peer workspace|Previously studied)/.test(chunk))
+    .join('\n')
+    .trim();
 }
 
 function recallFromPeer(peer: PeerWorkspace, terms: string[]): RecallEntry[] {

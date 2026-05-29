@@ -1,8 +1,32 @@
 import * as child_process from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as vscode from 'vscode';
 
 import type { PromptProxyResponse } from '../types';
+
+/**
+ * Build an env block that propagates user-configurable token budget caps
+ * from VS Code settings to the engine sidecar.  Falls back to the engine's
+ * built-in defaults when a setting is missing or invalid.
+ */
+function budgetEnv(): NodeJS.ProcessEnv {
+  const cfg = vscode.workspace.getConfiguration('promptProxy');
+  const out: NodeJS.ProcessEnv = { ...process.env };
+  const map: Array<[string, string, number]> = [
+    ['tokenBudget.augmentedBytes', 'POMEMORY_MAX_AUGMENTED_BYTES', 1_024],
+    ['tokenBudget.managedBytes',   'POMEMORY_MAX_MANAGED_BYTES',     512],
+    ['tokenBudget.perFileBytes',   'POMEMORY_MAX_BYTES_PER_FILE',    256],
+    ['tokenBudget.totalBytes',     'POMEMORY_MAX_TOTAL_BYTES',       512],
+  ];
+  for (const [setting, envName, min] of map) {
+    const v = cfg.get<number>(setting);
+    if (typeof v === 'number' && Number.isFinite(v) && v >= min) {
+      out[envName] = String(Math.floor(v));
+    }
+  }
+  return out;
+}
 
 /**
  * Locate the system Node.js binary.  VS Code's `process.execPath` is the
@@ -54,7 +78,7 @@ export function runEngine(request: unknown, dbPath: string): PromptProxyResponse
     {
       input: JSON.stringify(request),
       encoding: 'utf8',
-      env: process.env,
+      env: budgetEnv(),
       shell: false,
       timeout: SUBPROCESS_TIMEOUT_MS,
     },
@@ -83,7 +107,7 @@ export function runEngineRaw(args: string[], input?: string): string {
     {
       input,
       encoding: 'utf8',
-      env: process.env,
+      env: budgetEnv(),
       shell: false,
       timeout: SUBPROCESS_TIMEOUT_MS,
     },

@@ -1,5 +1,6 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { encodingForModel, type Tiktoken } from 'js-tiktoken';
 
 /**
  * Shared byte-budget helpers for all memory-file guardrails (diagnostics,
@@ -9,12 +10,56 @@ import * as vscode from 'vscode';
  * Caps mirror src/engine/workspaceMemory.ts.
  */
 
+function readCap(key: string, fallback: number): number {
+  const v = vscode.workspace.getConfiguration('promptProxy').get<number>(key);
+  return typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.floor(v) : fallback;
+}
+
+export function getMaxBytesPerFile(): number {
+  return readCap('tokenBudget.perFileBytes', 12_000);
+}
+export function getMaxTotalBytes(): number {
+  return readCap('tokenBudget.totalBytes', 24_000);
+}
+
+/** Back-compat numeric exports — keep defaults for callers that don't query live. */
 export const MAX_BYTES_PER_FILE = 12_000;
 export const MAX_TOTAL_BYTES    = 24_000;
 export const WARN_RATIO         = 0.8;
 
-/** Rough token estimate — most tokenizers average ~4 chars/token for English. */
+/**
+ * Fallback chars/token used only when the tokenizer fails to load.  Most
+ * GPT/Claude tokenizers average ~3.5 chars/token for prose and lower for
+ * code, so 4 is a conservative upper bound on chars/token => lower bound
+ * on token count.
+ */
 export const BYTES_PER_TOKEN_APPROX = 4;
+
+/**
+ * Accurate token estimator via js-tiktoken (cl100k_base encoder used by
+ * GPT-4, GPT-3.5-turbo, and a close approximation for Claude).  Cached
+ * across calls because constructing the encoder allocates ~1 MB.
+ */
+let cachedEncoder: Tiktoken | null = null;
+let encoderFailed = false;
+function getEncoder(): Tiktoken | null {
+  if (cachedEncoder || encoderFailed) { return cachedEncoder; }
+  try {
+    cachedEncoder = encodingForModel('gpt-4');
+  } catch {
+    encoderFailed = true;
+    cachedEncoder = null;
+  }
+  return cachedEncoder;
+}
+export function estimateTokens(text: string): number {
+  const enc = getEncoder();
+  if (enc) {
+    try { return enc.encode(text).length; }
+    catch { /* fall through to byte heuristic */ }
+  }
+  return Math.round(Buffer.byteLength(text, 'utf8') / BYTES_PER_TOKEN_APPROX);
+}
 
 export const GUARDED_FILE_NAMES = new Set([
   'memory.md', 'knowledge.md', 'AGENTS.md', 'CLAUDE.md', 'CLAUDE.local.md',
@@ -41,7 +86,7 @@ export interface MemoryBudget {
 
 export function computeBudget(doc: vscode.TextDocument): MemoryBudget {
   const totalBytes = Buffer.byteLength(doc.getText(), 'utf8');
-  const capBytes = MAX_BYTES_PER_FILE;
+  const capBytes = getMaxBytesPerFile();
   const overBytes = Math.max(0, totalBytes - capBytes);
   const usedRatio = totalBytes / capBytes;
   const usedPct = Math.round(usedRatio * 100);
@@ -57,7 +102,7 @@ export function computeBudget(doc: vscode.TextDocument): MemoryBudget {
     usedPct,
     status,
     truncLine: status === 'over' ? findTruncationLine(doc, capBytes) : -1,
-    estimatedTokens: Math.round(totalBytes / BYTES_PER_TOKEN_APPROX),
+    estimatedTokens: estimateTokens(doc.getText()),
   };
 }
 

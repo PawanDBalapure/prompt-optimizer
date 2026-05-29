@@ -2,8 +2,8 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 
 import {
-  BYTES_PER_TOKEN_APPROX,
   computeBudget,
+  estimateTokens,
   formatBytes,
   isGuardedFile,
   progressBar,
@@ -79,8 +79,8 @@ function buildHover(
       `Consider trimming repetition before adding more rules.\n\n`,
     );
   } else {
-    const approxLine = Buffer.byteLength(doc.lineAt(position.line).text, 'utf8');
-    const approxTokens = Math.max(1, Math.round(approxLine / BYTES_PER_TOKEN_APPROX));
+    const lineText = doc.lineAt(position.line).text;
+    const approxTokens = Math.max(1, estimateTokens(lineText));
     md.appendMarkdown(`> $(check) Within budget. This line ≈ ${approxTokens} token(s).\n\n`);
   }
 
