@@ -204,6 +204,11 @@
           "default": "",
           "description": "Author name recorded on prompt version commits (Git-style). Leave empty to use the OS username."
         },
+        "promptProxy.onboarding.autoOpen": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically open the Prompt Optimizer Guide on first install and after every extension update. Disable to suppress the auto-open (you can still launch it via the Visual Tour chip or the command palette)."
+        },
         "promptProxy.optimize.autoOpenChat": {
           "type": "boolean",
           "default": false,
@@ -285,6 +290,11 @@
       {
         "command": "prompt-proxy.openReadme",
         "title": "Prompt Optimizer: Open Extension README"
+      },
+      {
+        "command": "prompt-proxy.openOnboarding",
+        "title": "Prompt Optimizer: Open Guide",
+        "icon": "$(rocket)"
       },
       {
         "command": "prompt-proxy.cacheStats",

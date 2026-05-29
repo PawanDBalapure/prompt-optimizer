@@ -11,6 +11,7 @@ import { analyzePrompt } from './chat/analyzer';
 import {
   openChatWithPrompt,
   openExtensionReadme,
+  openOnboardingGuide,
   openPromptProxyPanel,
 } from './commands/open';
 import { seedCacheFromWorkspace, enrichFromChatHistory, ingestMemoryFiles } from './engine/seeder';
@@ -93,12 +94,17 @@ export function activate(context: vscode.ExtensionContext) {
   // Minimalist single-entrypoint user guide (Ctrl+Shift+P → "User Guide").
   registerUserGuide(context);
   // Prompt history browser (QuickPick with side-by-side diff button).
-  registerHistoryCommand(context);
+  registerHistoryCommand(context, provider);
   // Git-style prompt versioning: commit, log, branch, checkout, diff.
   registerVersionCommands(context, provider);
   // Briefly highlight the status-bar item on install / update / reload so
   // the user can find the Optimize action.
   highlightStatusBarOnActivate(context, statusBarItem);
+
+  // Auto-open the Interactive Onboarding Guide on first install AND after
+  // every version update so users always see the latest visual walkthrough.
+  // Respects the `promptProxy.onboarding.autoOpen` setting (default: true).
+  void maybeAutoOpenOnboarding(context);
 
   const participant = vscode.chat.createChatParticipant(
     CHAT_PARTICIPANT_ID,
@@ -163,6 +169,32 @@ export function activate(context: vscode.ExtensionContext) {
     })();
   }, ENRICH_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(enrichTimer) });
+}
+
+const ONBOARDING_LAST_VERSION_KEY = 'promptProxy.onboarding.lastShownVersion';
+
+async function maybeAutoOpenOnboarding(
+  context: vscode.ExtensionContext,
+): Promise<void> {
+  // User opt-out — honour `promptProxy.onboarding.autoOpen` (default true).
+  const enabled = vscode.workspace
+    .getConfiguration('promptProxy')
+    .get<boolean>('onboarding.autoOpen', true);
+  if (!enabled) { return; }
+
+  const currentVersion = String(
+    (context.extension.packageJSON as { version?: string } | undefined)?.version ?? '0.0.0',
+  );
+  const lastShown = context.globalState.get<string>(ONBOARDING_LAST_VERSION_KEY);
+  if (lastShown === currentVersion) { return; }
+
+  // Defer slightly so VS Code finishes restoring editors first — opening a
+  // webview during activation can otherwise race with workbench layout.
+  setTimeout(() => {
+    void openOnboardingGuide(context).then(
+      () => context.globalState.update(ONBOARDING_LAST_VERSION_KEY, currentVersion),
+    );
+  }, 1200);
 }
 
 export function deactivate() {}
@@ -412,6 +444,10 @@ function registerCommands(
 
   push(vscode.commands.registerCommand('prompt-proxy.openReadme', async () => {
     await openExtensionReadme(context);
+  }));
+
+  push(vscode.commands.registerCommand('prompt-proxy.openOnboarding', async () => {
+    await openOnboardingGuide(context);
   }));
 
   push(vscode.commands.registerCommand('prompt-proxy.cacheStats', async () => {

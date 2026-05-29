@@ -127,6 +127,7 @@ document.addEventListener('keydown', function(event) {
 });
 
 // ── Quick chips ──────────────────────────────────────────────────────────────
+var chipTour    = document.getElementById('chipTour');
 var chipGuide   = document.getElementById('chipGuide');
 var chipHistory = document.getElementById('chipHistory');
 var chipExample = document.getElementById('chipExample');
@@ -136,6 +137,11 @@ var chipAgents  = document.getElementById('chipAgents');
 var btnClearInput     = document.getElementById('btnClearInput');
 var btnClearOptimized = document.getElementById('btnClearOptimized');
 var optimizedCard     = document.getElementById('optimizedCard');
+if (chipTour) {
+  chipTour.addEventListener('click', function() {
+    vscode.postMessage({ type: 'openOnboarding' });
+  });
+}
 if (chipGuide) {
   chipGuide.addEventListener('click', function() {
     vscode.postMessage({ type: 'openUserGuide' });

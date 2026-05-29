@@ -16,7 +16,7 @@ const ALLOWED_TYPES = new Set([
   'openReadme', 'openSecretSettings', 'saveSecretSettings',
   'openSettings', 'close',
   'openMemoryFile', 'openPeerWorkspaces', 'requestStatusOverview',
-  'manageAgentSkills', 'openUserGuide', 'showHistory',
+  'manageAgentSkills', 'openUserGuide', 'openOnboarding', 'showHistory',
   'commitPrompt', 'showPromptLog', 'switchPromptBranch',
 ]);
 

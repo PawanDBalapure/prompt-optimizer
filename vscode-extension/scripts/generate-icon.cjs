@@ -74,6 +74,40 @@ for (let deg = 0; deg < 360; deg++) {
   }
 }
 
+// ── 2b. Conic-gradient ring (matches onboarding header logo) ────────────────
+// Sweeps purple → blue → teal → purple just inside the outer corner radius.
+// Three palette stops in Catppuccin Mocha:
+//   accent  (203,166,247)  blue (137,180,250)  teal (148,226,213)
+const stops = [
+  { r: 203, g: 166, b: 247 }, // 0°   accent
+  { r: 137, g: 180, b: 250 }, // 120° blue
+  { r: 148, g: 226, b: 213 }, // 240° teal
+];
+function conicColor(deg) {
+  const seg = (deg / 120) % 3;
+  const i = Math.floor(seg);
+  const t = seg - i;
+  const a = stops[i];
+  const b = stops[(i + 1) % 3];
+  return {
+    r: Math.round(a.r + (b.r - a.r) * t),
+    g: Math.round(a.g + (b.g - a.g) * t),
+    b: Math.round(a.b + (b.b - a.b) * t),
+  };
+}
+for (let deg = 0; deg < 360; deg += 1) {
+  const rad = (deg - 90) * Math.PI / 180; // start at top
+  const c = conicColor(deg);
+  for (let r = 56; r <= 60; r++) {
+    const gx = Math.round(64 + r * Math.cos(rad));
+    const gy = Math.round(64 + r * Math.sin(rad));
+    // alpha falls off near the corner so the rounded shape isn't broken
+    const dx = gx - 64, dy = gy - 64;
+    if (Math.hypot(dx, dy) > 60) continue;
+    setpx(gx, gy, c.r, c.g, c.b, 220);
+  }
+}
+
 // ── 3. Bold letter "P" in bright lavender-white ───────────────────────────────
 const LR = 238, LG = 220, LB = 255; // near-white lavender
 

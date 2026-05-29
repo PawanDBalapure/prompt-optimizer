@@ -1,0 +1,1777 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Prompt Optimizer</title>
+<style>
+  :root {
+    --bg-0:#11111b; --bg-1:#1e1e2e; --bg-2:#181825; --bg-3:#313244; --bg-4:#45475a;
+    --fg-0:#cdd6f4; --fg-1:#a6adc8; --fg-2:#7f849c;
+    --accent:#cba6f7; --blue:#89b4fa; --green:#a6e3a1; --red:#f38ba8; --yellow:#f9e2af; --pink:#f5c2e7; --teal:#94e2d5; --peach:#fab387;
+    --grid:rgba(203,166,247,0.05);
+    --glow:0 1px 2px rgba(0,0,0,0.25);
+    --glow-soft:0 0 0 1px rgba(203,166,247,0.18);
+    --radius:10px;
+    --mono:ui-monospace,"JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin:0; padding:0;
+    background: radial-gradient(ellipse at top left, #1f1f33 0%, var(--bg-1) 55%, var(--bg-0) 100%);
+    color: var(--fg-0); font-family: var(--sans); line-height: 1.55; min-height: 100vh;
+  }
+  body::before {
+    content:""; position: fixed; inset: 0;
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 36px 36px; pointer-events: none;
+    mask-image: radial-gradient(ellipse at center, black 40%, transparent 100%);
+    opacity: 0.5; z-index: 0;
+  }
+  .wrap { position: relative; z-index: 1; max-width: 1320px; margin: 0 auto; padding: 24px 22px 80px; }
+
+  /* ── Hero ───────────────────────────────────────────────────────── */
+  header.brand {
+    display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px;
+    padding: 14px 18px; margin-bottom: 18px;
+    background: linear-gradient(135deg, rgba(203,166,247,0.10), rgba(137,180,250,0.05));
+    border: 1px solid var(--bg-3); border-radius: var(--radius); box-shadow: var(--glow);
+  }
+  .logo {
+    width: 42px; height: 42px; border-radius: 10px;
+    background: conic-gradient(from 0deg, var(--accent), var(--blue), var(--teal), var(--accent));
+    display: grid; place-items: center;
+    font-family: var(--mono); font-weight: 800; color: var(--bg-0); font-size: 20px;
+  }
+  header h1 { margin: 0; font-size: 22px; letter-spacing: 0.3px; }
+  header h1 span { color: var(--accent); }
+  header p { margin: 4px 0 0; color: var(--fg-1); font-size: 13px; }
+  .badges { display: flex; gap: 6px; flex-wrap: wrap; }
+  .badges span {
+    background: rgba(166,227,161,0.12); color: var(--green);
+    border: 1px solid rgba(166,227,161,0.35); border-radius: 999px;
+    padding: 3px 10px; font-family: var(--mono); font-size: 11px; white-space: nowrap;
+  }
+  .badges span.purple { background: rgba(203,166,247,0.12); color: var(--accent); border-color: rgba(203,166,247,0.35); }
+  .badges span.blue   { background: rgba(137,180,250,0.12); color: var(--blue);   border-color: rgba(137,180,250,0.35); }
+
+  /* ── Tabs ───────────────────────────────────────────────────────── */
+  nav.tabs {
+    display: flex; gap: 2px; margin-bottom: 14px;
+    border-bottom: 1px solid var(--bg-3); overflow-x: auto; scrollbar-width: thin;
+  }
+  nav.tabs button {
+    background: transparent; color: var(--fg-1); border: none;
+    padding: 9px 14px; cursor: pointer; font-family: var(--sans); font-size: 12.5px;
+    border-bottom: 2px solid transparent; transition: color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+  }
+  nav.tabs button:hover { color: var(--fg-0); }
+  nav.tabs button.active {
+    color: var(--accent); border-bottom-color: var(--accent);
+  }
+  section.tab-panel { display: none; }
+  section.tab-panel.active { display: block; animation: fadeIn 0.25s ease; }
+  @keyframes fadeIn { from { opacity:0; transform: translateY(4px); } to { opacity:1; transform:none; } }
+
+  /* ── Shared ─────────────────────────────────────────────────────── */
+  .card {
+    background: rgba(24,24,37,0.85); border: 1px solid var(--bg-3);
+    border-radius: var(--radius); padding: 16px; backdrop-filter: blur(6px);
+  }
+  .grid-2 { display:grid; grid-template-columns: minmax(300px,360px) 1fr; gap: 16px; }
+  .grid-3 { display:grid; grid-template-columns: repeat(3,1fr); gap: 14px; }
+  @media (max-width: 920px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+  h2.section { margin: 0 0 8px; font-size: 16px; color: var(--accent); }
+  h3.sub { margin: 0 0 6px; font-size: 13.5px; color: var(--blue); }
+  p.lead { margin: 0 0 10px; color: var(--fg-1); font-size: 13px; }
+  ul.bullets { margin: 6px 0 0 18px; padding: 0; color: var(--fg-1); font-size: 13px; }
+  ul.bullets li { margin-bottom: 5px; }
+  code, kbd { font-family: var(--mono); }
+  code { color: var(--blue); background: var(--bg-2); padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+  kbd {
+    background: var(--bg-3); color: var(--fg-0); border-radius: 3px;
+    padding: 1px 6px; font-size: 11px; border-bottom: 2px solid #0f0f1a;
+  }
+
+  /* ── Tab 1: How it works simulator ───────────────────────────── */
+  /* Minimalist cursor-narrated feature feed */
+  .cursor-feed {
+    background: var(--bg-0); border: 1px solid var(--bg-3); border-radius: 8px;
+    padding: 12px 14px; min-height: 320px; font-family: var(--mono); font-size: 12.5px;
+    line-height: 1.85; color: var(--fg-1);
+  }
+  .cursor-feed .cf-done {
+    color: var(--fg-1); opacity: 0.85; padding-left: 14px;
+    position: relative; animation: cfIn 0.25s ease both;
+  }
+  .cursor-feed .cf-done::before {
+    content: "✓"; position: absolute; left: 0; color: var(--green); font-size: 11px;
+  }
+  .cursor-feed .cf-current {
+    color: var(--fg-0); padding-left: 14px; position: relative;
+    border-left: 2px solid var(--accent); padding: 2px 0 2px 12px;
+    background: rgba(203,166,247,0.04); border-radius: 0 4px 4px 0;
+  }
+  .cursor-feed .cf-prompt { color: var(--accent); margin-right: 6px; }
+  .cursor-feed .cf-caret  { color: var(--accent); animation: caret 1s steps(1) infinite; }
+  .cursor-feed .cf-summary {
+    margin-top: 10px; padding: 8px 10px;
+    background: rgba(166,227,161,0.08); border: 1px solid rgba(166,227,161,0.25);
+    border-radius: 4px; color: var(--green); font-size: 11.5px;
+    animation: cfIn 0.3s ease both;
+  }
+  @keyframes cfIn { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
+
+  ol.steps { list-style: none; margin: 0; padding: 0; }
+  ol.steps li {
+    display: flex; gap: 10px; align-items: flex-start; padding: 10px;
+    border-radius: 8px; cursor: pointer; border: 1px solid transparent;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  ol.steps li:hover { background: rgba(203,166,247,0.06); }
+  ol.steps li.active {
+    background: rgba(137,180,250,0.06); border-color: rgba(137,180,250,0.3);
+  }
+  ol.steps li.done .num { background: var(--green); color: var(--bg-0); }
+  .num {
+    width: 26px; height: 26px; border-radius: 50%; background: var(--bg-3); color: var(--fg-0);
+    display: grid; place-items: center; font-family: var(--mono); font-weight: 600; flex-shrink: 0;
+    font-size: 12px;
+  }
+  .step-body strong { display: block; font-size: 13px; }
+  .step-body em { color: var(--fg-2); font-style: normal; font-size: 11.5px; }
+  .controls { display: flex; gap: 8px; margin-top: 12px; }
+  .controls button {
+    flex: 1; padding: 7px 10px; border-radius: 6px; background: var(--bg-3); color: var(--fg-0);
+    border: 1px solid transparent; cursor: pointer; font-family: var(--sans); font-size: 12px;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .controls button.primary { background: var(--accent); color: var(--bg-0); font-weight: 600; }
+  .controls button:hover { border-color: var(--blue); }
+
+  .sim { position: relative; min-height: 460px; display: flex; flex-direction: column; gap: 10px; }
+  .sim-toolbar {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 10px; background: var(--bg-2); border-radius: 6px; border: 1px solid var(--bg-3);
+    font-family: var(--mono); font-size: 11px; color: var(--fg-2);
+  }
+  .sim-toolbar .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+  .dot.r { background: #f38ba8; } .dot.y { background: #f9e2af; } .dot.g { background: #a6e3a1; }
+
+  .graph {
+    position: relative; flex: 1; min-height: 360px;
+    background:
+      radial-gradient(circle at 30% 30%, rgba(137,180,250,0.06), transparent 60%),
+      radial-gradient(circle at 70% 80%, rgba(203,166,247,0.06), transparent 60%),
+      var(--bg-2);
+    border: 1px solid var(--bg-3); border-radius: 8px; overflow: hidden;
+  }
+  .graph svg { width: 100%; height: 100%; display: block; }
+  .edge { stroke: rgba(166,173,200,0.25); stroke-width: 1.2; fill: none; transition: stroke 0.4s, stroke-width 0.4s, opacity 0.4s; }
+  .edge.active { stroke: var(--accent); stroke-width: 2; }
+  .edge.dim { opacity: 0.12; }
+  .node circle { fill: var(--bg-3); stroke: var(--blue); stroke-width: 1.4; transition: all 0.4s ease; }
+  .node text { fill: var(--fg-0); font-family: var(--mono); font-size: 9.5px; text-anchor: middle; pointer-events: none; }
+  .node.pulse circle { animation: nodePulse 1.4s ease-out infinite; }
+  .node.hit circle { fill: var(--accent); stroke: var(--accent); }
+  .node.dim { opacity: 0.22; }
+  @keyframes nodePulse {
+    0%   { stroke-width: 1.4; opacity: 1; }
+    50%  { stroke-width: 2.2; opacity: 0.85; }
+    100% { stroke-width: 1.4; opacity: 1; }
+  }
+  .ripple {
+    position: absolute; left: 0; top: 0; width: 14px; height: 14px; border-radius: 50%;
+    background: rgba(203,166,247,0.55); pointer-events: none; opacity: 0;
+  }
+  .ripple.go { animation: ripple 1.6s ease-out forwards; }
+  @keyframes ripple { 0% { opacity: 0.9; transform: scale(0.6); } 100% { opacity: 0; transform: scale(40); } }
+  .statusbar {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    background: #181825; border-top: 1px solid var(--bg-3);
+    font-family: var(--mono); font-size: 11px; color: var(--fg-1);
+    padding: 5px 10px; display: flex; gap: 14px; align-items: center;
+  }
+  .sb-btn {
+    background: rgba(203,166,247,0.12); color: var(--accent);
+    border: 1px solid rgba(203,166,247,0.4); border-radius: 4px;
+    padding: 2px 8px; cursor: pointer; transition: all 0.15s; font-family: var(--mono); font-size: 11px;
+  }
+  .sb-btn:hover, .sb-btn.glow { background: var(--accent); color: var(--bg-0); }
+  .cursor {
+    position: absolute; width: 14px; height: 18px; pointer-events: none; opacity: 0;
+    background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 20'><path d='M2 2 L2 16 L6 12 L9 18 L11 17 L8 12 L14 12 Z' fill='%23cdd6f4' stroke='%231e1e2e' stroke-width='1.2'/></svg>") no-repeat center/contain;
+    transition: left 0.7s cubic-bezier(.4,.0,.2,1), top 0.7s cubic-bezier(.4,.0,.2,1), opacity 0.2s;
+  }
+  .cursor.show { opacity: 1; }
+  .chat {
+    position: absolute; right: 12px; top: 12px; width: 240px; max-width: 60%;
+    background: var(--bg-1); border: 1px solid var(--bg-3); border-radius: 6px;
+    padding: 8px 10px; font-family: var(--mono); font-size: 11px;
+    opacity: 0; transform: translateY(-6px); transition: all 0.35s;
+  }
+  .chat.show { opacity: 1; transform: none; }
+  .chat .who { color: var(--accent); }
+  .typed::after { content: "▌"; color: var(--accent); animation: caret 1s steps(1) infinite; }
+  @keyframes caret { 50% { opacity: 0; } }
+  .badge {
+    position: absolute; left: 12px; bottom: 42px;
+    background: rgba(166,227,161,0.12); color: var(--green);
+    border: 1px solid rgba(166,227,161,0.5); border-radius: 999px;
+    padding: 4px 10px; font-family: var(--mono); font-size: 12px;
+    opacity: 0; transform: scale(0.9); transition: all 0.25s ease;
+  }
+  .badge.show { opacity: 1; transform: scale(1); animation: badgePop 0.45s ease; }
+  @keyframes badgePop { 0% { transform: scale(0.6); } 60% { transform: scale(1.15); } 100% { transform: scale(1); } }
+
+  /* ── Tab 2: Modes ─────────────────────────────────────────────── */
+  .mode-card {
+    position: relative; padding: 14px; border-radius: 10px;
+    background: var(--bg-2); border: 1px solid var(--bg-3);
+    transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+  }
+  .mode-card:hover { transform: translateY(-1px); border-color: var(--accent); }
+  .mode-card .icon { font-size: 22px; margin-bottom: 6px; }
+  .mode-card h3 { margin: 0; font-size: 15px; }
+  .mode-card .agent  { color: var(--green); }
+  .mode-card .optim  { color: var(--accent); }
+  .mode-card .direct { color: var(--blue); }
+  .mode-card code { background: var(--bg-3); }
+  .mode-card p { font-size: 12px; color: var(--fg-1); margin: 8px 0 0; }
+  .pill-row { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 10px; }
+  .pill { background: var(--bg-3); color: var(--fg-1); border-radius: 999px; padding: 2px 8px; font-size: 11px; font-family: var(--mono); }
+  .pill.green { color: var(--green); background: rgba(166,227,161,0.10); border: 1px solid rgba(166,227,161,0.3); }
+  .pill.purple { color: var(--accent); background: rgba(203,166,247,0.10); border: 1px solid rgba(203,166,247,0.3); }
+  .pill.blue { color: var(--blue); background: rgba(137,180,250,0.10); border: 1px solid rgba(137,180,250,0.3); }
+
+  /* ── Tab 3: SDLC chips ───────────────────────────────────────── */
+  .chip-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin-top: 8px; }
+  .sdlc-chip {
+    padding: 10px 12px; border-radius: 8px; background: var(--bg-2);
+    border: 1px solid var(--bg-3); cursor: default;
+    transition: transform 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .sdlc-chip:hover { transform: translateY(-2px); border-color: var(--accent); background: rgba(203,166,247,0.06); }
+  .sdlc-chip .slash { color: var(--accent); font-family: var(--mono); font-weight: 600; font-size: 13px; }
+  .sdlc-chip .desc { color: var(--fg-2); font-size: 11px; margin-top: 4px; display: block; }
+
+  /* ── Tab 4: Memory pipeline — DISTINCT animations ────────────── */
+  .stage {
+    position: relative; background: var(--bg-2); border: 1px solid var(--bg-3);
+    border-radius: 10px; padding: 14px; overflow: hidden;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .stage:hover { border-color: var(--accent); }
+  .stage h3 { margin: 0 0 4px; font-size: 14px; color: var(--blue); display: flex; align-items: center; gap: 6px; }
+  .stage h3 .seq { color: var(--accent); font-family: var(--mono); }
+  .stage p { margin: 4px 0 10px; font-size: 12px; color: var(--fg-1); }
+
+  /* Stage 1: Ingestion — file icons flying along curved path into mouth */
+  .anim-ingest {
+    position: relative; height: 90px; border-radius: 6px; overflow: hidden;
+    background: linear-gradient(180deg, rgba(137,180,250,0.05), rgba(0,0,0,0));
+    border: 1px solid var(--bg-3);
+  }
+  .anim-ingest .mouth {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    width: 28px; height: 28px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, var(--accent), #5e3a8a);
+    box-shadow: 0 0 10px var(--accent), inset 0 0 6px rgba(0,0,0,0.5);
+    animation: mouthPulse 1.6s ease-in-out infinite;
+  }
+  @keyframes mouthPulse { 0%,100% { transform: translateY(-50%) scale(1); } 50% { transform: translateY(-50%) scale(1.12); } }
+  .file-token {
+    position: absolute; left: -22px; width: 18px; height: 22px;
+    border-radius: 2px 4px 2px 2px;
+    background: var(--bg-3); border: 1px solid var(--blue);
+    font-family: var(--mono); font-size: 7px; color: var(--blue);
+    display: grid; place-items: center;
+    box-shadow: 0 0 6px rgba(137,180,250,0.5);
+    animation: ingestFly 3s linear infinite;
+  }
+  .file-token::before {
+    content: ""; position: absolute; top: 0; right: 0;
+    width: 5px; height: 5px;
+    background: var(--bg-2); border-left: 1px solid var(--blue); border-bottom: 1px solid var(--blue);
+  }
+  .file-token.t2 { animation-delay: 0.6s; border-color: var(--green); color: var(--green); top: 15px; }
+  .file-token.t3 { animation-delay: 1.2s; border-color: var(--pink); color: var(--pink); top: 50px; }
+  .file-token.t4 { animation-delay: 1.8s; border-color: var(--yellow); color: var(--yellow); top: 30px; }
+  .file-token.t5 { animation-delay: 2.4s; border-color: var(--teal); color: var(--teal); top: 60px; }
+  @keyframes ingestFly {
+    0%   { left: -22px; top: 50%; opacity: 0; transform: rotate(0deg) scale(1); }
+    15%  { opacity: 1; }
+    85%  { opacity: 1; transform: rotate(45deg) scale(0.95); }
+    95%  { opacity: 0; transform: rotate(90deg) scale(0.2); left: calc(100% - 30px); }
+    100% { opacity: 0; left: calc(100% - 30px); }
+  }
+
+  /* Stage 2: Storage — SQLite vault filling up with embedding bricks */
+  .anim-store {
+    position: relative; height: 90px; border-radius: 6px; overflow: hidden;
+    background: var(--bg-1);
+    border: 1px solid var(--bg-3);
+  }
+  .anim-store .vault {
+    position: absolute; left: 8px; top: 8px; right: 8px; bottom: 8px;
+    border: 2px solid var(--accent); border-radius: 4px;
+    background: repeating-linear-gradient(45deg, rgba(203,166,247,0.04) 0 6px, transparent 6px 12px);
+    box-shadow: inset 0 0 10px rgba(203,166,247,0.2);
+  }
+  .anim-store .vault::before {
+    content: "SQLite + KG"; position: absolute; top: -10px; left: 10px;
+    background: var(--bg-1); padding: 0 6px;
+    font-family: var(--mono); font-size: 9px; color: var(--accent);
+  }
+  .brick {
+    position: absolute; width: 14px; height: 8px; border-radius: 1px;
+    background: linear-gradient(135deg, var(--green), var(--teal));
+    box-shadow: 0 0 4px rgba(166,227,161,0.6);
+    opacity: 0; animation: brickFall 4s linear infinite;
+  }
+  .brick.b1 { left: 16px;  --land: 60px; animation-delay: 0s; }
+  .brick.b2 { left: 36px;  --land: 50px; animation-delay: 0.4s; background: linear-gradient(135deg, var(--blue), var(--accent)); }
+  .brick.b3 { left: 56px;  --land: 65px; animation-delay: 0.8s; background: linear-gradient(135deg, var(--yellow), var(--peach)); }
+  .brick.b4 { left: 76px;  --land: 55px; animation-delay: 1.2s; }
+  .brick.b5 { left: 96px;  --land: 70px; animation-delay: 1.6s; background: linear-gradient(135deg, var(--pink), var(--accent)); }
+  .brick.b6 { left: 116px; --land: 50px; animation-delay: 2.0s; background: linear-gradient(135deg, var(--blue), var(--teal)); }
+  .brick.b7 { left: 136px; --land: 65px; animation-delay: 2.4s; }
+  .brick.b8 { left: 156px; --land: 55px; animation-delay: 2.8s; background: linear-gradient(135deg, var(--green), var(--yellow)); }
+  @keyframes brickFall {
+    0%   { top: -10px; opacity: 0; transform: rotate(-10deg); }
+    10%  { opacity: 1; }
+    65%  { top: var(--land); opacity: 1; transform: rotate(0deg); }
+    100% { top: var(--land); opacity: 1; transform: rotate(0deg); }
+  }
+
+  /* Stage 3: Retrieval — radar sweep over knowledge graph, ping returns */
+  .anim-retrieve {
+    position: relative; height: 90px; border-radius: 6px; overflow: hidden;
+    background: radial-gradient(circle at center, rgba(166,227,161,0.10), var(--bg-1) 70%);
+    border: 1px solid var(--bg-3);
+  }
+  .radar {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%);
+    width: 70px; height: 70px; border-radius: 50%;
+    border: 1px solid rgba(166,227,161,0.3);
+    box-shadow: inset 0 0 6px rgba(166,227,161,0.2);
+  }
+  .radar::before, .radar::after {
+    content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%);
+    border: 1px solid rgba(166,227,161,0.2); border-radius: 50%;
+  }
+  .radar::before { width: 46px; height: 46px; }
+  .radar::after  { width: 24px; height: 24px; }
+  .sweep {
+    position: absolute; left: 50%; top: 50%; transform-origin: 0 0;
+    width: 35px; height: 2px;
+    background: linear-gradient(90deg, var(--green), transparent);
+    box-shadow: 0 0 6px var(--green);
+    animation: sweepRot 2.4s linear infinite;
+  }
+  @keyframes sweepRot { to { transform: rotate(360deg); } }
+  .ping {
+    position: absolute; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 6px var(--accent);
+    opacity: 0; animation: pingFade 2.4s linear infinite;
+  }
+  .ping.p1 { left: 70%; top: 30%; animation-delay: 0.3s; background: var(--blue); box-shadow: 0 0 6px var(--blue); }
+  .ping.p2 { left: 28%; top: 60%; animation-delay: 0.9s; background: var(--pink); box-shadow: 0 0 6px var(--pink); }
+  .ping.p3 { left: 65%; top: 70%; animation-delay: 1.6s; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+  .ping.p4 { left: 25%; top: 25%; animation-delay: 2.1s; background: var(--green); box-shadow: 0 0 6px var(--green); }
+  @keyframes pingFade {
+    0% { opacity: 0; transform: scale(0.3); }
+    20% { opacity: 1; transform: scale(1.4); }
+    40% { opacity: 0.6; transform: scale(1); }
+    80% { opacity: 0; transform: scale(0.6); }
+    100% { opacity: 0; }
+  }
+  .hit-line {
+    position: absolute; right: 6px; bottom: 4px;
+    font-family: var(--mono); font-size: 9px; color: var(--green);
+    background: rgba(0,0,0,0.4); padding: 1px 5px; border-radius: 3px;
+  }
+
+  /* ── Lane diagram (kept, with arrows + labels) ───────────────── */
+  .extract { margin-top: 16px; }
+  .extract svg { width: 100%; height: 130px; }
+  .extract .lane { stroke: var(--bg-3); stroke-width: 1.2; fill: none; }
+  .extract .data { fill: var(--accent); animation: flow 3s linear infinite; }
+  @keyframes flow { 0% { transform: translateX(0); opacity: 0; } 20% { opacity: 1; } 100% { transform: translateX(540px); opacity: 0; } }
+
+  /* ── Tab tables ──────────────────────────────────────────────── */
+  table.spec { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 12.5px; }
+  table.spec th, table.spec td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--bg-3); vertical-align: top; }
+  table.spec th { color: var(--accent); font-weight: 600; background: rgba(203,166,247,0.04); }
+  table.spec td.k { color: var(--blue); font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+  table.spec td.v { color: var(--fg-1); }
+
+  /* ── Footer ──────────────────────────────────────────────────── */
+  footer { margin-top: 22px; text-align: center; color: var(--fg-2); font-size: 12px; }
+  footer a { color: var(--blue); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+
+  /* Subtle hover-highlight on dt rows */
+  dl.kv { margin: 0; }
+  dl.kv > div { display: grid; grid-template-columns: 130px 1fr; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--bg-3); }
+  dl.kv > div:last-child { border-bottom: none; }
+  dl.kv dt { color: var(--blue); font-family: var(--mono); font-size: 12px; }
+  dl.kv dd { margin: 0; color: var(--fg-1); font-size: 12.5px; }
+
+  /* ── Mock-panel walkthrough (Tab 4) ─────────────────────────── */
+  .mock-stage {
+    position: relative; margin-top: 10px;
+    background: var(--bg-2); border: 1px solid var(--bg-3);
+    border-radius: var(--radius); padding: 14px; overflow: hidden;
+    box-shadow: inset 0 0 40px rgba(0,0,0,0.35);
+  }
+  .mock-toolbar {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+    color: var(--fg-2); font-family: var(--mono); font-size: 11px;
+  }
+  .mock-toolbar .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+  .mock-toolbar .r { background: #f38ba8; } .mock-toolbar .y { background: #f9e2af; } .mock-toolbar .g { background: #a6e3a1; }
+  .mock-panel {
+    position: relative;
+    background: var(--bg-1); border: 1px solid var(--bg-3); border-radius: 8px;
+    padding: 12px; font-family: var(--sans); color: var(--fg-0); font-size: 12px;
+  }
+  .mock-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .mock-label { color: var(--fg-2); font-size: 11px; margin-right: 4px; }
+  .mock-select {
+    background: var(--bg-3); border: 1px solid var(--bg-4); color: var(--fg-0);
+    border-radius: 5px; padding: 4px 10px; font-size: 12px; font-family: var(--mono);
+    cursor: pointer; transition: box-shadow 0.2s;
+  }
+  .mock-status {
+    margin-left: auto; padding: 3px 9px; border-radius: 999px;
+    background: rgba(166,227,161,0.12); color: var(--green);
+    border: 1px solid rgba(166,227,161,0.35); font-family: var(--mono); font-size: 10.5px;
+  }
+  .mock-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px; }
+  .mock-chip {
+    background: var(--bg-3); color: var(--fg-0); border: 1px solid var(--bg-4);
+    border-radius: 14px; padding: 4px 10px; font-size: 11px; cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .mock-chip:hover { background: var(--bg-4); }
+  .mock-textarea {
+    width: 100%; min-height: 78px; background: var(--bg-2); color: var(--fg-0);
+    border: 1px solid var(--bg-3); border-radius: 6px; padding: 8px 10px;
+    font-family: var(--mono); font-size: 12px; resize: none;
+  }
+  .mock-actions { display: flex; gap: 6px; margin-top: 8px; }
+  .mock-btn {
+    background: var(--bg-3); color: var(--fg-0); border: 1px solid var(--bg-4);
+    border-radius: 5px; padding: 5px 12px; font-size: 11.5px; cursor: pointer;
+    transition: background 0.15s;
+  }
+  .mock-btn.primary {
+    background: linear-gradient(135deg, var(--accent), var(--blue));
+    color: var(--bg-0); border-color: transparent; font-weight: 600;
+  }
+  .mock-btn:hover { background: var(--bg-4); }
+  .mock-optimized {
+    margin-top: 14px; padding: 10px; background: var(--bg-2);
+    border: 1px dashed var(--bg-4); border-radius: 6px;
+  }
+  .mock-optimized h4 { margin: 0 0 6px; color: var(--green); font-size: 11.5px; font-family: var(--mono); }
+  .mock-optimized pre {
+    margin: 0 0 8px; background: var(--bg-0); border: 1px solid var(--bg-3);
+    border-radius: 4px; padding: 8px; font-family: var(--mono); font-size: 11px;
+    color: var(--fg-0); white-space: pre-wrap; word-break: break-word;
+  }
+
+  /* Overlay & spotlight */
+  .walk-overlay {
+    position: absolute; inset: 0; pointer-events: none;
+    background: rgba(17,17,27,0.0); opacity: 0; transition: background 0.2s, opacity 0.2s;
+    border-radius: 8px; z-index: 5;
+  }
+  .walk-overlay.show {
+    background: rgba(17,17,27,0.55); opacity: 1; pointer-events: auto;
+    backdrop-filter: blur(0.5px);
+  }
+  .walk-spot {
+    position: absolute; border-radius: 8px; pointer-events: none;
+    box-shadow:
+      0 0 0 9999px rgba(17,17,27,0.55),
+      0 0 0 1px var(--accent);
+    transition: all 0.35s cubic-bezier(.4,.2,.2,1);
+  }
+  .walk-tip {
+    position: absolute; width: 260px; background: var(--bg-1);
+    border: 1px solid var(--accent); border-radius: 8px; padding: 10px 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+    color: var(--fg-0); font-size: 12px; transition: all 0.3s ease;
+    pointer-events: auto;
+  }
+  .walk-tip h5 { margin: 0 0 4px; color: var(--accent); font-size: 13px; font-family: var(--mono); }
+  .walk-tip p  { margin: 0; color: var(--fg-1); font-size: 11.5px; line-height: 1.5; }
+  .walk-tip-counter { color: var(--fg-2); font-size: 10.5px; font-family: var(--mono); }
+  .walk-controls {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    margin-top: 10px; padding-top: 10px;
+  }
+  .walk-controls button {
+    background: var(--bg-3); color: var(--fg-0); border: 1px solid var(--bg-4);
+    border-radius: 5px; padding: 5px 12px; font-size: 11.5px; cursor: pointer;
+  }
+  .walk-controls button.primary {
+    background: linear-gradient(135deg, var(--accent), var(--blue));
+    color: var(--bg-0); border-color: transparent; font-weight: 600;
+  }
+  .walk-controls button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .walk-progress {
+    height: 3px; background: var(--bg-3); border-radius: 3px; overflow: hidden;
+    margin-top: 10px;
+  }
+  /* ── Live memory snapshot ───────────────────────────────────── */
+  .mem-live {
+    margin-bottom: 14px;
+    background: linear-gradient(135deg, rgba(166,227,161,0.06), rgba(137,180,250,0.05));
+    border: 1px solid rgba(166,227,161,0.25);
+    border-radius: var(--radius); padding: 14px;
+    position: relative; overflow: hidden;
+  }
+  .mem-live::before {
+    content: ""; position: absolute; top: 0; left: -100%;
+    width: 100%; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--green), transparent);
+    animation: scanline 2.2s linear infinite;
+  }
+  @keyframes scanline { to { left: 100%; } }
+  .mem-live h3 { margin: 0 0 6px; color: var(--green); font-family: var(--mono); font-size: 13px; display: flex; align-items: center; gap: 8px; }
+  .mem-live h3::before {
+    content: ""; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--green);
+    animation: pulse-dot 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse-dot { 50% { opacity: 0.35; transform: scale(0.7); } }
+  .mem-totals { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+  .mem-stat {
+    background: var(--bg-0); border: 1px solid var(--bg-3); border-radius: 6px;
+    padding: 6px 10px; font-family: var(--mono); font-size: 11.5px; color: var(--fg-1);
+    min-width: 90px;
+  }
+  .mem-stat strong { color: var(--accent); font-size: 14px; display: block; }
+  .mem-files { display: grid; gap: 6px; }
+  .mem-file {
+    display: grid; grid-template-columns: 1fr auto; gap: 6px 14px;
+    background: var(--bg-0); border: 1px solid var(--bg-3);
+    border-radius: 6px; padding: 8px 10px; cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .mem-file:hover { border-color: var(--accent); background: rgba(203,166,247,0.05); }
+  .mem-file .mf-name { color: var(--fg-0); font-family: var(--mono); font-size: 12px; }
+  .mem-file .mf-meta { color: var(--fg-2); font-family: var(--mono); font-size: 10.5px; text-align: right; }
+  .mem-file .mf-bar {
+    grid-column: 1 / -1; height: 4px; background: var(--bg-3);
+    border-radius: 3px; overflow: hidden; margin-top: 2px;
+  }
+  .mem-file .mf-bar > div {
+    height: 100%; background: linear-gradient(90deg, var(--green), var(--blue));
+    transition: width 0.4s ease;
+  }
+  .mem-file .mf-silhouette {
+    grid-column: 1 / -1; color: var(--fg-2); font-family: var(--mono);
+    font-size: 10.5px; letter-spacing: 1px; opacity: 0.7; margin-top: 4px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .mem-empty {
+    color: var(--fg-2); font-size: 12px; text-align: center;
+    padding: 16px; border: 1px dashed var(--bg-3); border-radius: 6px;
+  }
+  .mem-actions { display: flex; gap: 6px; margin-top: 10px; align-items: center; }
+  .mem-actions button {
+    background: var(--bg-3); color: var(--fg-0); border: 1px solid var(--bg-4);
+    border-radius: 5px; padding: 4px 10px; font-size: 11px; cursor: pointer;
+  }
+  .mem-actions .ts { color: var(--fg-2); font-family: var(--mono); font-size: 10.5px; margin-left: auto; }
+
+  /* ── Memory abstract dashboard ──────────────────────────────── */
+  .mem-dash {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px; margin-top: 10px;
+  }
+  .mem-dash-cell {
+    background: var(--bg-0); border: 1px solid var(--bg-3); border-radius: 8px;
+    padding: 10px 12px; display: flex; flex-direction: column; gap: 6px;
+  }
+  .mem-dash-cell h4 {
+    margin: 0; color: var(--blue); font-family: var(--mono); font-size: 11.5px;
+    font-weight: 600; letter-spacing: 0.3px;
+  }
+  .mem-dash-cell svg { width: 100%; height: 130px; display: block; }
+  .mem-dash-cell .mem-dash-cap {
+    margin: 0; color: var(--fg-2); font-size: 10.5px; font-family: var(--mono);
+  }
+  .mem-dash-cell .mem-dash-cap span { color: var(--fg-0); }
+
+  /* KG nodes */
+  .kg-node { fill: var(--bg-3); stroke: var(--blue); stroke-width: 1; transition: all 0.3s; }
+  .kg-node.center { fill: var(--accent); stroke: var(--accent); }
+  .kg-edge { stroke: rgba(166,173,200,0.25); stroke-width: 0.8; fill: none; }
+  .kg-pulse { animation: kgPulse 2.4s ease-in-out infinite; }
+  @keyframes kgPulse { 50% { opacity: 0.45; } }
+
+  /* Cache density grid */
+  .cache-grid {
+    display: grid; grid-template-columns: repeat(20, 1fr); gap: 2px;
+    height: 130px; padding: 4px 0;
+  }
+  .cache-grid .cell {
+    background: var(--bg-3); border-radius: 1px; opacity: 0.35;
+    transition: opacity 0.3s, background 0.3s;
+  }
+  .cache-grid .cell.on { background: var(--green); opacity: 0.85; }
+  .cache-grid .cell.hot { background: var(--accent); opacity: 1; animation: cellBlink 2.6s ease-in-out infinite; }
+  @keyframes cellBlink { 50% { opacity: 0.5; } }
+
+  /* Sparkline */
+  .spark-area { fill: rgba(203,166,247,0.18); }
+  .spark-line { fill: none; stroke: var(--accent); stroke-width: 1.4; }
+  .spark-dot  { fill: var(--blue); }
+
+  /* Budget ring */
+  #budgetSvg { max-height: 130px; }
+
+  /* Tab 1 intro bar + small play button */
+  .intro-bar {
+    display: flex; align-items: center; gap: 12px;
+    background: linear-gradient(135deg, rgba(203,166,247,0.06), rgba(137,180,250,0.04));
+    border: 1px solid var(--bg-3); border-radius: var(--radius);
+    padding: 12px 14px; margin-bottom: 14px;
+  }
+  .intro-text {
+    margin: 0; color: var(--fg-1); font-size: 12.5px; line-height: 1.55; flex: 1;
+  }
+  .intro-text strong { color: var(--accent); }
+  .intro-play {
+    background: var(--accent); color: var(--bg-0); border: none;
+    padding: 6px 14px; border-radius: 6px; font-weight: 600;
+    font-size: 12px; cursor: pointer; flex-shrink: 0;
+    transition: background 0.15s;
+  }
+  .intro-play:hover { background: var(--blue); }
+  .intro-reset {
+    background: var(--bg-3); color: var(--fg-0); border: 1px solid var(--bg-4);
+    padding: 6px 10px; border-radius: 6px; font-size: 13px; cursor: pointer; flex-shrink: 0;
+  }
+  .intro-reset:hover { background: var(--bg-4); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ════════════════════════════════════════════════════════════ HERO ══ -->
+  <header class="brand">
+    <div class="logo">P</div>
+    <div>
+      <h1>Prompt Optimizer</h1>
+      <p>Compress prompts, reuse local cache, and forecast token cost before they reach Copilot — all on your machine.</p>
+    </div>
+    <div class="badges">
+      <span>fully local</span>
+      <span>zero telemetry</span>
+      <span class="purple">MIT</span>
+      <span class="blue">v2.5</span>
+    </div>
+  </header>
+
+  <!-- ════════════════════════════════════════════════════════════ TABS ══ -->
+  <nav class="tabs" role="tablist">
+    <button class="active" data-tab="how">▶ How it works</button>
+    <button data-tab="modes">Modes</button>
+    <button data-tab="sdlc">SDLC &amp; agents</button>
+    <button data-tab="panel">Sidebar &amp; chat</button>
+    <button data-tab="memory">Memory pipeline</button>
+    <button data-tab="security">Privacy &amp; secrets</button>
+    <button data-tab="commands">Commands &amp; config</button>
+  </nav>
+
+  <!-- ────────────────────────────────────────────── TAB 1: How it works ── -->
+  <section class="tab-panel active" id="tab-how">
+
+    <!-- One-line intro + small play button -->
+    <div class="intro-bar">
+      <p class="intro-text">
+        This plugin indexes your <strong>workspace</strong>, <strong>cache</strong>, and <strong>instructions</strong>,
+        then uses them to refine and format your prompt — optimizing token consumption before it ever reaches Copilot.
+      </p>
+      <button class="intro-play" id="btnPlay" title="Play the workspace animation">▶ Play</button>
+      <button class="intro-reset" id="btnReset" title="Reset animation">↺</button>
+    </div>
+
+    <!-- 8-step pipeline ABOVE the graph -->
+    <div class="card" style="margin-bottom:14px;">
+      <h2 class="section">How your prompt gets optimized for Copilot</h2>
+      <p class="lead">
+        Eight smart steps run locally between your keystroke and Copilot — each one
+        trims noise, packs only what's needed, and forecasts cost so the prompt
+        Copilot finally sees is shorter, sharper, and cheaper:
+      </p>
+      <ol class="bullets" style="counter-reset:p;">
+        <li><strong>Compress</strong> filler words, softeners, and redundant phrasing.</li>
+        <li><strong>Check the local semantic cache</strong> — reuse a prior result if a similar prompt was already answered.</li>
+        <li><strong>Pack workspace context</strong> — active file, open editors, diagnostics, recent saves.</li>
+        <li><strong>Estimate token cost</strong> before the request is sent.</li>
+        <li><strong>Call Copilot &amp; stream</strong> the answer in the sidebar (Agent) or hand you the optimized prompt to review (Optimize).</li>
+        <li><strong>Detect SDLC workflow intent</strong> from slash commands, rules, custom skills, and file context.</li>
+        <li><strong>Remember the conversation</strong> across turns per workspace — pronouns like "fix it" resolve correctly.</li>
+        <li><strong>Let you enable/edit bundled SDLC agents</strong> from the Agents button in the sidebar.</li>
+      </ol>
+    </div>
+
+    <!-- Graph (no left panel) -->
+    <div class="card sim">
+      <div class="sim-toolbar">
+        <span><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span> promptoptimizer://workspace</span>
+        <span id="frameLabel">Frame 1 / 3 — idle</span>
+      </div>
+      <div class="graph" id="graph">
+        <svg viewBox="0 0 600 400" preserveAspectRatio="xMidYMid meet">
+          <g id="edges"></g>
+          <g id="nodes"></g>
+        </svg>
+        <div class="ripple" id="ripple"></div>
+        <div class="cursor" id="cursor"></div>
+        <div class="chat" id="chat">
+          <div><span class="who">@promptoptimizer</span> <span id="chatText" class="typed"></span></div>
+        </div>
+        <div class="badge" id="badge">⚡ +71.5× token savings · semantic cache hit</div>
+        <div class="statusbar">
+          <span>⎇ main</span>
+          <span>UTF-8</span>
+          <span style="margin-left:auto"></span>
+          <button class="sb-btn" id="sbBtn" title="Prompt Optimizer is indexing the workspace into local memory">⌬ Prompt Optimizer: indexing…</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ────────────────────────────────────────────── TAB 2: Modes ────── -->
+  <section class="tab-panel" id="tab-modes">
+    <h2 class="section">Three modes — pick how much control you want</h2>
+    <p class="lead">Switch via the status-bar item, the sidebar dropdown, or <code>@promptoptimizer /mode &lt;name&gt;</code>.</p>
+
+    <div class="grid-3">
+      <div class="mode-card">
+        <div class="icon">🤖</div>
+        <h3 class="agent">Agent <span class="pill green">default</span></h3>
+        <p>Type in the sidebar → optimize → Copilot answers → response streams back inline. No <code>@promptoptimizer</code> needed.</p>
+        <div class="pill-row">
+          <span class="pill green">streams</span>
+          <span class="pill">sidebar</span>
+        </div>
+      </div>
+      <div class="mode-card">
+        <div class="icon">✨</div>
+        <h3 class="optim">Optimize only</h3>
+        <p>Shows analysis table (cost, tokens saved, cache status) and the optimized prompt. You decide when to send.</p>
+        <div class="pill-row">
+          <span class="pill purple">no send</span>
+          <span class="pill">analysis</span>
+        </div>
+      </div>
+      <div class="mode-card">
+        <div class="icon">💬</div>
+        <h3 class="direct">Direct send</h3>
+        <p>Opens the Chat panel with <code>@promptoptimizer &lt;your prompt&gt;</code> pre-filled. You hit Enter.</p>
+        <div class="pill-row">
+          <span class="pill blue">chat panel</span>
+          <span class="pill">prefilled</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <h2 class="section">Status-bar labels</h2>
+      <table class="spec">
+        <thead><tr><th style="width:170px;">Mode</th><th style="width:230px;">Status bar label</th><th>Behaviour</th></tr></thead>
+        <tbody>
+          <tr><td class="k">Agent (default)</td><td class="k">$(robot) Proxy [Agent]</td><td class="v">Optimize + auto-call Copilot. Stream in sidebar.</td></tr>
+          <tr><td class="k">Optimize only</td><td class="k">$(wand) Proxy [Optimize]</td><td class="v">Show analysis &amp; optimized prompt. No send.</td></tr>
+          <tr><td class="k">Direct send</td><td class="k">$(comment-discussion) Proxy [Direct]</td><td class="v">Open Chat panel with <code>@promptoptimizer</code> pre-filled.</td></tr>
+        </tbody>
+      </table>
+      <p class="lead" style="margin-top:10px;">Switch any time by clicking the label → QuickPick · or the sidebar dropdown · or <code>@promptoptimizer /mode agent|optimize|direct</code>.</p>
+    </div>
+  </section>
+
+  <!-- ────────────────────────────────────────── TAB 3: SDLC & agents ── -->
+  <section class="tab-panel" id="tab-sdlc">
+    <h2 class="section">Built-in SDLC modes</h2>
+    <p class="lead">Slash-triggered roles that frame the optimized prompt with a checklist before sending. Or let the picker score intent automatically.</p>
+
+    <div class="chip-grid">
+      <div class="sdlc-chip"><span class="slash">/plan</span><span class="desc">Decompose the work</span></div>
+      <div class="sdlc-chip"><span class="slash">/arch</span><span class="desc">High-level design</span></div>
+      <div class="sdlc-chip"><span class="slash">/code</span><span class="desc">Implementation</span></div>
+      <div class="sdlc-chip"><span class="slash">/test</span><span class="desc">Unit / integration tests</span></div>
+      <div class="sdlc-chip"><span class="slash">/review</span><span class="desc">Code review</span></div>
+      <div class="sdlc-chip"><span class="slash">/security</span><span class="desc">OWASP &amp; threat model</span></div>
+      <div class="sdlc-chip"><span class="slash">/qa</span><span class="desc">QA &amp; test plans</span></div>
+      <div class="sdlc-chip"><span class="slash">/devops</span><span class="desc">CI/CD, infra</span></div>
+      <div class="sdlc-chip"><span class="slash">/docs</span><span class="desc">Docs &amp; READMEs</span></div>
+      <div class="sdlc-chip"><span class="slash">/pr</span><span class="desc">PR description</span></div>
+      <div class="sdlc-chip"><span class="slash">/full</span><span class="desc">End-to-end SDLC</span></div>
+      <div class="sdlc-chip"><span class="slash">/bug-fix</span><span class="desc">Bug triage flow</span></div>
+      <div class="sdlc-chip"><span class="slash">/refactor</span><span class="desc">Safe refactor</span></div>
+    </div>
+
+    <div class="grid-2" style="margin-top:14px;">
+      <div class="card">
+        <h2 class="section">Custom skills</h2>
+        <p class="lead">Workspace skills live in <code>.promptoptimizer/skills/*.md</code>. User-global skills via <code>PROMPT_OPTIMIZER_SKILLS_DIR</code>.</p>
+        <h3 class="sub">Supported frontmatter</h3>
+        <ul class="bullets">
+          <li><code>id</code>, <code>label</code>, <code>readOnly</code></li>
+          <li><code>slashAliases</code>, <code>intentPatterns</code>, <code>keywords</code></li>
+          <li><code>requires</code>, <code>filePatterns</code>, <code>priority</code>, <code>tags</code></li>
+          <li><code>rolePreface</code> as scalar or block (<code>|</code>)</li>
+          <li><code>checklist</code> as frontmatter items or markdown bullets under <code>## Checklist</code></li>
+        </ul>
+        <p class="lead" style="margin-top:8px;">Skill files hot-reload on the next prompt. Diagnostics: <code>Prompt Optimizer: Diagnose Skill Loading Errors</code>.</p>
+      </div>
+      <div class="card">
+        <h2 class="section">🤖 Agents button</h2>
+        <p class="lead">The <strong>Agents</strong> chip in the sidebar opens a multi-select picker for the bundled SDLC agent library.</p>
+        <ul class="bullets">
+          <li><strong>Tick</strong> an agent to enable it for the current workspace.</li>
+          <li><strong>Untick</strong> to disable it.</li>
+          <li>Click the <strong>✎ pencil</strong> to enable-and-open the workspace copy for editing.</li>
+          <li>Click <strong>↺ reset</strong> to restore the bundled definition over local edits.</li>
+          <li>Use the title-bar <strong>+</strong> to create a custom agent from a template.</li>
+        </ul>
+        <p class="lead" style="margin-top:8px;">Enabled agents are copied into <code>.promptoptimizer/skills/</code> — customize them like any other skill.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────────────── TAB 4: Sidebar & chat ── -->
+  <section class="tab-panel" id="tab-panel">
+    <div class="card">
+      <h2 class="section">🎬 Live walkthrough — every control in the sidebar</h2>
+      <p class="lead">
+        Press <strong>▶ Play tour</strong> and watch the spotlight visit every button, chip, and field
+        one-by-one with a short description. Click any control directly to jump there, or use
+        <strong>‹ Prev</strong> / <strong>Next ›</strong> to step manually.
+      </p>
+
+      <div class="mock-stage" id="mockStage">
+        <div class="mock-toolbar">
+          <span><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></span>
+          <span>Prompt Optimizer · Sidebar</span>
+        </div>
+
+        <div class="mock-panel" id="mockPanel">
+          <div class="mock-row">
+            <span class="mock-label">Mode:</span>
+            <button class="mock-select"
+                    data-walk="1"
+                    data-walk-title="Mode selector"
+                    data-walk-desc="Switch between <b>Agent</b> (auto-send to Copilot), <b>Optimize only</b> (show analysis, you decide), and <b>Direct send</b> (open Chat with prompt pre-filled).">
+              Agent ▾
+            </button>
+            <button class="mock-status"
+                    data-walk="2"
+                    data-walk-title="⌬ Status pill"
+                    data-walk-desc="Live indicator showing seed progress, indexing, cache hits, and current mode. Click to open the status overview & quick command list.">
+              ⌬ ready
+            </button>
+          </div>
+
+          <div class="mock-chips">
+            <button class="mock-chip"
+                    data-walk="3"
+                    data-walk-title="🚀 Visual Tour"
+                    data-walk-desc="Reopens this guide any time — full animated walkthrough of every feature, mode, and pipeline stage.">
+              🚀 Visual Tour
+            </button>
+            <button class="mock-chip"
+                    data-walk="4"
+                    data-walk-title="🎓 Guide"
+                    data-walk-desc="A single-screen Quick Pick listing every common action with detailed descriptions. Best for keyboard-driven users.">
+              🎓 Guide
+            </button>
+            <button class="mock-chip"
+                    data-walk="5"
+                    data-walk-title="🕒 History"
+                    data-walk-desc="Browse prior prompts with side-by-side diff. Restore, re-optimize, or send any past prompt back to Copilot.">
+              🕒 History
+            </button>
+            <button class="mock-chip"
+                    data-walk="6"
+                    data-walk-title="🌿 Versions"
+                    data-walk-desc="A Git-style log of your prompts. Commit, branch, tag, checkout, and diff revisions just like source code.">
+              🌿 Versions
+            </button>
+            <button class="mock-chip"
+                    data-walk="7"
+                    data-walk-title="✨ Try example"
+                    data-walk-desc="Inserts a curated sample prompt so you can see optimization, cache, and analysis in action without typing anything.">
+              ✨ Try example
+            </button>
+            <button class="mock-chip"
+                    data-walk="8"
+                    data-walk-title="📓 Memory"
+                    data-walk-desc="Opens AGENTS.md / CLAUDE.md / .promptoptimizer/memory.md — the long-lived workspace notes every optimization sees.">
+              📓 Memory
+            </button>
+            <button class="mock-chip"
+                    data-walk="9"
+                    data-walk-title="🔗 Peers"
+                    data-walk-desc="Federate the semantic cache with peer workspaces on disk so teammates' optimized prompts speed up yours (opt-in, local only).">
+              🔗 Peers
+            </button>
+            <button class="mock-chip"
+                    data-walk="10"
+                    data-walk-title="🤖 Agents"
+                    data-walk-desc="Enable bundled SDLC agents (code-review, test-writer, doc-author…) or create custom ones from a template. Edits live in .promptoptimizer/skills/.">
+              🤖 Agents
+            </button>
+          </div>
+
+          <textarea class="mock-textarea"
+                    data-walk="11"
+                    data-walk-title="Prompt input"
+                    data-walk-desc="Type or paste any prompt here. Multi-line, supports paste-from-clipboard, and remembers what you typed across reloads."
+                    readonly>refactor the auth middleware to use async/await and add unit tests</textarea>
+
+          <div class="mock-actions">
+            <button class="mock-btn"
+                    data-walk="12"
+                    data-walk-title="✕ Clear input"
+                    data-walk-desc="Wipes the prompt textarea instantly. Use this before pasting a new prompt to avoid mixing context.">
+              ✕ Clear
+            </button>
+            <button class="mock-btn primary"
+                    data-walk="13"
+                    data-walk-title="✨ Optimize Prompt"
+                    data-walk-desc="The main action. Runs the 8-step pipeline: compress, cache-check, pack context, estimate cost, then either show the optimized prompt or send it to Copilot — depending on the mode above.">
+              ✨ Optimize Prompt
+            </button>
+          </div>
+
+          <div class="mock-optimized" id="mockOptimized">
+            <h4>↳ Optimized prompt (Optimize mode)</h4>
+            <pre>Refactor auth middleware → async/await. Add Jest unit tests for token validation, expiry, and error paths. Files: src/auth/*.ts. Cache: 71% hit.</pre>
+            <div class="mock-actions">
+              <button class="mock-btn primary"
+                      data-walk="14"
+                      data-walk-title="📤 Send to Copilot"
+                      data-walk-desc="Pushes the optimized prompt into Copilot Chat as @promptoptimizer. You stay in control — nothing leaves your machine until you click this.">
+                📤 Send to Chat
+              </button>
+              <button class="mock-btn"
+                      data-walk="15"
+                      data-walk-title="📋 Copy optimized"
+                      data-walk-desc="Copies the optimized prompt to your clipboard so you can paste it into any other assistant, terminal, or note.">
+                📋 Copy
+              </button>
+              <button class="mock-btn"
+                      data-walk="16"
+                      data-walk-title="✕ Clear optimized"
+                      data-walk-desc="Dismisses the optimized output card. Your input prompt above is preserved so you can tweak and re-optimize.">
+                ✕ Clear
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tour overlay -->
+        <div class="walk-overlay" id="walkOverlay">
+          <div class="walk-spot" id="walkSpot"></div>
+          <div class="walk-tip" id="walkTip">
+            <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;">
+              <h5 id="walkTipTitle">—</h5>
+              <span class="walk-tip-counter" id="walkCounter">0 / 0</span>
+            </div>
+            <p id="walkTipDesc">—</p>
+            <div class="walk-controls">
+              <button id="walkPrev">‹ Prev</button>
+              <button id="walkNext">Next ›</button>
+              <button id="walkStop">✕ Close</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="controls" style="margin-top:12px;">
+        <button class="primary" id="walkPlay">▶ Play tour</button>
+        <span style="color:var(--fg-2);font-size:11px;">Click any control to jump to its step.</span>
+      </div>
+      <div class="walk-progress"><div id="walkProgress"></div></div>
+    </div>
+
+    <div class="grid-2" style="margin-top:14px;">
+      <div class="card">
+        <h2 class="section">Sidebar — Prompt Optimizer Control</h2>
+        <p class="lead">Open it from the Chat sidebar or press the status-bar item. Every chip is a shortcut into common actions:</p>
+        <ul class="bullets">
+          <li><strong>🚀 Visual Tour</strong> — reopen this onboarding guide.</li>
+          <li><strong>🎓 Guide</strong> — single-screen list of every common action.</li>
+          <li><strong>🕒 History</strong> — prior prompts with side-by-side diff, restore, send to chat.</li>
+          <li><strong>🌿 Versions</strong> — Git-style log: commit, branch, tag, checkout, diff.</li>
+          <li><strong>✨ Try example</strong> — inserts a sample prompt so you can see it work.</li>
+          <li><strong>📓 Memory</strong> — opens <code>AGENTS.md</code> / <code>CLAUDE.md</code> / <code>.promptoptimizer/memory.md</code>.</li>
+          <li><strong>🔗 Peers</strong> — federate cache with peer workspaces.</li>
+          <li><strong>🤖 Agents</strong> — enable bundled or custom SDLC agents.</li>
+        </ul>
+        <h3 class="sub" style="margin-top:14px;">Analysis table (Optimize mode)</h3>
+        <dl class="kv">
+          <div><dt>Cost / Saved</dt><dd>Total USD cost · tokens saved</dd></div>
+          <div><dt>Tokens</dt><dd>Raw → optimized count · est. output</dd></div>
+          <div><dt>Cache</dt><dd>exact hit / semantic match (%) / miss</dd></div>
+          <div><dt>Pricing</dt><dd>Input + output cost breakdown</dd></div>
+        </dl>
+      </div>
+      <div class="card">
+        <h2 class="section">💬 Chat participant — <code>@promptoptimizer</code></h2>
+        <p class="lead">In the VS Code Chat panel just type:</p>
+        <pre style="background:var(--bg-2);border:1px solid var(--bg-3);border-radius:6px;padding:10px;font-family:var(--mono);font-size:12px;color:var(--accent);margin:0 0 12px;overflow-x:auto;">@promptoptimizer refactor the auth middleware to use async/await</pre>
+        <p class="lead">Every message is auto-optimized. Copilot's answer streams back in chat.</p>
+
+        <h3 class="sub" style="margin-top:14px;">Slash commands</h3>
+        <dl class="kv">
+          <div><dt>/mode agent|optimize|direct</dt><dd>Switch run mode</dd></div>
+          <div><dt>/memory</dt><dd>Show stored conversation turns for this workspace</dd></div>
+          <div><dt>/clear</dt><dd>Clear conversation memory for this workspace</dd></div>
+          <div><dt>/context</dt><dd>Show what local context (files, logs, cache) is available</dd></div>
+        </dl>
+
+        <h3 class="sub" style="margin-top:14px;">Conversation memory</h3>
+        <p class="lead">Up to <strong>12 turns per workspace</strong> are remembered. Back-references resolve automatically — typing <em>"now add unit tests for it"</em> injects <code>[Continuing from: '...']</code> before sending.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ────────────────────────────────────── TAB 5: Memory pipeline ── -->
+  <section class="tab-panel" id="tab-memory">
+    <div class="mem-live" id="memLive">
+      <h3>● Live memory snapshot · this workspace</h3>
+      <p class="lead" style="margin:4px 0 10px;">
+        Real-time abstract view of what Prompt Optimizer has indexed locally — letters and
+        digits are replaced with <code>•</code> so nothing sensitive is rendered. Click any
+        file row to open the real source for editing.
+      </p>
+      <div class="mem-totals" id="memTotals">
+        <div class="mem-stat"><strong>—</strong> files</div>
+        <div class="mem-stat"><strong>—</strong> bytes</div>
+        <div class="mem-stat"><strong>—</strong> est. tokens</div>
+        <div class="mem-stat"><strong>—</strong> versions</div>
+        <div class="mem-stat"><strong>—</strong> cache entries</div>
+      </div>
+      <div class="mem-files" id="memFiles">
+        <div class="mem-empty">Loading memory snapshot…</div>
+      </div>
+      <div class="mem-actions">
+        <button id="memRefresh">↻ Refresh now</button>
+        <button id="memOpenFile">📓 Open memory file</button>
+        <label style="color:var(--fg-2);font-size:11px;">
+          <input type="checkbox" id="memAuto" checked style="vertical-align:middle;" /> auto-refresh every 5s
+        </label>
+        <span class="ts" id="memTs">never</span>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px;">
+      <h2 class="section">📊 What's inside the memory — abstract dashboard</h2>
+      <p class="lead">
+        Every panel below is derived from real local state — file counts, cache entries, version log timestamps —
+        rendered as abstract shapes so structure is visible but content stays private.
+      </p>
+      <div class="mem-dash">
+        <div class="mem-dash-cell">
+          <h4>Knowledge graph</h4>
+          <svg id="kgSvg" viewBox="0 0 260 140" preserveAspectRatio="xMidYMid meet" aria-hidden="true"></svg>
+          <p class="mem-dash-cap"><span id="kgCount">—</span> nodes · workspace, memory files &amp; cache entries cross-linked.</p>
+        </div>
+        <div class="mem-dash-cell">
+          <h4>Semantic cache density</h4>
+          <div id="cacheGrid" class="cache-grid" aria-hidden="true"></div>
+          <p class="mem-dash-cap"><span id="cacheCap">—</span> embeddings indexed locally.</p>
+        </div>
+        <div class="mem-dash-cell">
+          <h4>Version-log activity</h4>
+          <svg id="sparkSvg" viewBox="0 0 260 60" preserveAspectRatio="none" aria-hidden="true"></svg>
+          <p class="mem-dash-cap"><span id="sparkCap">—</span> commits in the recent window.</p>
+        </div>
+        <div class="mem-dash-cell">
+          <h4>Token budget</h4>
+          <svg id="budgetSvg" viewBox="0 0 120 120" aria-hidden="true">
+            <circle cx="60" cy="60" r="48" stroke="var(--bg-3)" stroke-width="10" fill="none" />
+            <circle id="budgetArc" cx="60" cy="60" r="48" stroke="var(--accent)" stroke-width="10" fill="none"
+                    stroke-dasharray="0 1000" stroke-linecap="round" transform="rotate(-90 60 60)"
+                    style="transition: stroke-dasharray 0.6s ease, stroke 0.4s ease;" />
+            <text id="budgetText" x="60" y="58" text-anchor="middle" fill="var(--fg-0)"
+                  font-family="var(--mono)" font-size="14" font-weight="600">0%</text>
+            <text x="60" y="76" text-anchor="middle" fill="var(--fg-2)"
+                  font-family="var(--mono)" font-size="9">of memory budget</text>
+          </svg>
+          <p class="mem-dash-cap"><span id="budgetCap">—</span></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="section">The memory lifecycle — three <em>distinct</em> stages</h2>
+      <p class="lead">
+        Every saved file, every committed prompt, and every memory file passes through three stages — all local.
+        Storage lives in <code>.promptoptimizer/</code> next to your workspace and in VS Code's <code>globalState</code>.
+      </p>
+
+      <div class="grid-3" style="margin-top:8px;">
+        <div class="stage">
+          <h3><span class="seq">①</span> Ingestion</h3>
+          <p>Files saved → workspace memory (<code>AGENTS.md</code>, <code>CLAUDE.md</code>, <code>.promptoptimizer/memory.md</code>) re-read; Copilot chat history, git log, README and active editors are harvested.</p>
+          <div class="anim-ingest" aria-hidden="true">
+            <div class="file-token">md</div>
+            <div class="file-token t2">ts</div>
+            <div class="file-token t3">js</div>
+            <div class="file-token t4">py</div>
+            <div class="file-token t5">log</div>
+            <div class="mouth" title="semantic cache"></div>
+          </div>
+          <p style="font-size:11px;color:var(--fg-2);margin-top:6px;">Files stream into the semantic cache (animated).</p>
+        </div>
+
+        <div class="stage">
+          <h3><span class="seq">②</span> Storage</h3>
+          <p>Tokens, embeddings, and conversation turns are committed to a local <strong>SQLite</strong> cache + JSON state. Prompt versions live in a <strong>Git-style graph</strong> with branches, tags, and parent links.</p>
+          <div class="anim-store" aria-hidden="true">
+            <div class="vault"></div>
+            <div class="brick b1"></div><div class="brick b2"></div><div class="brick b3"></div><div class="brick b4"></div>
+            <div class="brick b5"></div><div class="brick b6"></div><div class="brick b7"></div><div class="brick b8"></div>
+          </div>
+          <p style="font-size:11px;color:var(--fg-2);margin-top:6px;">Embedding bricks falling into the SQLite vault.</p>
+        </div>
+
+        <div class="stage">
+          <h3><span class="seq">③</span> Retrieval</h3>
+          <p>Prompt arrives → semantic cache lookup → matching context repacked → only the optimized prompt + token forecast pass to Copilot. <em>Raw file text and secrets never leave your machine.</em></p>
+          <div class="anim-retrieve" aria-hidden="true">
+            <div class="radar"></div>
+            <div class="sweep"></div>
+            <div class="ping p1"></div>
+            <div class="ping p2"></div>
+            <div class="ping p3"></div>
+            <div class="ping p4"></div>
+            <div class="hit-line">82% match · 14 tok</div>
+          </div>
+          <p style="font-size:11px;color:var(--fg-2);margin-top:6px;">Radar sweep finds the matching prompt embeddings.</p>
+        </div>
+      </div>
+
+      <div class="extract card" style="margin-top:18px;padding:14px;">
+        <h3 class="sub" style="margin:0 0 8px;">Optimized prompt → Copilot context</h3>
+        <svg viewBox="0 0 600 130">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#a6adc8" />
+            </marker>
+          </defs>
+          <path class="lane" d="M 30 30 H 570" marker-end="url(#arrow)" />
+          <path class="lane" d="M 30 65 H 570" marker-end="url(#arrow)" />
+          <path class="lane" d="M 30 100 H 570" marker-end="url(#arrow)" />
+          <text x="30" y="22" fill="#cba6f7" font-family="ui-monospace" font-size="11">user prompt</text>
+          <text x="30" y="57" fill="#89b4fa" font-family="ui-monospace" font-size="11">semantic cache + workspace memory</text>
+          <text x="30" y="92" fill="#a6e3a1" font-family="ui-monospace" font-size="11">copilot (only optimized payload)</text>
+
+          <circle class="data" cx="30" cy="30"  r="6" style="animation-delay: 0s;"></circle>
+          <circle class="data" cx="30" cy="65"  r="6" style="animation-delay: 0.6s; fill: var(--blue);"></circle>
+          <circle class="data" cx="30" cy="100" r="6" style="animation-delay: 1.2s; fill: var(--green);"></circle>
+
+          <circle class="data" cx="30" cy="30"  r="6" style="animation-delay: 2.0s;"></circle>
+          <circle class="data" cx="30" cy="65"  r="6" style="animation-delay: 2.6s; fill: var(--blue);"></circle>
+          <circle class="data" cx="30" cy="100" r="6" style="animation-delay: 3.2s; fill: var(--green);"></circle>
+        </svg>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <h2 class="section">Semantic cache thresholds</h2>
+      <table class="spec">
+        <thead><tr><th style="width:200px;">Result</th><th>What happens</th></tr></thead>
+        <tbody>
+          <tr><td class="k">Exact match</td><td class="v">Returns the cached optimized version instantly.</td></tr>
+          <tr><td class="k">Semantic match ≥ 68%</td><td class="v">Returns the cached result and boosts its confidence score.</td></tr>
+          <tr><td class="k">Miss</td><td class="v">Optimizes fresh and writes the result to cache for next time.</td></tr>
+        </tbody>
+      </table>
+      <p class="lead" style="margin-top:10px;">Seed sources on activation: <code>git log</code>, Copilot chat history, <code>README.md</code>, <code>package.json</code>, AI instruction files (<code>.github/copilot-instructions.md</code>, <code>AGENTS.md</code>, <code>CLAUDE.md</code>, etc.). Manage via <code>Prompt Optimizer: Show Cache Statistics</code> / <code>Clear Semantic Cache</code>.</p>
+    </div>
+  </section>
+
+  <!-- ───────────────────────────────────── TAB 6: Privacy & secrets ── -->
+  <section class="tab-panel" id="tab-security">
+    <div class="grid-2">
+      <div class="card">
+        <h2 class="section">🔒 Privacy &amp; security</h2>
+        <table class="spec">
+          <tbody>
+            <tr><td class="k">Data processing</td><td class="v">100% on your machine — no cloud backend, no remote API except the Copilot request you approve.</td></tr>
+            <tr><td class="k">Prompt storage</td><td class="v">Cached locally in a SQLite file (<code>promptProxy.dbPath</code>). Never uploaded.</td></tr>
+            <tr><td class="k">Secret scanning</td><td class="v">API keys and tokens are detected <strong>before</strong> any network call and blocked with a warning.</td></tr>
+            <tr><td class="k">Telemetry</td><td class="v"><strong>None.</strong> Zero usage or diagnostic data collected.</td></tr>
+            <tr><td class="k">Network calls</td><td class="v">Only the GitHub Copilot inference request you explicitly send via the VS Code Chat API.</td></tr>
+            <tr><td class="k">Open source</td><td class="v"><a href="https://github.com/PawanDBalapure/prompt-optimizer" style="color:var(--blue);">github.com/PawanDBalapure/prompt-optimizer</a> — audit it yourself.</td></tr>
+          </tbody>
+        </table>
+        <p class="lead" style="margin-top:10px;">
+          To verify: open <code>out/extension.js</code> or <code>engine/dist/</code>. Search for <code>http</code>, <code>fetch</code>, <code>axios</code>, <code>request</code> — you'll find zero outbound calls outside the Copilot API.
+        </p>
+      </div>
+
+      <div class="card">
+        <h2 class="section">🚨 Secret detection patterns</h2>
+        <p class="lead">If your prompt contains anything that looks like one of these, a warning appears in the panel <strong>before</strong> the prompt is sent:</p>
+        <ul class="bullets">
+          <li>OpenAI keys — <code>sk-…</code></li>
+          <li>Anthropic keys — <code>sk-ant-…</code></li>
+          <li>GitHub tokens — <code>ghp_…</code>, <code>ghs_…</code></li>
+          <li>AWS access keys — <code>AKIA…</code></li>
+          <li>PEM private key headers</li>
+          <li>Generic assignments — <code>password=</code>, <code>token=</code>, <code>api_key=</code></li>
+        </ul>
+        <p class="lead" style="margin-top:10px;">
+          Manage patterns via the panel <strong>⚙ Secret detection</strong> menu — add or remove regex / startsWith / contains rules per workspace.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────────── TAB 7: Commands & config ── -->
+  <section class="tab-panel" id="tab-commands">
+    <div class="card">
+      <h2 class="section">Command palette — <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> → <code>Prompt Optimizer:</code></h2>
+      <table class="spec">
+        <tbody>
+          <tr><td class="k">Select Mode (Agent / Optimize / Direct)</td><td class="v">Open mode QuickPick</td></tr>
+          <tr><td class="k">Open Chat Participant</td><td class="v">Jump to <code>@promptoptimizer</code> in Chat</td></tr>
+          <tr><td class="k">Focus Control Panel</td><td class="v">Focus the sidebar panel</td></tr>
+          <tr><td class="k">Open Prompt Optimizer Guide</td><td class="v">Reopen <em>this</em> guide any time</td></tr>
+          <tr><td class="k">Optimize Clipboard &amp; Cost Forecast</td><td class="v">Optimize whatever is on the clipboard</td></tr>
+          <tr><td class="k">Copy Last Optimized Prompt</td><td class="v">Copy the last result to clipboard</td></tr>
+          <tr><td class="k">Send Last Optimized Prompt To Chat</td><td class="v">Open Chat with the last result</td></tr>
+          <tr><td class="k">Show Cache Statistics</td><td class="v">Entry count, avg confidence, total hits</td></tr>
+          <tr><td class="k">Clear Semantic Cache</td><td class="v">Wipe the local SQLite cache</td></tr>
+          <tr><td class="k">Clear Conversation Memory</td><td class="v">Reset this workspace's conversation history</td></tr>
+          <tr><td class="k">Show Prompt History</td><td class="v">QuickPick of prior prompts with diff/restore/send actions</td></tr>
+          <tr><td class="k">Commit / Log / Branch / Tag Prompt</td><td class="v">Git-style versioning of prompts</td></tr>
+          <tr><td class="k">List Agent Skills (Modes)</td><td class="v">Every registered built-in and custom mode</td></tr>
+          <tr><td class="k">Create / Edit Agent Skill</td><td class="v">Create a workspace skill or override a built-in</td></tr>
+          <tr><td class="k">Diagnose Skill Loading Errors</td><td class="v">Open files that failed parsing/loading</td></tr>
+          <tr><td class="k">Manage SDLC Agent Skills</td><td class="v">Enable/disable/edit/reset bundled agents</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <h2 class="section">⚙ Configuration</h2>
+      <table class="spec">
+        <thead><tr><th style="width:260px;">Setting</th><th style="width:140px;">Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="k">promptProxy.dbPath</td><td class="k">(global storage)</td><td class="v">Custom path for the SQLite cache file.</td></tr>
+          <tr><td class="k">promptProxy.processingMode</td><td class="k">blocking</td><td class="v"><code>blocking</code> or <code>non-blocking</code> cache lookup.</td></tr>
+          <tr><td class="k">promptProxy.enableSessionContext</td><td class="k">true</td><td class="v">Feed recent turns back as session history.</td></tr>
+          <tr><td class="k">promptProxy.pricingInput</td><td class="k">0.0015</td><td class="v">Input cost per 1K tokens (USD).</td></tr>
+          <tr><td class="k">promptProxy.pricingOutput</td><td class="k">0.002</td><td class="v">Output cost per 1K tokens (USD).</td></tr>
+          <tr><td class="k">promptProxy.versions.author</td><td class="k">you</td><td class="v">Author name stamped on prompt commits.</td></tr>
+        </tbody>
+      </table>
+      <p class="lead" style="margin-top:10px;">All settings live under <code>File → Preferences → Settings → Extensions → Prompt Optimizer</code>.</p>
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════════════════════════════ FOOTER ══ -->
+  <footer>
+    Built locally · MIT-licensed · No data leaves your machine.<br/>
+    <kbd>Space</kbd> play/pause &nbsp; · &nbsp; <kbd>R</kbd> reset &nbsp; · &nbsp; <kbd>1</kbd>–<kbd>7</kbd> jump to tab &nbsp; · &nbsp;
+    <a href="https://github.com/PawanDBalapure/prompt-optimizer">source on GitHub</a>
+  </footer>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ── Tabs ─────────────────────────────────────────────────── */
+  var tabBtns = document.querySelectorAll('nav.tabs button');
+  var panels  = document.querySelectorAll('section.tab-panel');
+  function switchTab(id) {
+    tabBtns.forEach(function (b) { b.classList.toggle('active', b.dataset.tab === id); });
+    panels.forEach(function (p) { p.classList.toggle('active', p.id === 'tab-' + id); });
+  }
+  tabBtns.forEach(function (btn) {
+    btn.addEventListener('click', function () { switchTab(btn.dataset.tab); });
+  });
+
+  /* ── Simulator (tab 1) ───────────────────────────────────── */
+  var NODES = [
+    { id: 'app',     label: 'app.ts',        x: 300, y:  60 },
+    { id: 'auth',    label: 'auth.ts',       x: 140, y: 140 },
+    { id: 'router',  label: 'router.ts',     x: 460, y: 140 },
+    { id: 'token',   label: 'token.ts',      x:  80, y: 240 },
+    { id: 'session', label: 'session.ts',    x: 200, y: 250 },
+    { id: 'user',    label: 'user.model.ts', x: 340, y: 260 },
+    { id: 'api',     label: 'api.ts',        x: 470, y: 250 },
+    { id: 'db',      label: 'db.ts',         x: 540, y: 340 },
+    { id: 'utils',   label: 'utils.ts',      x: 200, y: 340 },
+    { id: 'logger',  label: 'logger.ts',     x: 330, y: 350 }
+  ];
+  var EDGES = [
+    ['app','auth'],['app','router'],
+    ['auth','token'],['auth','session'],['auth','user'],
+    ['router','api'],['router','user'],
+    ['session','token'],['session','utils'],
+    ['api','db'],['user','db'],
+    ['utils','logger'],['api','logger']
+  ];
+  var HIT_NODES = new Set(['auth','token']);
+  var HIT_EDGES = new Set(['auth|token']);
+
+  var edgeLayer = document.getElementById('edges');
+  var nodeLayer = document.getElementById('nodes');
+  var nodeById  = Object.create(null);
+  NODES.forEach(function (n) { nodeById[n.id] = n; });
+
+  EDGES.forEach(function (pair) {
+    var A = nodeById[pair[0]], B = nodeById[pair[1]];
+    var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', A.x); line.setAttribute('y1', A.y);
+    line.setAttribute('x2', B.x); line.setAttribute('y2', B.y);
+    line.setAttribute('class', 'edge');
+    line.dataset.key = pair[0] + '|' + pair[1];
+    edgeLayer.appendChild(line);
+  });
+  NODES.forEach(function (n) {
+    var g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('class', 'node');
+    g.setAttribute('transform', 'translate(' + n.x + ',' + n.y + ')');
+    g.dataset.id = n.id;
+    var c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    c.setAttribute('r', 14); g.appendChild(c);
+    var t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    t.setAttribute('y', 28); t.textContent = n.label; g.appendChild(t);
+    nodeLayer.appendChild(g);
+  });
+
+  var allNodeEls = Array.from(nodeLayer.querySelectorAll('.node'));
+  var allEdgeEls = Array.from(edgeLayer.querySelectorAll('.edge'));
+  var $ = function (id) { return document.getElementById(id); };
+  var cursor = $('cursor'), ripple = $('ripple'), chat = $('chat'),
+      chatText = $('chatText'), badge = $('badge'), sbBtn = $('sbBtn'),
+      frameLbl = $('frameLabel');
+  var stepLis = []; // legacy — no-op (the step list was replaced by the cursor-narrated feature feed).
+
+  function resetVisuals() {
+    allNodeEls.forEach(function (el) { el.classList.remove('pulse','hit','dim'); });
+    allEdgeEls.forEach(function (el) { el.classList.remove('active','dim'); });
+    ripple.classList.remove('go');
+    chat.classList.remove('show'); chatText.textContent = '';
+    badge.classList.remove('show'); cursor.classList.remove('show');
+    sbBtn.classList.remove('glow');
+    frameLbl.textContent = 'Frame 1 / 3 — idle';
+  }
+  function setActiveStep(/* n */) { /* no-op (step list removed) */ }
+  function moveCursorTo(targetEl, cb) {
+    var sim  = $('graph').getBoundingClientRect();
+    var rect = targetEl.getBoundingClientRect();
+    cursor.classList.add('show');
+    cursor.style.left = (rect.left - sim.left + rect.width  / 2 - 7) + 'px';
+    cursor.style.top  = (rect.top  - sim.top  + rect.height / 2 - 9) + 'px';
+    setTimeout(cb, 750);
+  }
+  function typeText(text, el, speed, cb) {
+    var i = 0; el.textContent = '';
+    var h = setInterval(function () {
+      el.textContent = text.slice(0, ++i);
+      if (i >= text.length) { clearInterval(h); if (cb) cb(); }
+    }, speed);
+  }
+  function frame1(done) {
+    resetVisuals();
+    frameLbl.textContent = 'Frame 1 / 3 — indexing workspace (status bar)';
+    moveCursorTo(sbBtn, function () {
+      sbBtn.classList.add('glow');
+      var sim = $('graph').getBoundingClientRect(), b = sbBtn.getBoundingClientRect();
+      ripple.style.left = (b.left - sim.left + b.width  / 2 - 7) + 'px';
+      ripple.style.top  = (b.top  - sim.top  + b.height / 2 - 7) + 'px';
+      ripple.classList.remove('go'); void ripple.offsetWidth; ripple.classList.add('go');
+      allNodeEls.forEach(function (el, i) {
+        setTimeout(function () { el.classList.add('pulse'); }, 120 + i * 70);
+      });
+      setTimeout(function () { if (done) done(); }, 1700);
+    });
+  }
+  function frame2(done) {
+    frameLbl.textContent = 'Frame 2 / 3 — user prompts @promptoptimizer';
+    chat.classList.add('show');
+    typeText('Fix the bug in authentication context', chatText, 35, function () {
+      if (done) done();
+    });
+  }
+  function frame3(done) {
+    frameLbl.textContent = 'Frame 3 / 3 — optimized prompt + cache hit';
+    allNodeEls.forEach(function (el) {
+      el.classList.remove('pulse');
+      if (HIT_NODES.has(el.dataset.id)) el.classList.add('hit'); else el.classList.add('dim');
+    });
+    allEdgeEls.forEach(function (el) {
+      if (HIT_EDGES.has(el.dataset.key)) el.classList.add('active'); else el.classList.add('dim');
+    });
+    setTimeout(function () {
+      badge.classList.add('show');
+      if (done) done();
+    }, 500);
+  }
+
+  var playing = false, timers = [];
+  function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+
+  function play() {
+    if (playing) return;
+    playing = true; resetVisuals();
+    timers.push(setTimeout(function () { frame1(); }, 200));
+    timers.push(setTimeout(function () { frame2(); }, 2200));
+    timers.push(setTimeout(function () { frame3(); }, 4400));
+    timers.push(setTimeout(function () { playing = false; }, 6000));
+  }
+  function reset() { clearTimers(); playing = false; resetVisuals(); }
+
+  $('btnPlay').addEventListener('click', play);
+  $('btnReset').addEventListener('click', reset);
+
+  /* ── Global keyboard ─────────────────────────────────────── */
+  document.addEventListener('keydown', function (ev) {
+    if (ev.target && (ev.target.tagName === 'INPUT' || ev.target.tagName === 'TEXTAREA')) return;
+    if (ev.code === 'Space') { ev.preventDefault(); playing ? reset() : play(); return; }
+    if (ev.key === 'r' || ev.key === 'R') { reset(); return; }
+    var tabMap = { '1':'how', '2':'modes', '3':'sdlc', '4':'panel', '5':'memory', '6':'security', '7':'commands' };
+    if (tabMap[ev.key]) { switchTab(tabMap[ev.key]); }
+  });
+
+  /* No autoplay — the user explicitly hits ▶ Play video. The simulator
+     starts in its "idle" first-frame state so nothing surprises them. */
+  resetVisuals();
+
+  /* ══ Panel-walkthrough tour (Tab 4) ════════════════════════════════════════════ */
+  var walkStops = Array.prototype.slice.call(document.querySelectorAll('[data-walk]'));
+  walkStops.sort(function (a, b) {
+    return Number(a.getAttribute('data-walk')) - Number(b.getAttribute('data-walk'));
+  });
+  var walkOverlay = $('walkOverlay');
+  var walkSpot    = $('walkSpot');
+  var walkTip     = $('walkTip');
+  var walkTitle   = $('walkTipTitle');
+  var walkDesc    = $('walkTipDesc');
+  var walkCounter = $('walkCounter');
+  var walkPrev    = $('walkPrev');
+  var walkNext    = $('walkNext');
+  var walkStop    = $('walkStop');
+  var walkPlay    = $('walkPlay');
+  var walkProgress = $('walkProgress');
+  var walkIdx = -1;
+  var walkAuto = false;
+  var walkTimer = null;
+
+  function positionWalk(target) {
+    // The spotlight + tip live inside `.walk-overlay`, whose offset parent is
+    // `.mock-stage` (with `inset: 0`). Use mock-stage as the reference frame —
+    // using `#mockPanel` instead would shift everything up by the toolbar +
+    // stage padding, which is what caused the spot to appear above the
+    // highlighted control.
+    var stage = document.getElementById('mockStage').getBoundingClientRect();
+    var r = target.getBoundingClientRect();
+    var x = r.left - stage.left, y = r.top - stage.top;
+    walkSpot.style.left = (x - 8) + 'px';
+    walkSpot.style.top  = (y - 8) + 'px';
+    walkSpot.style.width  = (r.width  + 16) + 'px';
+    walkSpot.style.height = (r.height + 16) + 'px';
+    var tipW = 260;
+    var tipX = x + r.width + 18;
+    if (tipX + tipW > stage.width - 8) { tipX = Math.max(8, x - tipW - 18); }
+    var tipY = Math.max(8, Math.min(stage.height - 120, y - 8));
+    walkTip.style.left = tipX + 'px';
+    walkTip.style.top  = tipY + 'px';
+  }
+  function showWalkStep(i) {
+    if (i < 0 || i >= walkStops.length) return;
+    walkIdx = i;
+    var t = walkStops[i];
+    walkOverlay.classList.add('show');
+    walkTitle.textContent = t.getAttribute('data-walk-title') || '';
+    walkDesc.innerHTML    = t.getAttribute('data-walk-desc')  || '';
+    walkCounter.textContent = (i + 1) + ' / ' + walkStops.length;
+    walkProgress.style.width = (((i + 1) / walkStops.length) * 100) + '%';
+    walkPrev.disabled = (i === 0);
+    walkNext.disabled = (i === walkStops.length - 1);
+    positionWalk(t);
+  }
+  function stopWalk() {
+    walkAuto = false;
+    if (walkTimer) { clearTimeout(walkTimer); walkTimer = null; }
+    walkPlay.textContent = '▶ Play tour';
+    walkOverlay.classList.remove('show');
+    walkIdx = -1;
+  }
+  function autoAdvance() {
+    if (!walkAuto) return;
+    if (walkIdx >= walkStops.length - 1) { stopWalk(); return; }
+    showWalkStep(walkIdx + 1);
+    walkTimer = setTimeout(autoAdvance, 2600);
+  }
+  function startWalkAuto() {
+    walkAuto = true;
+    walkPlay.textContent = '⏸ Pause';
+    showWalkStep(walkIdx < 0 ? 0 : walkIdx);
+    walkTimer = setTimeout(autoAdvance, 2600);
+  }
+  if (walkPlay) {
+    walkPlay.addEventListener('click', function () {
+      if (walkAuto) { walkAuto = false; if (walkTimer) clearTimeout(walkTimer); walkPlay.textContent = '▶ Resume'; }
+      else { startWalkAuto(); }
+    });
+    walkPrev.addEventListener('click', function () { walkAuto = false; walkPlay.textContent = '▶ Resume'; if (walkTimer) clearTimeout(walkTimer); if (walkIdx > 0) showWalkStep(walkIdx - 1); });
+    walkNext.addEventListener('click', function () { walkAuto = false; walkPlay.textContent = '▶ Resume'; if (walkTimer) clearTimeout(walkTimer); if (walkIdx < walkStops.length - 1) showWalkStep(walkIdx + 1); });
+    walkStop.addEventListener('click', stopWalk);
+    walkStops.forEach(function (el, i) {
+      el.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        walkAuto = false;
+        if (walkTimer) clearTimeout(walkTimer);
+        walkPlay.textContent = '▶ Resume';
+        showWalkStep(i);
+      });
+    });
+    window.addEventListener('resize', function () { if (walkIdx >= 0) positionWalk(walkStops[walkIdx]); });
+  }
+
+  /* ══ Live memory snapshot ═══════════════════════════════════════════════ */
+  var vscode = (typeof acquireVsCodeApi === 'function') ? acquireVsCodeApi() : null;
+  var memFiles   = $('memFiles');
+  var memTotals  = $('memTotals');
+  var memTs      = $('memTs');
+  var memRefresh = $('memRefresh');
+  var memOpen    = $('memOpenFile');
+  var memAuto    = $('memAuto');
+  var memAutoTimer = null;
+  var memMaxBytes  = 1;
+
+  function fmtBytes(n) {
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+    return (n / 1024 / 1024).toFixed(2) + ' MB';
+  }
+  function fmtAgo(ts) {
+    if (!ts) return 'never';
+    var s = Math.floor((Date.now() - ts) / 1000);
+    if (s < 5) return 'just now';
+    if (s < 60) return s + 's ago';
+    if (s < 3600) return Math.floor(s / 60) + 'm ago';
+    return Math.floor(s / 3600) + 'h ago';
+  }
+  function renderTotals(snap) {
+    memTotals.innerHTML =
+      '<div class="mem-stat"><strong>' + snap.totals.files + '</strong> files</div>' +
+      '<div class="mem-stat"><strong>' + fmtBytes(snap.totals.bytes) + '</strong> bytes</div>' +
+      '<div class="mem-stat"><strong>~' + snap.totals.tokens + '</strong> est. tokens</div>' +
+      '<div class="mem-stat"><strong>' + snap.versions.commits + '</strong> versions' +
+        (snap.versions.head ? ' <span style="color:var(--fg-2);font-size:10px;">@' + snap.versions.head + '</span>' : '') +
+      '</div>' +
+      '<div class="mem-stat"><strong>' + (snap.cacheDir.exists ? snap.cacheDir.entries : '—') + '</strong> cache entries</div>';
+  }
+  function renderFiles(snap) {
+    if (!snap.files.length) {
+      memFiles.innerHTML =
+        '<div class="mem-empty">' +
+        (snap.workspace
+          ? 'No memory files yet in <code>' + snap.workspace + '</code>. Create <code>AGENTS.md</code> or <code>.promptoptimizer/memory.md</code> to start.'
+          : 'No workspace folder open.') +
+        '</div>';
+      return;
+    }
+    memMaxBytes = Math.max.apply(null, snap.files.map(function (f) { return f.bytes; }));
+    var html = '';
+    for (var i = 0; i < snap.files.length; i++) {
+      var f = snap.files[i];
+      var pct = Math.max(4, Math.round((f.bytes / memMaxBytes) * 100));
+      html +=
+        '<div class="mem-file" data-rel="' + f.relPath + '" title="Click to open ' + f.relPath + '">' +
+          '<div class="mf-name">📄 ' + f.relPath + '</div>' +
+          '<div class="mf-meta">' + fmtBytes(f.bytes) + ' · ' + f.lines + ' L · ~' + f.tokens + ' tok</div>' +
+          '<div class="mf-bar"><div style="width:' + pct + '%"></div></div>' +
+          '<div class="mf-silhouette">' + (f.silhouette || '·') + '</div>' +
+        '</div>';
+    }
+    memFiles.innerHTML = html;
+    Array.prototype.forEach.call(memFiles.querySelectorAll('.mem-file'), function (row) {
+      row.addEventListener('click', function () {
+        if (vscode) vscode.postMessage({ type: 'openMemoryFile' });
+      });
+    });
+  }
+  function applySnapshot(snap) {
+    if (!snap) return;
+    renderTotals(snap);
+    renderFiles(snap);
+    renderDashboard(snap);
+    memTs.textContent = 'updated ' + fmtAgo(snap.generatedAt);
+  }
+
+  /* ── Abstract dashboard renderers ───────────────────────────── */
+  function renderDashboard(snap) {
+    renderKG(snap);
+    renderCacheGrid(snap);
+    renderSparkline(snap);
+    renderBudget(snap);
+  }
+  function renderKG(snap) {
+    var svg = document.getElementById('kgSvg');
+    var count = document.getElementById('kgCount');
+    if (!svg) return;
+    var n = Math.min(18, Math.max(3, snap.files.length + Math.floor((snap.cacheDir.entries || 0) / 6) + 2));
+    if (count) count.textContent = n;
+    var w = 260, h = 140, cx = w / 2, cy = h / 2;
+    var parts = ['<g class="kg-pulse">'];
+    // edges
+    for (var i = 0; i < n; i++) {
+      var ang = (i / n) * Math.PI * 2;
+      var r = 50 + ((i * 7) % 12);
+      var x = cx + Math.cos(ang) * r;
+      var y = cy + Math.sin(ang) * r * 0.55;
+      parts.push('<line class="kg-edge" x1="' + cx + '" y1="' + cy + '" x2="' + x.toFixed(1) + '" y2="' + y.toFixed(1) + '" />');
+      // cross-link some
+      if (i % 3 === 0 && i + 2 < n) {
+        var ang2 = ((i + 2) / n) * Math.PI * 2;
+        var r2 = 50 + (((i + 2) * 7) % 12);
+        var x2 = cx + Math.cos(ang2) * r2;
+        var y2 = cy + Math.sin(ang2) * r2 * 0.55;
+        parts.push('<line class="kg-edge" x1="' + x.toFixed(1) + '" y1="' + y.toFixed(1) + '" x2="' + x2.toFixed(1) + '" y2="' + y2.toFixed(1) + '" />');
+      }
+    }
+    // nodes
+    parts.push('<circle class="kg-node center" cx="' + cx + '" cy="' + cy + '" r="6" />');
+    for (var j = 0; j < n; j++) {
+      var a = (j / n) * Math.PI * 2;
+      var rr = 50 + ((j * 7) % 12);
+      var nx = cx + Math.cos(a) * rr;
+      var ny = cy + Math.sin(a) * rr * 0.55;
+      parts.push('<circle class="kg-node" cx="' + nx.toFixed(1) + '" cy="' + ny.toFixed(1) + '" r="3.2" />');
+    }
+    parts.push('</g>');
+    svg.innerHTML = parts.join('');
+  }
+  function renderCacheGrid(snap) {
+    var grid = document.getElementById('cacheGrid');
+    var cap  = document.getElementById('cacheCap');
+    if (!grid) return;
+    var entries = snap.cacheDir.exists ? (snap.cacheDir.entries || 0) : 0;
+    var total = 200; // 20 cols × 10 rows
+    grid.style.gridTemplateRows = 'repeat(10, 1fr)';
+    var on = Math.min(total, entries);
+    // deterministic-ish pseudo-scatter so it looks denser than sequential.
+    var picked = new Array(total).fill(false);
+    var seed = entries * 9301 + 49297;
+    function rnd() { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; }
+    var placed = 0;
+    while (placed < on) {
+      var idx = Math.floor(rnd() * total);
+      if (!picked[idx]) { picked[idx] = true; placed++; }
+    }
+    var html = '';
+    for (var i = 0; i < total; i++) {
+      var cls = picked[i] ? ((i % 17 === 0) ? 'cell hot' : 'cell on') : 'cell';
+      html += '<div class="' + cls + '"></div>';
+    }
+    grid.innerHTML = html;
+    if (cap) {
+      var sizeStr = snap.cacheDir.bytes ? (' · ' + fmtBytes(snap.cacheDir.bytes)) : '';
+      cap.textContent = (snap.cacheDir.exists ? entries : '0') + sizeStr;
+    }
+  }
+  function renderSparkline(snap) {
+    var svg = document.getElementById('sparkSvg');
+    var cap = document.getElementById('sparkCap');
+    if (!svg) return;
+    var ts = (snap.versions && snap.versions.recentTimestamps) || [];
+    var w = 260, h = 60, pad = 4;
+    if (ts.length < 2) {
+      svg.innerHTML =
+        '<text x="' + (w/2) + '" y="' + (h/2 + 4) + '" text-anchor="middle" fill="var(--fg-2)" font-family="var(--mono)" font-size="10">' +
+        'No version commits yet</text>';
+      if (cap) cap.textContent = (snap.versions ? snap.versions.commits : 0) + ' commits';
+      return;
+    }
+    // Bucket timestamps into 24 bins across the observed range.
+    var bins = 24;
+    var min = ts[0], max = ts[ts.length - 1];
+    var span = Math.max(1, max - min);
+    var counts = new Array(bins).fill(0);
+    for (var i = 0; i < ts.length; i++) {
+      var b = Math.min(bins - 1, Math.floor(((ts[i] - min) / span) * bins));
+      counts[b]++;
+    }
+    var maxC = Math.max.apply(null, counts) || 1;
+    var step = (w - pad * 2) / (bins - 1);
+    var pts = [];
+    for (var k = 0; k < bins; k++) {
+      var x = pad + k * step;
+      var y = h - pad - (counts[k] / maxC) * (h - pad * 2);
+      pts.push(x.toFixed(1) + ',' + y.toFixed(1));
+    }
+    var line = 'M ' + pts.join(' L ');
+    var area = line + ' L ' + (w - pad) + ',' + (h - pad) + ' L ' + pad + ',' + (h - pad) + ' Z';
+    svg.innerHTML =
+      '<path class="spark-area" d="' + area + '" />' +
+      '<path class="spark-line" d="' + line + '" />' +
+      '<circle class="spark-dot" cx="' + (pad + (bins - 1) * step).toFixed(1) + '" cy="' + (h - pad - (counts[bins-1] / maxC) * (h - pad * 2)).toFixed(1) + '" r="2.5" />';
+    if (cap) cap.textContent = snap.versions.commits + ' commits (' + ts.length + ' timestamped)';
+  }
+  function renderBudget(snap) {
+    var arc  = document.getElementById('budgetArc');
+    var txt  = document.getElementById('budgetText');
+    var cap  = document.getElementById('budgetCap');
+    if (!arc || !snap.tokenBudget) return;
+    var used = snap.tokenBudget.used || 0;
+    var max  = snap.tokenBudget.max || 1;
+    var ratio = Math.max(0, Math.min(1, used / max));
+    var circ = 2 * Math.PI * 48;
+    arc.setAttribute('stroke-dasharray', (circ * ratio).toFixed(1) + ' ' + circ.toFixed(1));
+    arc.setAttribute('stroke',
+      ratio < 0.6 ? 'var(--green)' : ratio < 0.85 ? 'var(--yellow)' : 'var(--red)');
+    if (txt) txt.textContent = Math.round(ratio * 100) + '%';
+    if (cap) cap.textContent = fmtBytes(used) + ' / ' + fmtBytes(max) + ' workspace memory';
+  }
+  function requestSnapshot() {
+    if (vscode) vscode.postMessage({ type: 'requestMemorySnapshot' });
+  }
+  function scheduleAuto() {
+    if (memAutoTimer) { clearInterval(memAutoTimer); memAutoTimer = null; }
+    if (memAuto && memAuto.checked) {
+      memAutoTimer = setInterval(requestSnapshot, 5000);
+    }
+  }
+  window.addEventListener('message', function (ev) {
+    var d = ev && ev.data;
+    if (d && d.type === 'memorySnapshot') applySnapshot(d.snapshot);
+  });
+  if (memRefresh) memRefresh.addEventListener('click', requestSnapshot);
+  if (memOpen)    memOpen.addEventListener('click',    function () { if (vscode) vscode.postMessage({ type: 'openMemoryFile' }); });
+  if (memAuto)    memAuto.addEventListener('change',   scheduleAuto);
+
+  // Seed from server-injected snapshot, then request a fresh one and start auto-refresh.
+  if (window.__POMemorySeed) applySnapshot(window.__POMemorySeed);
+  requestSnapshot();
+  scheduleAuto();
+})();
+</script>
+<!-- __PO_MEMORY_SNAPSHOT__ -->
+</body>
+</html>

@@ -15,6 +15,45 @@ A local prompt optimizer, semantic cache, and conversational AI agent � all ru
 
 ---
 
+## 🚀 Interactive Visual Onboarding Guide
+
+Markdown renderers (GitHub, Marketplace, VS Code preview) **strip `<script>` and most `<style>` blocks for security**, so an animated HTML walkthrough cannot run inside README.md itself. The extension ships the full interactive guide as a webview instead:
+
+> **Command Palette → `Prompt Optimizer: Open Guide`**
+>
+> (or run `prompt-proxy.openOnboarding` from the keyboard shortcut editor)
+
+What the live guide gives you that this static page cannot:
+
+- A **3-frame animated simulator** — workspace indexing → prompt typed in Copilot Chat → optimized prompt + cache hit, with neon node-graph filtering down to just the files your prompt actually touched.
+- An **interactive knowledge graph** of 10 sample files with edges that light up and dim based on the active context.
+- A **memory pipeline** with three conveyor belts (Ingestion → Storage → Retrieval) and a lane-flow diagram showing how the optimized prompt reaches Copilot.
+- Keyboard shortcuts: <kbd>Space</kbd> play/pause, <kbd>R</kbd> reset.
+- Full **Catppuccin Mocha** palette with neon glow, cyberpunk grid, animated cursor, ripple effects, and typing carets — all rendered as real DOM, not source code.
+
+The static file lives at [vscode-extension/media/onboarding.html](vscode-extension/media/onboarding.html) — you can also open it directly in any browser if you want to share it.
+
+### What you'll see (static preview)
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│ Prompt Optimizer · Onboarding                          [P spin] │
+├─────────────────────────────────────────────────────────────────┤
+│ [How it works] [Memory & storage] [Privacy & commands]          │
+├──────────────────┬──────────────────────────────────────────────┤
+│ ① Index          │   ●─────●        app.ts                      │
+│   workspace      │  /│     │\                                   │
+│ ② Type a prompt  │ ● │     │ ●     auth.ts ✦ (lit up)           │
+│ ③ Optimized +    │  \│     │/                                   │
+│   cache hit      │   ●─────●        token.ts ✦ (lit up)         │
+│                  │   others dimmed                              │
+│ [ ▶ Play ]       │   ⚡ +71.5× Token Savings · cache hit         │
+└──────────────────┴──────────────────────────────────────────────┘
+```
+
+
+---
+
 ## What it does
 
 Prompt Optimizer sits between you and Copilot. Before your prompt reaches the model it:

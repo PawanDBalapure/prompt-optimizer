@@ -135,6 +135,9 @@ export class PromptProxyViewProvider implements vscode.WebviewViewProvider {
         return;
       case 'openChat': await openChatWithPrompt('', true); return;
       case 'openReadme': await openExtensionReadme(this._context); return;
+      case 'openOnboarding':
+        await vscode.commands.executeCommand('prompt-proxy.openOnboarding');
+        return;
       case 'openMemoryFile':
         await vscode.commands.executeCommand('prompt-proxy.openMemoryFile');
         return;
