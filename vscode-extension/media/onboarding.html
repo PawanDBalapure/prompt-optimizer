@@ -163,71 +163,154 @@
   .sim-toolbar .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 4px; }
   .dot.r { background: #f48771; } .dot.y { background: #dcdcaa; } .dot.g { background: #4ec9b0; }
 
-  .graph {
+  /* ── Demo pipeline (replaces the legacy SVG graph) ─────────── */
+  .demo {
     position: relative; flex: 1; min-height: 360px;
     background:
-      radial-gradient(circle at 30% 30%, rgba(137,180,250,0.06), transparent 60%),
-      radial-gradient(circle at 70% 80%, rgba(203,166,247,0.06), transparent 60%),
+      radial-gradient(circle at 20% 20%, rgba(137,180,250,0.07), transparent 60%),
+      radial-gradient(circle at 80% 80%, rgba(203,166,247,0.07), transparent 60%),
       var(--bg-2);
     border: 1px solid var(--bg-3); border-radius: 8px; overflow: hidden;
+    padding: 18px 18px 46px; display: flex; flex-direction: column; gap: 12px;
   }
-  .graph svg { width: 100%; height: 100%; display: block; }
-  .edge { stroke: rgba(166,173,200,0.25); stroke-width: 1.2; fill: none; transition: stroke 0.4s, stroke-width 0.4s, opacity 0.4s; }
-  .edge.active { stroke: var(--accent); stroke-width: 2; }
-  .edge.dim { opacity: 0.12; }
-  .node circle { fill: var(--bg-3); stroke: var(--blue); stroke-width: 1.4; transition: all 0.4s ease; }
-  .node text { fill: var(--fg-0); font-family: var(--mono); font-size: 9.5px; text-anchor: middle; pointer-events: none; }
-  .node.pulse circle { animation: nodePulse 1.4s ease-out infinite; }
-  .node.hit circle { fill: var(--accent); stroke: var(--accent); }
-  .node.dim { opacity: 0.22; }
-  @keyframes nodePulse {
-    0%   { stroke-width: 1.4; opacity: 1; }
-    50%  { stroke-width: 2.2; opacity: 0.85; }
-    100% { stroke-width: 1.4; opacity: 1; }
+  .demo-stages {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; align-items: stretch;
   }
-  .ripple {
-    position: absolute; left: 0; top: 0; width: 14px; height: 14px; border-radius: 50%;
-    background: rgba(203,166,247,0.55); pointer-events: none; opacity: 0;
+  .demo-stage {
+    position: relative; background: var(--bg-1); border: 1px solid var(--bg-3);
+    border-radius: 8px; padding: 10px 10px 12px; min-height: 120px;
+    transition: border-color 0.35s, box-shadow 0.35s, transform 0.35s;
   }
-  .ripple.go { animation: ripple 1.6s ease-out forwards; }
-  @keyframes ripple { 0% { opacity: 0.9; transform: scale(0.6); } 100% { opacity: 0; transform: scale(40); } }
-  .statusbar {
+  .demo-stage::before {
+    content: attr(data-step); position: absolute; top: -9px; left: 10px;
+    background: var(--bg-2); border: 1px solid var(--bg-3); color: var(--fg-2);
+    font-family: var(--mono); font-size: 10px; padding: 1px 6px; border-radius: 999px;
+  }
+  .demo-stage h4 {
+    margin: 4px 0 6px; font-size: 12.5px; color: var(--fg-0); display: flex; gap: 6px; align-items: center;
+  }
+  .demo-stage h4 .ic { font-size: 14px; }
+  .demo-stage .body { font-family: var(--mono); font-size: 10.5px; color: var(--fg-2); line-height: 1.55; }
+  .demo-stage.active {
+    border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 6px 18px rgba(203,166,247,0.25);
+    transform: translateY(-2px);
+  }
+  .demo-stage.done { border-color: rgba(166,227,161,0.55); }
+  .demo-stage.done h4 .ic { filter: drop-shadow(0 0 4px var(--green)); }
+  .demo-stage .pill-mini {
+    display: inline-block; font-size: 9.5px; font-family: var(--mono);
+    padding: 1px 6px; border-radius: 999px; margin: 2px 3px 0 0;
+    background: var(--bg-3); color: var(--fg-1); border: 1px solid var(--bg-3);
+    opacity: 0; transform: translateY(4px); transition: all 0.3s;
+  }
+  .demo-stage.active .pill-mini, .demo-stage.done .pill-mini { opacity: 1; transform: none; }
+  .demo-stage .pill-mini.blue   { color: var(--blue);   border-color: rgba(137,180,250,0.4); background: rgba(137,180,250,0.10); }
+  .demo-stage .pill-mini.green  { color: var(--green);  border-color: rgba(166,227,161,0.4); background: rgba(166,227,161,0.10); }
+  .demo-stage .pill-mini.purple { color: var(--accent); border-color: rgba(203,166,247,0.4); background: rgba(203,166,247,0.10); }
+  .demo-stage .pill-mini.peach  { color: var(--peach);  border-color: rgba(250,179,135,0.4); background: rgba(250,179,135,0.10); }
+
+  .demo-counter {
+    font-family: var(--mono); font-size: 18px; font-weight: 600;
+    color: var(--accent); margin-top: 4px;
+  }
+  .demo-counter .arrow { color: var(--fg-2); margin: 0 6px; font-weight: 400; }
+  .demo-counter .after { color: var(--green); }
+
+  .demo-bar {
+    margin-top: 6px; height: 6px; background: var(--bg-3); border-radius: 3px; overflow: hidden;
+  }
+  .demo-bar > span {
+    display: block; height: 100%; width: 0;
+    background: linear-gradient(90deg, var(--blue), var(--green));
+    transition: width 0.9s cubic-bezier(.4,0,.2,1);
+  }
+
+  .demo-prompt {
+    position: relative; background: var(--bg-1); border: 1px solid var(--bg-3); border-radius: 6px;
+    padding: 10px 12px; font-family: var(--mono); font-size: 11.5px; color: var(--fg-1);
+    min-height: 38px; line-height: 1.55;
+  }
+  .demo-prompt .who { color: var(--accent); margin-right: 6px; }
+  .demo-prompt .typed::after { content: "▌"; color: var(--accent); animation: caret 1s steps(1) infinite; }
+  @keyframes caret { 50% { opacity: 0; } }
+
+  .demo-out {
+    position: relative; background: var(--bg-1); border: 1px solid var(--bg-3); border-radius: 6px;
+    padding: 10px 12px; font-family: var(--mono); font-size: 11px; color: var(--fg-2);
+    opacity: 0; transform: translateY(4px); transition: all 0.4s;
+    display: flex; gap: 14px; flex-wrap: wrap; align-items: center;
+  }
+  .demo-out.show { opacity: 1; transform: none; }
+  .demo-out strong { color: var(--green); }
+  .demo-out .savings { color: var(--green); font-weight: 600; }
+  .demo-out .cache { color: var(--accent); }
+
+  /* Optimized prompt panel — mirrors the real "Optimized" card in the side panel. */
+  .demo-optimized {
+    margin-top: 10px;
+    background: var(--bg-1); border: 1px solid var(--bg-3); border-radius: 6px;
+    padding: 10px 12px;
+    opacity: 0; transform: translateY(6px); transition: all 0.45s;
+  }
+  .demo-optimized.show { opacity: 1; transform: none; }
+  .demo-optimized .opt-hdr {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 11px; color: var(--fg-1);
+    margin-bottom: 6px;
+  }
+  .demo-optimized .opt-hdr .dot {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+  }
+  .demo-optimized .opt-hdr .label { font-weight: 600; color: var(--fg-0); }
+  .demo-optimized .opt-hdr .badge {
+    margin-left: auto;
+    background: rgba(166,227,161,0.10); color: var(--green);
+    border: 1px solid rgba(166,227,161,0.4); border-radius: 999px;
+    padding: 1px 8px; font-size: 10px;
+  }
+  .demo-optimized pre {
+    margin: 0; padding: 8px 10px;
+    background: #1e1e1e; border: 1px solid var(--bg-3); border-radius: 4px;
+    font-family: var(--mono); font-size: 11px; line-height: 1.55;
+    color: var(--fg-1); white-space: pre-wrap; word-break: break-word;
+    max-height: 180px; overflow-y: auto;
+  }
+  .demo-optimized pre .key  { color: var(--accent); }
+  .demo-optimized pre .val  { color: var(--green); }
+  .demo-optimized pre .h1   { color: var(--blue); font-weight: 600; }
+  .demo-optimized .opt-actions {
+    display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap;
+  }
+  .demo-optimized .opt-actions button {
+    background: var(--bg-2); border: 1px solid var(--bg-3); color: var(--fg-1);
+    border-radius: 3px; padding: 3px 9px; font-size: 10.5px;
+    font-family: inherit; cursor: pointer; transition: all 0.15s;
+  }
+  .demo-optimized .opt-actions button:hover { border-color: var(--accent); color: var(--accent); }
+  .demo-optimized .opt-actions .primary { background: rgba(203,166,247,0.10); color: var(--accent); border-color: rgba(203,166,247,0.4); }
+  .demo-optimized .opt-flash { animation: optFlash 1.4s ease-out 1; }
+  @keyframes optFlash {
+    0%   { box-shadow: 0 0 0 0 rgba(166,227,161,0); }
+    20%  { box-shadow: 0 0 0 4px rgba(166,227,161,0.25); }
+    100% { box-shadow: 0 0 0 0 rgba(166,227,161,0); }
+  }
+
+  .demo-statusbar {
     position: absolute; left: 0; right: 0; bottom: 0;
     background: #252526; border-top: 1px solid var(--bg-3);
     font-family: var(--mono); font-size: 11px; color: var(--fg-1);
     padding: 5px 10px; display: flex; gap: 14px; align-items: center;
   }
-  .sb-btn {
+  .demo-statusbar .sb-btn {
     background: rgba(203,166,247,0.12); color: var(--accent);
     border: 1px solid rgba(203,166,247,0.4); border-radius: 4px;
-    padding: 2px 8px; cursor: pointer; transition: all 0.15s; font-family: var(--mono); font-size: 11px;
+    padding: 2px 8px; cursor: pointer; transition: all 0.2s; font-family: var(--mono); font-size: 11px;
   }
-  .sb-btn:hover, .sb-btn.glow { background: var(--accent); color: var(--bg-0); }
-  .cursor {
-    position: absolute; width: 14px; height: 18px; pointer-events: none; opacity: 0;
-    background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 20'><path d='M2 2 L2 16 L6 12 L9 18 L11 17 L8 12 L14 12 Z' fill='%23cdd6f4' stroke='%231e1e2e' stroke-width='1.2'/></svg>") no-repeat center/contain;
-    transition: left 0.7s cubic-bezier(.4,.0,.2,1), top 0.7s cubic-bezier(.4,.0,.2,1), opacity 0.2s;
-  }
-  .cursor.show { opacity: 1; }
-  .chat {
-    position: absolute; right: 12px; top: 12px; width: 240px; max-width: 60%;
-    background: var(--bg-1); border: 1px solid var(--bg-3); border-radius: 6px;
-    padding: 8px 10px; font-family: var(--mono); font-size: 11px;
-    opacity: 0; transform: translateY(-6px); transition: all 0.35s;
-  }
-  .chat.show { opacity: 1; transform: none; }
-  .chat .who { color: var(--accent); }
-  .typed::after { content: "▌"; color: var(--accent); animation: caret 1s steps(1) infinite; }
-  @keyframes caret { 50% { opacity: 0; } }
-  .badge {
-    position: absolute; left: 12px; bottom: 42px;
-    background: rgba(166,227,161,0.12); color: var(--green);
-    border: 1px solid rgba(166,227,161,0.5); border-radius: 999px;
-    padding: 4px 10px; font-family: var(--mono); font-size: 12px;
-    opacity: 0; transform: scale(0.9); transition: all 0.25s ease;
-  }
-  .badge.show { opacity: 1; transform: scale(1); animation: badgePop 0.45s ease; }
-  @keyframes badgePop { 0% { transform: scale(0.6); } 60% { transform: scale(1.15); } 100% { transform: scale(1); } }
+  .demo-statusbar .sb-btn.glow { background: var(--accent); color: var(--bg-0); }
+
+  /* Legacy aliases — kept so any old references still resolve safely */
+  .graph { position: relative; }
 
   /* ── Tab 2: Modes ─────────────────────────────────────────────── */
   .mode-card {
@@ -726,33 +809,109 @@
         <li><strong>Let you enable/edit bundled SDLC agents</strong> from the Agents button in the sidebar.</li>
       </ol>
       <div style="display:flex;gap:8px;margin-top:12px;">
-        <button class="intro-play" id="btnPlay" title="Play the workspace animation">▶ Play</button>
+        <button class="intro-play" id="btnPlay" title="Play the workspace animation">▶ Demo</button>
         <button class="intro-reset" id="btnReset" title="Reset animation">↺</button>
       </div>
     </div>
 
-    <!-- Graph (no left panel) -->
+    <!-- Demo (replaces the legacy SVG graph) -->
     <div class="card sim" id="simCard">
       <div class="sim-toolbar">
-        <span><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span> promptoptimizer://workspace</span>
-        <span id="frameLabel">Frame 1 / 3 — idle</span>
+        <span><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span> promptoptimizer://demo</span>
+        <span id="frameLabel">Idle — press ▶ Play to run the pipeline</span>
       </div>
-      <div class="graph" id="graph">
-        <svg viewBox="0 0 600 400" preserveAspectRatio="xMidYMid meet">
-          <g id="edges"></g>
-          <g id="nodes"></g>
-        </svg>
-        <div class="ripple" id="ripple"></div>
-        <div class="cursor" id="cursor"></div>
-        <div class="chat" id="chat">
-          <div><span class="who">@promptoptimizer</span> <span id="chatText" class="typed"></span></div>
+      <div class="demo graph" id="graph">
+        <div class="demo-prompt" id="demoPrompt">
+          <span class="who">user&nbsp;›</span><span id="demoPromptText" class="typed"></span>
         </div>
-        <div class="badge" id="badge">⚡ +71.5× token savings · semantic cache hit</div>
-        <div class="statusbar">
+
+        <div class="demo-stages" id="demoStages">
+          <div class="demo-stage" data-step="1" data-stage="ingest">
+            <h4><span class="ic">📥</span> Ingest</h4>
+            <div class="body">
+              Read raw prompt + active editor + open files.
+              <div style="margin-top:6px">
+                <span class="pill-mini blue">prompt</span>
+                <span class="pill-mini blue">selection</span>
+                <span class="pill-mini blue">editors</span>
+              </div>
+            </div>
+          </div>
+          <div class="demo-stage" data-step="2" data-stage="classify">
+            <h4><span class="ic">🧭</span> Classify</h4>
+            <div class="body">
+              Detect SDLC intent and target model.
+              <div style="margin-top:6px">
+                <span class="pill-mini purple">/code</span>
+                <span class="pill-mini purple">auth</span>
+                <span class="pill-mini purple">bugfix</span>
+              </div>
+            </div>
+          </div>
+          <div class="demo-stage" data-step="3" data-stage="augment">
+            <h4><span class="ic">🧠</span> Augment</h4>
+            <div class="body">
+              Pull memory, KG neighbours, peers.
+              <div style="margin-top:6px">
+                <span class="pill-mini green">AGENTS.md</span>
+                <span class="pill-mini green">auth.ts</span>
+                <span class="pill-mini green">peer cache</span>
+              </div>
+            </div>
+          </div>
+          <div class="demo-stage" data-step="4" data-stage="compress">
+            <h4><span class="ic">🗜️</span> Compress</h4>
+            <div class="body">
+              Strip filler, tighten phrasing, format for target.
+              <div class="demo-counter">
+                <span id="demoTokensBefore">248</span>
+                <span class="arrow">→</span>
+                <span class="after" id="demoTokensAfter">248</span>
+                <span style="font-size:11px;color:var(--fg-2);margin-left:4px">tokens</span>
+              </div>
+              <div class="demo-bar"><span id="demoBar"></span></div>
+            </div>
+          </div>
+          <div class="demo-stage" data-step="5" data-stage="forecast">
+            <h4><span class="ic">📊</span> Forecast</h4>
+            <div class="body">
+              Estimate cost, check cache, decide route.
+              <div style="margin-top:6px">
+                <span class="pill-mini peach">$<span id="demoCost">0.00041</span></span>
+                <span class="pill-mini green" id="demoCacheChip">cache hit</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="demo-out" id="demoOut">
+          <span>Optimized prompt ready —</span>
+          <span class="savings" id="demoSavings">71% smaller</span>
+          <span>·</span>
+          <span class="cache" id="demoCacheLine">semantic cache hit (94%)</span>
+          <span>·</span>
+          <span>est. <strong id="demoFinalCost">$0.00041</strong></span>
+        </div>
+
+        <div class="demo-optimized" id="demoOptimized">
+          <div class="opt-hdr">
+            <span class="dot"></span>
+            <span class="label">Optimized prompt</span>
+            <span class="badge" id="demoOptBadge">GPT · 71 tokens</span>
+          </div>
+          <pre id="demoOptimizedText"></pre>
+          <div class="opt-actions">
+            <button class="primary" id="demoOptCopy" type="button" title="Copy the optimized prompt (demo)">📋 Copy</button>
+            <button id="demoOptSend" type="button" title="Send to Copilot Chat (demo)">➤ Send to Copilot</button>
+            <button id="demoOptDiff" type="button" title="View original ↔ optimized diff (demo)">↔ Diff</button>
+          </div>
+        </div>
+
+        <div class="demo-statusbar">
           <span>⎇ main</span>
           <span>UTF-8</span>
           <span style="margin-left:auto"></span>
-          <button class="sb-btn" id="sbBtn" title="Prompt Optimizer is indexing the workspace into local memory">⌬ Prompt Optimizer: indexing…</button>
+          <button class="sb-btn" id="sbBtn" title="Prompt Optimizer is indexing the workspace into local memory">⌬ Prompt Optimizer: ready</button>
         </div>
       </div>
     </div>
@@ -1316,82 +1475,57 @@
     btn.addEventListener('click', function () { switchTab(btn.dataset.tab); });
   });
 
-  /* ── Simulator (tab 1) ───────────────────────────────────── */
-  var NODES = [
-    { id: 'app',     label: 'app.ts',        x: 300, y:  60 },
-    { id: 'auth',    label: 'auth.ts',       x: 140, y: 140 },
-    { id: 'router',  label: 'router.ts',     x: 460, y: 140 },
-    { id: 'token',   label: 'token.ts',      x:  80, y: 240 },
-    { id: 'session', label: 'session.ts',    x: 200, y: 250 },
-    { id: 'user',    label: 'user.model.ts', x: 340, y: 260 },
-    { id: 'api',     label: 'api.ts',        x: 470, y: 250 },
-    { id: 'db',      label: 'db.ts',         x: 540, y: 340 },
-    { id: 'utils',   label: 'utils.ts',      x: 200, y: 340 },
-    { id: 'logger',  label: 'logger.ts',     x: 330, y: 350 }
-  ];
-  var EDGES = [
-    ['app','auth'],['app','router'],
-    ['auth','token'],['auth','session'],['auth','user'],
-    ['router','api'],['router','user'],
-    ['session','token'],['session','utils'],
-    ['api','db'],['user','db'],
-    ['utils','logger'],['api','logger']
-  ];
-  var HIT_NODES = new Set(['auth','token']);
-  var HIT_EDGES = new Set(['auth|token']);
-
-  var edgeLayer = document.getElementById('edges');
-  var nodeLayer = document.getElementById('nodes');
-  var nodeById  = Object.create(null);
-  NODES.forEach(function (n) { nodeById[n.id] = n; });
-
-  EDGES.forEach(function (pair) {
-    var A = nodeById[pair[0]], B = nodeById[pair[1]];
-    var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    line.setAttribute('x1', A.x); line.setAttribute('y1', A.y);
-    line.setAttribute('x2', B.x); line.setAttribute('y2', B.y);
-    line.setAttribute('class', 'edge');
-    line.dataset.key = pair[0] + '|' + pair[1];
-    edgeLayer.appendChild(line);
-  });
-  NODES.forEach(function (n) {
-    var g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    g.setAttribute('class', 'node');
-    g.setAttribute('transform', 'translate(' + n.x + ',' + n.y + ')');
-    g.dataset.id = n.id;
-    var c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    c.setAttribute('r', 14); g.appendChild(c);
-    var t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    t.setAttribute('y', 28); t.textContent = n.label; g.appendChild(t);
-    nodeLayer.appendChild(g);
-  });
-
-  var allNodeEls = Array.from(nodeLayer.querySelectorAll('.node'));
-  var allEdgeEls = Array.from(edgeLayer.querySelectorAll('.edge'));
+  /* ── Demo pipeline (tab 1) ───────────────────────────────── */
   var $ = function (id) { return document.getElementById(id); };
-  var cursor = $('cursor'), ripple = $('ripple'), chat = $('chat'),
-      chatText = $('chatText'), badge = $('badge'), sbBtn = $('sbBtn'),
-      frameLbl = $('frameLabel');
-  var stepLis = []; // legacy — no-op (the step list was replaced by the cursor-narrated feature feed).
+  var frameLbl    = $('frameLabel');
+  var promptText  = $('demoPromptText');
+  var stages      = Array.prototype.slice.call(document.querySelectorAll('.demo-stage'));
+  var demoOut     = $('demoOut');
+  var demoBar     = $('demoBar');
+  var sbBtn       = $('sbBtn');
+  var tokAfter    = $('demoTokensAfter');
+  var tokBefore   = $('demoTokensBefore');
+  var demoOptCard = $('demoOptimized');
+  var demoOptText = $('demoOptimizedText');
+  var demoOptBadge = $('demoOptBadge');
+  var demoOptCopy = $('demoOptCopy');
+  var demoOptSend = $('demoOptSend');
+  var demoOptDiff = $('demoOptDiff');
+
+  var DEMO_PROMPT = 'Could you please help me try to fix the bug in the authentication context where login sometimes fails?';
+  var TOKENS_BEFORE = 248;
+  var TOKENS_AFTER  = 71;
+
+  // Compressed, GPT-style markdown rewrite that mirrors what the real
+  // optimizer would emit (concise headers, bullet scope, no filler).
+  var DEMO_OPTIMIZED =
+    '<span class="h1"># Task</span>\n' +
+    'Fix intermittent login failure in <span class="key">auth</span> context.\n\n' +
+    '<span class="h1"># Scope</span>\n' +
+    '- Reproduce failure in <span class="val">auth.ts</span> login flow\n' +
+    '- Identify root cause (race / token refresh / cookie scope)\n' +
+    '- Apply minimal fix + add regression test\n\n' +
+    '<span class="h1"># Context (auto-injected)</span>\n' +
+    '- <span class="key">memory</span>: AGENTS.md · auth conventions\n' +
+    '- <span class="key">kg</span>: auth.ts ↔ session.ts ↔ cookies.ts\n' +
+    '- <span class="key">peer</span>: similar fix in workspace "billing-svc"';
 
   function resetVisuals() {
-    allNodeEls.forEach(function (el) { el.classList.remove('pulse','hit','dim'); });
-    allEdgeEls.forEach(function (el) { el.classList.remove('active','dim'); });
-    ripple.classList.remove('go');
-    chat.classList.remove('show'); chatText.textContent = '';
-    badge.classList.remove('show'); cursor.classList.remove('show');
+    stages.forEach(function (el) { el.classList.remove('active', 'done'); });
+    demoOut.classList.remove('show');
+    demoBar.style.width = '0';
+    promptText.textContent = '';
+    tokAfter.textContent = String(TOKENS_BEFORE);
+    tokBefore.textContent = String(TOKENS_BEFORE);
     sbBtn.classList.remove('glow');
-    frameLbl.textContent = 'Frame 1 / 3 — idle';
+    sbBtn.textContent = '⌬ Prompt Optimizer: ready';
+    frameLbl.textContent = 'Idle — press ▶ Play to run the pipeline';
+    if (demoOptCard) {
+      demoOptCard.classList.remove('show', 'opt-flash');
+      if (demoOptText) demoOptText.innerHTML = '';
+    }
   }
-  function setActiveStep(/* n */) { /* no-op (step list removed) */ }
-  function moveCursorTo(targetEl, cb) {
-    var sim  = $('graph').getBoundingClientRect();
-    var rect = targetEl.getBoundingClientRect();
-    cursor.classList.add('show');
-    cursor.style.left = (rect.left - sim.left + rect.width  / 2 - 7) + 'px';
-    cursor.style.top  = (rect.top  - sim.top  + rect.height / 2 - 9) + 'px';
-    setTimeout(cb, 750);
-  }
+
   function typeText(text, el, speed, cb) {
     var i = 0; el.textContent = '';
     var h = setInterval(function () {
@@ -1399,41 +1533,26 @@
       if (i >= text.length) { clearInterval(h); if (cb) cb(); }
     }, speed);
   }
-  function frame1(done) {
-    resetVisuals();
-    frameLbl.textContent = 'Frame 1 / 3 — indexing workspace (status bar)';
-    moveCursorTo(sbBtn, function () {
-      sbBtn.classList.add('glow');
-      var sim = $('graph').getBoundingClientRect(), b = sbBtn.getBoundingClientRect();
-      ripple.style.left = (b.left - sim.left + b.width  / 2 - 7) + 'px';
-      ripple.style.top  = (b.top  - sim.top  + b.height / 2 - 7) + 'px';
-      ripple.classList.remove('go'); void ripple.offsetWidth; ripple.classList.add('go');
-      allNodeEls.forEach(function (el, i) {
-        setTimeout(function () { el.classList.add('pulse'); }, 120 + i * 70);
-      });
-      setTimeout(function () { if (done) done(); }, 1700);
+
+  function activateStage(idx, label, cb) {
+    stages.forEach(function (s, i) {
+      if (i < idx)  s.classList.add('done');
+      if (i === idx) s.classList.add('active');
+      if (i > idx)  s.classList.remove('active', 'done');
     });
+    frameLbl.textContent = 'Step ' + (idx + 1) + ' / ' + stages.length + ' — ' + label;
+    if (cb) setTimeout(cb, 900);
   }
-  function frame2(done) {
-    frameLbl.textContent = 'Frame 2 / 3 — user prompts @promptoptimizer';
-    chat.classList.add('show');
-    typeText('Fix the bug in authentication context', chatText, 35, function () {
-      if (done) done();
-    });
-  }
-  function frame3(done) {
-    frameLbl.textContent = 'Frame 3 / 3 — optimized prompt + cache hit';
-    allNodeEls.forEach(function (el) {
-      el.classList.remove('pulse');
-      if (HIT_NODES.has(el.dataset.id)) el.classList.add('hit'); else el.classList.add('dim');
-    });
-    allEdgeEls.forEach(function (el) {
-      if (HIT_EDGES.has(el.dataset.key)) el.classList.add('active'); else el.classList.add('dim');
-    });
-    setTimeout(function () {
-      badge.classList.add('show');
-      if (done) done();
-    }, 500);
+
+  function tickTokens(from, to, durMs, cb) {
+    var start = performance.now();
+    function step(now) {
+      var t = Math.min(1, (now - start) / durMs);
+      var v = Math.round(from + (to - from) * (1 - Math.pow(1 - t, 3)));
+      tokAfter.textContent = String(v);
+      if (t < 1) requestAnimationFrame(step); else if (cb) cb();
+    }
+    requestAnimationFrame(step);
   }
 
   var playing = false, timers = [];
@@ -1441,12 +1560,56 @@
 
   function play() {
     if (playing) return;
-    playing = true; resetVisuals();
-    timers.push(setTimeout(function () { frame1(); }, 200));
-    timers.push(setTimeout(function () { frame2(); }, 2200));
-    timers.push(setTimeout(function () { frame3(); }, 4400));
-    timers.push(setTimeout(function () { playing = false; }, 6000));
+    playing = true;
+    resetVisuals();
+    sbBtn.classList.add('glow');
+    sbBtn.textContent = '⌬ Prompt Optimizer: running pipeline…';
+
+    timers.push(setTimeout(function () {
+      typeText(DEMO_PROMPT, promptText, 20);
+    }, 200));
+
+    timers.push(setTimeout(function () {
+      activateStage(0, 'ingesting prompt + workspace context');
+    }, 600));
+
+    timers.push(setTimeout(function () {
+      activateStage(1, 'classifying intent (/code, auth, bugfix)');
+    }, 1800));
+
+    timers.push(setTimeout(function () {
+      activateStage(2, 'augmenting with memory + knowledge graph');
+    }, 3000));
+
+    timers.push(setTimeout(function () {
+      activateStage(3, 'compressing tokens for target model');
+      demoBar.style.width = '71%';
+      tickTokens(TOKENS_BEFORE, TOKENS_AFTER, 900);
+    }, 4200));
+
+    timers.push(setTimeout(function () {
+      activateStage(4, 'forecasting cost · checking cache');
+    }, 5500));
+
+    timers.push(setTimeout(function () {
+      stages.forEach(function (s) { s.classList.add('done'); s.classList.remove('active'); });
+      demoOut.classList.add('show');
+      sbBtn.classList.remove('glow');
+      sbBtn.textContent = '⌬ Prompt Optimizer: 71% saved';
+      frameLbl.textContent = 'Done — optimized prompt sent to Copilot';
+      if (demoOptCard && demoOptText) {
+        demoOptText.innerHTML = DEMO_OPTIMIZED;
+        if (demoOptBadge) demoOptBadge.textContent = 'GPT · ' + TOKENS_AFTER + ' tokens';
+        demoOptCard.classList.add('show');
+        demoOptCard.classList.remove('opt-flash');
+        // Force reflow so the animation replays on subsequent runs.
+        void demoOptCard.offsetWidth;
+        demoOptCard.classList.add('opt-flash');
+      }
+      playing = false;
+    }, 6700));
   }
+
   function reset() { clearTimers(); playing = false; resetVisuals(); }
 
   $('btnPlay').addEventListener('click', function () {
@@ -1455,6 +1618,34 @@
     play();
   });
   $('btnReset').addEventListener('click', reset);
+
+  /* ── Optimized-panel demo actions (visual-only feedback) ───── */
+  function flashLabel(btn, msg, ms) {
+    if (!btn) return;
+    var orig = btn.textContent;
+    btn.textContent = msg;
+    btn.disabled = true;
+    setTimeout(function () { btn.textContent = orig; btn.disabled = false; }, ms || 1100);
+  }
+  if (demoOptCopy) demoOptCopy.addEventListener('click', function () {
+    try {
+      var plain = (demoOptText && demoOptText.textContent) || '';
+      if (plain && navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(plain).catch(function () {});
+      }
+    } catch (_) { /* ignore — demo is visual-only */ }
+    flashLabel(demoOptCopy, '✓ Copied');
+  });
+  if (demoOptSend) demoOptSend.addEventListener('click', function () {
+    flashLabel(demoOptSend, '✓ Sent (demo)');
+    if (sbBtn) {
+      sbBtn.classList.add('glow');
+      setTimeout(function () { sbBtn.classList.remove('glow'); }, 900);
+    }
+  });
+  if (demoOptDiff) demoOptDiff.addEventListener('click', function () {
+    flashLabel(demoOptDiff, '↔ ' + TOKENS_BEFORE + ' → ' + TOKENS_AFTER + ' tokens', 1600);
+  });
   $('btnVisualTour').addEventListener('click', function () {
     switchTab('panel');
     setTimeout(function () {
@@ -1479,8 +1670,8 @@
     if (tabMap[ev.key]) { switchTab(tabMap[ev.key]); }
   });
 
-  /* No autoplay — the user explicitly hits ▶ Play video. The simulator
-     starts in its "idle" first-frame state so nothing surprises them. */
+  /* No autoplay — the user explicitly hits ▶ Play. The demo
+     starts in its idle first-frame state so nothing surprises them. */
   resetVisuals();
 
   /* ══ Panel-walkthrough tour (Tab 4) ════════════════════════════════════════════ */

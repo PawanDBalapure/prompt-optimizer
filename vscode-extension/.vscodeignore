@@ -14,3 +14,11 @@ package-lock.json
 ECC-IMPROVEMENT-REPORT.md
 .env
 .env.*
+vsix-check/**
+vsix-2.7-check/**
+vsix-2.7-check.zip
+.github/**
+engine/package-lock.json
+engine/tsconfig.json
+**/*.map
+**/*.ts.map
