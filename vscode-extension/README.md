@@ -88,7 +88,7 @@ Switch mode any time by:
 
 ## SDLC modes and agent skills
 
-Prompt Optimizer 2.1.0 includes a built-in SDLC mode layer that can frame the optimized prompt with a role and checklist before it is sent.
+Prompt Optimizer 2.7.2 includes a built-in SDLC mode layer that can frame the optimized prompt with a role and checklist before it is sent.
 
 ### Built-in modes
 

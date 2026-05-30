@@ -7,6 +7,8 @@ The repository now contains two surfaces:
 - A reusable engine in `src/`.
 - A VS Code extension in `vscode-extension/` that exposes a native `@promptoptimizer` chat participant and a Chat sidebar control panel.
 
+Current release: 2.7.2.
+
 ## What It Does
 
 - Optimizes a raw prompt locally with code-safe compression.

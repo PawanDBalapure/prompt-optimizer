@@ -1,5 +1,11 @@
 ﻿# Changelog
 
+## 2.7.2 — Release sync
+
+### Changed
+
+- Version bump to 2.7.2 for Marketplace packaging and documentation alignment.
+
 ## 2.1.0 — Enterprise hardening
 
 ### Added
