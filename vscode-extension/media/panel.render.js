@@ -110,11 +110,40 @@ function renderState(state) {
 
   // ── Improvement suggestions ────────────────────────────────────────────────
   appendListItems(improvements, state.improvements, 'No extra refinements suggested.');
+  var improvementsCountEl = document.getElementById('improvementsCount');
+  var refinementsAccordion = document.getElementById('refinementsAccordion');
+  var improvementsCount = (state.improvements && state.improvements.length) || 0;
+  if (improvementsCountEl) {
+    improvementsCountEl.textContent = String(improvementsCount);
+    improvementsCountEl.classList.toggle('po-count-zero', improvementsCount === 0);
+    improvementsCountEl.setAttribute(
+      'aria-label',
+      improvementsCount + ' refinement' + (improvementsCount === 1 ? '' : 's'),
+    );
+  }
+  if (refinementsAccordion) {
+    refinementsAccordion.open = false;
+  }
 
   // ── Lint diagnostics ───────────────────────────────────────────────────────
   var diagnosticsGrid = document.getElementById('diagnosticsGrid');
   clearChildren(diagnosticsGrid);
   var diagnostics = state.diagnostics || [];
+  var diagnosticsCountEl = document.getElementById('diagnosticsCount');
+  var diagnosticsAccordion = document.getElementById('diagnosticsAccordion');
+  if (diagnosticsCountEl) {
+    diagnosticsCountEl.textContent = String(diagnostics.length);
+    diagnosticsCountEl.classList.toggle('po-count-zero', diagnostics.length === 0);
+    var hasWarn = diagnostics.some(function(d) { return d.severity === 'warning'; });
+    diagnosticsCountEl.classList.toggle('po-count-warn', hasWarn);
+    diagnosticsCountEl.setAttribute(
+      'aria-label',
+      diagnostics.length + ' lint diagnostic' + (diagnostics.length === 1 ? '' : 's'),
+    );
+  }
+  if (diagnosticsAccordion) {
+    diagnosticsAccordion.open = false;
+  }
 
   if (diagnostics.length === 0) {
     var li = document.createElement('li');

@@ -109,6 +109,63 @@
       word-break: break-word;
     }
     .list-sm li:last-child { border-bottom: none; }
+    /* ── Accordion (Refinements / Lint Diagnostics) ───────────────────────── */
+    .po-accordion {
+      border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--vscode-editor-background) 92%, transparent);
+      overflow: hidden;
+    }
+    .po-accordion + .po-accordion { margin-top: 8px; }
+    .po-accordion-summary {
+      list-style: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      user-select: none;
+      transition: background 0.15s;
+    }
+    .po-accordion-summary::-webkit-details-marker { display: none; }
+    .po-accordion-summary:hover {
+      background: var(--vscode-list-hoverBackground, rgba(127, 127, 127, 0.08));
+    }
+    .po-accordion-chevron {
+      display: inline-block;
+      font-size: 9px;
+      width: 10px;
+      color: var(--vscode-descriptionForeground);
+      transition: transform 0.15s ease;
+      flex-shrink: 0;
+    }
+    .po-accordion[open] > .po-accordion-summary .po-accordion-chevron {
+      transform: rotate(90deg);
+    }
+    .po-count-badge {
+      margin-left: auto;
+      min-width: 20px;
+      padding: 1px 7px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 600;
+      text-align: center;
+      color: var(--vscode-badge-foreground, #fff);
+      background: var(--vscode-badge-background, #4d4d4d);
+      line-height: 1.5;
+    }
+    .po-count-badge.po-count-warn {
+      background: var(--vscode-inputValidation-warningBackground, #5a4a1d);
+      color: var(--vscode-inputValidation-warningForeground, #f8d775);
+    }
+    .po-count-badge.po-count-zero {
+      background: var(--vscode-button-secondaryBackground, rgba(127, 127, 127, 0.25));
+      color: var(--vscode-descriptionForeground);
+    }
+    .po-accordion-body {
+      padding: 4px 10px 10px 10px;
+      border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.18));
+    }
     /* keep chips hidden but accessible to JS */
     .chips { display: none; }
     .chip { display: none; }

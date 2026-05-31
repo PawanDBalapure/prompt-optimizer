@@ -28,6 +28,7 @@ import type {
   ProxyMode,
 } from '../types';
 import { computeWorkspaceId } from '../util/workspace';
+import { reportError } from '../util/errorReporter';
 import { renderWebviewHtml } from '../webview/loader';
 import { validateMessage } from '../webview/validator';
 import { PROMPT_PROXY_VIEW_TYPE } from './view-type';
@@ -58,7 +59,10 @@ export class PromptProxyViewProvider implements vscode.WebviewViewProvider {
       enableScripts: true,
       // Restrict resource loading to the media folder containing our
       // bundled webview assets.
-      localResourceRoots: [vscode.Uri.joinPath(this._extensionUri, 'media')],
+      localResourceRoots: [
+        vscode.Uri.joinPath(this._extensionUri, 'media'),
+        vscode.Uri.joinPath(this._extensionUri, 'images'),
+      ],
     };
 
     webviewView.webview.onDidReceiveMessage(async (raw: unknown) => {
@@ -70,6 +74,11 @@ export class PromptProxyViewProvider implements vscode.WebviewViewProvider {
         webviewView.webview.postMessage({
           type: 'error',
           message: err instanceof Error ? err.message : String(err),
+        });
+        // Surface a one-click "Email author" toast for unhandled webview
+        // errors so users can report problems without leaving the editor.
+        void reportError('Prompt Optimizer panel hit an error.', err, {
+          scope: `webview:${data.type ?? 'unknown'}`,
         });
       }
     });
@@ -163,6 +172,9 @@ export class PromptProxyViewProvider implements vscode.WebviewViewProvider {
         return;
       case 'switchPromptBranch':
         await vscode.commands.executeCommand('prompt-proxy.switchPromptBranch');
+        return;
+      case 'reportIssue':
+        await vscode.commands.executeCommand('prompt-proxy.reportIssue');
         return;
       case 'requestStatusOverview':
         return this._sendStatusOverview(webviewView);
@@ -271,6 +283,9 @@ export class PromptProxyViewProvider implements vscode.WebviewViewProvider {
     const secretPatternModeOptions = SECRET_PATTERN_MODE_VALUES
       .map((mode) => `<option value="${mode}">${SECRET_PATTERN_MODE_LABELS[mode]}</option>`)
       .join('');
+    const logoUri = this._view!.webview.asWebviewUri(
+      vscode.Uri.joinPath(this._extensionUri, 'images', 'icon.png'),
+    ).toString();
     return renderWebviewHtml(this._view!.webview, this._extensionUri, {
       name: 'panel',
       extras: {
@@ -278,6 +293,7 @@ export class PromptProxyViewProvider implements vscode.WebviewViewProvider {
         SECRET_PATTERN_MODE_OPTIONS: secretPatternModeOptions,
         SECRET_PATTERN_MODE_LABELS_JSON: JSON.stringify(SECRET_PATTERN_MODE_LABELS),
         SECRET_PATTERN_MODE_PLACEHOLDERS_JSON: JSON.stringify(SECRET_PATTERN_MODE_PLACEHOLDERS),
+        LOGO_URI: logoUri,
       },
     });
   }

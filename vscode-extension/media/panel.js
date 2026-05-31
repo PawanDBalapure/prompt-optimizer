@@ -178,6 +178,88 @@ if (btnClearInput) {
     promptInput.focus();
   });
 }
+
+// ── Voice input (Web Speech API) ─────────────────────────────────────────────
+var btnMic = document.getElementById('btnMic');
+(function setupVoiceInput() {
+  if (!btnMic) { return; }
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    btnMic.disabled = true;
+    btnMic.title = 'Voice input not supported in this VS Code build';
+    return;
+  }
+  var recognition = null;
+  var recording = false;
+  var baseValue = '';
+
+  function setRecording(on) {
+    recording = on;
+    btnMic.classList.toggle('mic-recording', on);
+    btnMic.setAttribute('aria-pressed', on ? 'true' : 'false');
+    btnMic.title = on
+      ? 'Listening… click to stop'
+      : 'Dictate prompt — click to start/stop voice input';
+  }
+
+  function start() {
+    try {
+      recognition = new SR();
+    } catch (_e) {
+      btnMic.disabled = true;
+      return;
+    }
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = (navigator && navigator.language) || 'en-US';
+
+    baseValue = (promptInput && promptInput.value) || '';
+    if (baseValue && !/\s$/.test(baseValue)) { baseValue += ' '; }
+
+    recognition.onresult = function(event) {
+      var finalText = '';
+      var interim = '';
+      for (var i = event.resultIndex; i < event.results.length; i++) {
+        var res = event.results[i];
+        if (res.isFinal) { finalText += res[0].transcript; }
+        else { interim += res[0].transcript; }
+      }
+      if (finalText) {
+        baseValue += finalText;
+        if (!/\s$/.test(baseValue)) { baseValue += ' '; }
+      }
+      promptInput.value = baseValue + interim;
+    };
+    recognition.onerror = function(event) {
+      var msg = (event && event.error) ? event.error : 'unknown';
+      if (msg === 'not-allowed' || msg === 'service-not-allowed') {
+        btnMic.title = 'Microphone permission denied';
+      }
+      setRecording(false);
+    };
+    recognition.onend = function() {
+      setRecording(false);
+    };
+    try {
+      recognition.start();
+      setRecording(true);
+      promptInput.focus();
+    } catch (_e) {
+      setRecording(false);
+    }
+  }
+
+  function stop() {
+    if (recognition) {
+      try { recognition.stop(); } catch (_e) { /* ignore */ }
+    }
+    setRecording(false);
+  }
+
+  btnMic.addEventListener('click', function() {
+    if (recording) { stop(); } else { start(); }
+  });
+})();
 if (btnClearOptimized) {
   btnClearOptimized.addEventListener('click', function() {
     if (optimizedPrompt) { optimizedPrompt.textContent = ''; }
@@ -203,6 +285,12 @@ if (chipPeers) {
 if (chipAgents) {
   chipAgents.addEventListener('click', function() {
     vscode.postMessage({ type: 'manageAgentSkills' });
+  });
+}
+var chipReport = document.getElementById('chipReport');
+if (chipReport) {
+  chipReport.addEventListener('click', function() {
+    vscode.postMessage({ type: 'reportIssue' });
   });
 }
 

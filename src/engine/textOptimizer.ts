@@ -34,34 +34,40 @@ function looksLikeCodeLine(line: string): boolean {
  * Ordered list of safe, meaning-preserving rewrites applied to natural-language
  * directive lines. Each entry is [pattern, replacement]. Order matters: longer
  * / more specific phrases come before their shorter overlaps so they win.
+ *
+ * Style rule for "drop" patterns that may swallow a trailing comma: place the
+ * `,?` *outside* the closing word boundary (e.g. `\bBasically\b,?`).  Putting
+ * `,?` inside two `\b` anchors causes the engine to backtrack out of the
+ * comma (since `\b` doesn't match between two non-word chars), leaving stray
+ * commas behind.  See unit case `P3-fluff` in scripts/qa-text-optimizer.mjs.
  */
 const DIRECTIVE_REWRITES: ReadonlyArray<readonly [RegExp, string]> = [
   // Politeness / filler openers (drop entirely).
-  [/\b(?:please|kindly)\b/gi, ''],
-  [/\b(?:can|could|would)\s+you\b/gi, ''],
-  [/\bI (?:need|want) you to\b/gi, ''],
-  [/\bI would like(?: you)? to\b/gi, ''],
-  [/\bI'd like(?: you)? to\b/gi, ''],
-  [/\bhow (?:do|can) I\b/gi, ''],
-  [/\bhelp me(?: to)?\b/gi, ''],
-  [/\bassist me(?: with| in)?\b/gi, ''],
-  [/\btell me(?: how to| about)?\b/gi, ''],
-  [/\bgo ahead and\b/gi, ''],
-  [/\bfeel free to\b/gi, ''],
-  [/\blet(?:'s| us)\b/gi, ''],
-  [/\bYour (?:task|job) is to\b/gi, ''],
-  [/\bIt is important to\b/gi, ''],
-  [/\bIt should be noted that\b/gi, ''],
-  [/\bAs a matter of fact,?\b/gi, ''],
-  [/\bNeedless to say,?\b/gi, ''],
-  [/\bPlease note that\b/gi, ''],
-  [/\bBasically,?\b/gi, ''],
+  [/\b(?:please|kindly)\b\s*,?/gi, ''],
+  [/\b(?:can|could|would)\s+you\b\s*,?/gi, ''],
+  [/\bI (?:need|want) you to\b\s*,?/gi, ''],
+  [/\bI would like(?: you)? to\b\s*,?/gi, ''],
+  [/\bI'd like(?: you)? to\b\s*,?/gi, ''],
+  [/\bhow (?:do|can) I\b\s*,?/gi, ''],
+  [/\bhelp me(?: to)?\b\s*,?/gi, ''],
+  [/\bassist me(?: with| in)?\b\s*,?/gi, ''],
+  [/\btell me(?: how to| about)?\b\s*,?/gi, ''],
+  [/\bshow me how to\b\s*,?/gi, ''],
+  [/\bgo ahead and\b\s*,?/gi, ''],
+  [/\bfeel free to\b\s*,?/gi, ''],
+  [/\blet(?:'s| us)\b\s*,?/gi, ''],
+  [/\bYour (?:task|job) is to\b\s*,?/gi, ''],
+  [/\bIt is important to(?: note that)?\b\s*,?/gi, ''],
+  [/\bIt should be noted that\b\s*,?/gi, ''],
+  [/\bAs a matter of fact\b,?/gi, ''],
+  [/\bNeedless to say\b,?/gi, ''],
+  [/\bPlease note that\b\s*,?/gi, ''],
+  [/\bBasically\b,?/gi, ''],
   [/\bjust\b/gi, ''],
 
   // Verbose phrasings → concise verbs / prepositions (apply before single-word
   // swaps so multi-word patterns are not partially rewritten).
   [/\bwalk me through\b/gi, 'explain'],
-  [/\bshow me how to\b/gi, 'describe'],
   [/\bmake sure\b/gi, 'ensure'],
   [/\bin order to\b/gi, 'to'],
   [/\bin order for\b/gi, 'for'],
@@ -122,6 +128,16 @@ const DIRECTIVE_REWRITES: ReadonlyArray<readonly [RegExp, string]> = [
   [/\bconcerning\b/gi, 'about'],
 ];
 
+/**
+ * Recapitalise the first alphabetical character after sentence-ending
+ * punctuation (".", "!", "?").  Removed phrases mid-sentence frequently
+ * leave a lowercase word stranded after a period, e.g.
+ *   "Refactor X. add Y."  →  "Refactor X. Add Y."
+ */
+function recapitaliseSentences(text: string): string {
+  return text.replace(/([.!?])\s+([a-z])/g, (_match, punct, ch) => `${punct} ${ch.toUpperCase()}`);
+}
+
 function compressDirectiveLine(line: string): string {
   let normalized = line;
   for (const [pattern, replacement] of DIRECTIVE_REWRITES) {
@@ -129,13 +145,20 @@ function compressDirectiveLine(line: string): string {
   }
 
   normalized = normalized
+    // Collapse whitespace.
     .replace(/\s+/g, ' ')
+    // Pull stray spaces away from punctuation: "word ," → "word,".
     .replace(/\s+([,.;:!?])/g, '$1')
+    // Collapse repeated punctuation introduced by phrase removal:
+    // ",,"  →  ",", " . . " → ".", "!." → "!", etc.
+    .replace(/([,.;:!?])(?:\s*[,.;:!?])+/g, '$1')
     .trim()
+    // Strip leftover leading punctuation / dashes left by an opener removal.
     .replace(/^[,:;\-\s]+/, '')
     .trim();
 
   if (normalized === '') { return ''; }
+  normalized = recapitaliseSentences(normalized);
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 

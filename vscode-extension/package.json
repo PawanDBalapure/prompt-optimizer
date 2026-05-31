@@ -58,6 +58,10 @@
     "type": "git",
     "url": "https://github.com/PawanDBalapure/prompt-optimizer"
   },
+  "bugs": {
+    "url": "https://github.com/PawanDBalapure/prompt-optimizer/issues",
+    "email": "pawan.balapure09@gmail.com"
+  },
   "activationEvents": [
     "onStartupFinished"
   ],
@@ -121,6 +125,11 @@
     "configuration": {
       "title": "Prompt Optimizer",
       "properties": {
+        "promptProxy.support.email": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Override the support email used by the **Email author** action shown when an error occurs. Leave blank to use the value declared in the extension's `bugs.email` field."
+        },
         "promptProxy.targetModel": {
           "type": "string",
           "enum": [
@@ -279,6 +288,11 @@
       {
         "command": "prompt-proxy.startChat",
         "title": "Prompt Optimizer: Open Chat Participant"
+      },
+      {
+        "command": "prompt-proxy.reportIssue",
+        "title": "Prompt Optimizer: Report an Issue / Email Author",
+        "icon": "$(mail)"
       },
       {
         "command": "prompt-proxy.optimizeClipboard",

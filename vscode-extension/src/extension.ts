@@ -40,6 +40,7 @@ import {
 import type { ProxyMode } from './types';
 import { formatCurrency } from './util/format';
 import { computeWorkspaceId } from './util/workspace';
+import { initErrorReporter, openSupportEmail, reportError } from './util/errorReporter';
 
 interface ModeQuickPickItem extends vscode.QuickPickItem {
   value: ProxyMode;
@@ -69,6 +70,7 @@ function buildModeItems(current: ProxyMode): ModeQuickPickItem[] {
 }
 
 export function activate(context: vscode.ExtensionContext) {
+  initErrorReporter(context);
   const provider = new PromptProxyViewProvider(context.extensionUri, context);
 
   context.subscriptions.push(
@@ -229,6 +231,17 @@ function registerCommands(
 
   push(vscode.commands.registerCommand('prompt-proxy.startChat', async () => {
     await openChatWithPrompt('', true);
+  }));
+
+  // "Report an issue / email author" — opens the user's mail client with a
+  // pre-filled diagnostic body so users can reach the maintainer in one
+  // click without copy-pasting environment details.
+  push(vscode.commands.registerCommand('prompt-proxy.reportIssue', async () => {
+    try {
+      await openSupportEmail('User-initiated issue report');
+    } catch (error) {
+      void reportError('Could not open email composer.', error, { scope: 'reportIssue' });
+    }
   }));
 
   push(vscode.commands.registerCommand('prompt-proxy.optimizeClipboard', async () => {

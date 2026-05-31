@@ -18,6 +18,7 @@ const ALLOWED_TYPES = new Set([
   'openMemoryFile', 'openPeerWorkspaces', 'requestStatusOverview',
   'manageAgentSkills', 'openUserGuide', 'openOnboarding', 'showHistory',
   'commitPrompt', 'showPromptLog', 'switchPromptBranch',
+  'reportIssue',
 ]);
 
 const ALLOWED_MODES = new Set(['agent', 'optimize', 'direct']);

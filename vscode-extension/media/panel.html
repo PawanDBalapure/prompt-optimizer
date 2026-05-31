@@ -12,7 +12,10 @@
   <main class="stack" role="main" aria-label="Prompt Optimizer panel">
     <section class="hero" aria-label="Header">
       <div class="hero-title">
-        <strong>Prompt Optimizer</strong>
+        <span class="hero-brand">
+          <img class="hero-logo" src="{{LOGO_URI}}" alt="Prompt Optimizer logo" width="22" height="22" />
+          <strong>Prompt Optimizer</strong>
+        </span>
         <div class="hero-actions">
           <span class="badge" aria-label="Features: Local cache and chat">Local cache + chat</span>
           <button class="readme-icon-btn" id="btnSettingsMenu" title="Open prompt settings"
@@ -35,6 +38,7 @@
         <button class="chip-btn" id="chipMemory" type="button" title="Open the workspace memory file (AGENTS.md / CLAUDE.md / .promptoptimizer/memory.md). Its contents are auto-injected into every optimized prompt.">📓 Memory</button>
         <button class="chip-btn" id="chipPeers" type="button" title="Manage peer workspaces — federate this workspace's local cache with peers so similar prompts hit the cache across repos.">🔗 Peers</button>
         <button class="chip-btn" id="chipAgents" type="button" title="Enable or disable bundled SDLC agent skills (planner, reviewer, security-auditor, …) for this workspace.">🤖 Agents</button>
+        <button class="chip-btn" id="chipReport" type="button" title="Report an issue or send feedback — opens your email client with extension/VS Code/OS diagnostics pre-filled.">📧 Report issue</button>
       </div>
     </section>
 
@@ -87,8 +91,11 @@
                 aria-label="Prompt input"
                 aria-multiline="true"
                 placeholder="Type a prompt — Optimize shows analysis, Agent sends optimized prompt to Copilot Chat, Direct pre-fills @promptoptimizer. (Ctrl+Enter to run)"></textarea>
-      <button class="send-btn" id="btnClearInput" type="button" title="Clear the prompt input" aria-label="Clear input" style="right:46px;background:transparent;">
+      <button class="clear-corner-btn" id="btnClearInput" type="button" title="Clear the prompt input" aria-label="Clear input">
         <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/></svg>
+      </button>
+      <button class="send-btn mic-btn" id="btnMic" type="button" title="Dictate prompt — click to start/stop voice input" aria-label="Voice input" aria-pressed="false">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1a2.5 2.5 0 00-2.5 2.5v4a2.5 2.5 0 005 0v-4A2.5 2.5 0 008 1zm-4 6.5a.5.5 0 011 0 3 3 0 006 0 .5.5 0 011 0 4 4 0 01-3.5 3.969V13H10a.5.5 0 010 1H6a.5.5 0 010-1h1.5v-1.531A4 4 0 014 7.5z"/></svg>
       </button>
       <button class="send-btn primary" id="btnPrimary" title="Run Agent" aria-label="Run">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M7 2.414V13h2V2.414l3.293 3.293 1.414-1.414L8 .586 2.293 4.293l1.414 1.414z"/></svg>
@@ -147,19 +154,40 @@
       <ul class="chips" id="contextChips" aria-hidden="true"></ul>
 
       <div class="result-actions">
-        <button class="secondary compact" id="btnOpenChat" title="Open the @promptoptimizer chat participant">@promptoptimizer</button>
-        <button class="secondary compact" id="btnUseOptimized" title="Send the optimized prompt to @promptoptimizer chat">Use optimized</button>
-        <button class="secondary compact" id="btnCopyOptimized" title="Copy the optimized prompt to clipboard">Copy optimized</button>
+        <button class="action-btn action-primary" id="btnUseOptimized" title="Send the optimized prompt to @promptoptimizer chat">
+          <span class="action-icon" aria-hidden="true">🚀</span>
+          <span class="action-label">Use Optimized</span>
+        </button>
+        <button class="action-btn" id="btnCopyOptimized" title="Copy the optimized prompt to clipboard">
+          <span class="action-icon" aria-hidden="true">📋</span>
+          <span class="action-label">Copy</span>
+        </button>
+        <button class="action-btn" id="btnOpenChat" title="Open the @promptoptimizer chat participant">
+          <span class="action-icon" aria-hidden="true">💬</span>
+          <span class="action-label">Open Chat</span>
+        </button>
       </div>
 
       <div style="margin-top:10px">
-        <h2 class="section-title">Refinements</h2>
-        <ul class="list-sm" id="improvements" aria-label="Improvement suggestions"></ul>
+        <details class="po-accordion" id="refinementsAccordion">
+          <summary class="po-accordion-summary">
+            <span class="po-accordion-chevron" aria-hidden="true">▶</span>
+            <span class="section-title" style="margin:0">Refinements</span>
+            <span class="po-count-badge" id="improvementsCount" aria-label="Refinements count">0</span>
+          </summary>
+          <ul class="list-sm po-accordion-body" id="improvements" aria-label="Improvement suggestions"></ul>
+        </details>
       </div>
 
       <div style="margin-top:10px" id="diagnosticsSection">
-        <h2 class="section-title">Lint Diagnostics</h2>
-        <ul class="list-sm" id="diagnosticsGrid" aria-label="Lint diagnostics" aria-live="polite"></ul>
+        <details class="po-accordion" id="diagnosticsAccordion">
+          <summary class="po-accordion-summary">
+            <span class="po-accordion-chevron" aria-hidden="true">▶</span>
+            <span class="section-title" style="margin:0">Lint Diagnostics</span>
+            <span class="po-count-badge" id="diagnosticsCount" aria-label="Lint diagnostics count">0</span>
+          </summary>
+          <ul class="list-sm po-accordion-body" id="diagnosticsGrid" aria-label="Lint diagnostics" aria-live="polite"></ul>
+        </details>
       </div>
     </section>
   </main>
