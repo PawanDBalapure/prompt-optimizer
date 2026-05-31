@@ -1,5 +1,26 @@
 ﻿# Changelog
 
+## 2.8.0 — Local model bundle + Optimize-first defaults
+
+### Added
+
+- **Bundled local model runtime** powered by `@xenova/transformers` and `onnxruntime-web` (offline ONNX inference). The extension can now ship a quantized seq2seq model under `models/` and use it without any network access. Phase 1 fallback: `flan-t5-small-q4`. Phase 2: a custom distilled rewriter under `models/distilled-rewriter/` is auto-preferred when present.
+- **Distillation pipeline** under `scripts/distill/` (`train.py`, `export_onnx.py`, `run-pipeline.cjs`) plus npm scripts `distill` and `distill:setup` to fine-tune a small base on collected prompt-rewriting pairs and export an INT8-quantized ONNX bundle for packaging.
+- **Opt-in training-data collector** (`promptProxy.collectTrainingData`, default `false`). When enabled, prompt → optimized pairs are appended to `<globalStorage>/training-pairs.jsonl`. Data never leaves the machine.
+- **Sentence-shortening compressor**: the directive-line rewriter in `src/engine/textOptimizer.ts` now applies an ordered table of meaning-preserving rewrites (e.g. `in order to` → `to`, `due to the fact that` → `because`, `has the ability to` → `can`). Code blocks, imports, and code-like lines remain untouched.
+- **Onboarding & README**: new “Meaning-preserving sentence shortening” section in the onboarding guide and matching bullets in both READMEs.
+
+### Changed
+
+- **Default run mode is now `Optimize only`** — new installs land on the analysis-first flow. The mode dropdown is reordered to surface Optimize first.
+- **Agent mode no longer streams Copilot's answer into the panel.** It now optimizes locally and then opens VS Code's native Copilot Chat with the optimized prompt auto-submitted (no `@promptoptimizer` participant prefix). The panel still shows the analysis card; the response is rendered in the Chat view.
+- Mode QuickPick, status bar tooltip, panel labels, and the chat participant `/mode` help text refreshed to match the new Agent semantics.
+- Dependency security: added a `package.json` `overrides` block to force the nested `onnxruntime-web` under `@xenova/transformers` to the patched `1.26.0`. `npm audit --omit=dev` reports **0 vulnerabilities**.
+
+### Notes
+
+- Phase-1 fallback model **Flan-T5-Small (INT8 ONNX, ~93 MB)** is bundled under `models/flan-t5-small-q4/` so the local rewriter works fully offline immediately after install. Re-fetch with `npm run fetch-model`. Run `npm run distill` after collecting pairs to produce a smaller, task-specific distilled model under `models/distilled-rewriter/` (auto-preferred when present).
+
 ## 2.7.2 — Release sync
 
 ### Changed

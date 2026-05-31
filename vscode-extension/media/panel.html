@@ -66,8 +66,8 @@
     <div class="mode-row">
       <label class="mode-label" for="modeSelect">Mode</label>
       <select id="modeSelect" aria-label="Run mode">
-        <option value="agent">Agent — optimize + ask Copilot</option>
-        <option value="optimize">Optimize only — show analysis</option>
+        <option value="optimize" selected>Optimize only — show analysis</option>
+        <option value="agent">Agent — optimize + send to Copilot Chat</option>
         <option value="direct">Direct — send to @promptoptimizer chat</option>
       </select>
     </div>
@@ -86,7 +86,7 @@
       <textarea id="promptInput"
                 aria-label="Prompt input"
                 aria-multiline="true"
-                placeholder="Type a prompt — Agent answers directly, Optimize shows analysis, Direct pre-fills chat. (Ctrl+Enter to run)"></textarea>
+                placeholder="Type a prompt — Optimize shows analysis, Agent sends optimized prompt to Copilot Chat, Direct pre-fills @promptoptimizer. (Ctrl+Enter to run)"></textarea>
       <button class="send-btn" id="btnClearInput" type="button" title="Clear the prompt input" aria-label="Clear input" style="right:46px;background:transparent;">
         <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/></svg>
       </button>

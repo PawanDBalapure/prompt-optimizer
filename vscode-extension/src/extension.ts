@@ -48,16 +48,16 @@ interface ModeQuickPickItem extends vscode.QuickPickItem {
 function buildModeItems(current: ProxyMode): ModeQuickPickItem[] {
   return [
     {
-      label: '$(robot) Agent',
-      description: 'Optimize + call Copilot automatically — no @promptoptimizer prefix needed',
-      detail: current === 'agent' ? '\u25CF Active' : undefined,
-      value: 'agent',
-    },
-    {
       label: '$(wand) Optimize only',
       description: 'Show analysis, copy / send buttons — you control when it goes to Copilot',
       detail: current === 'optimize' ? '\u25CF Active' : undefined,
       value: 'optimize',
+    },
+    {
+      label: '$(robot) Agent',
+      description: 'Optimize + send the optimized prompt directly to Copilot Chat — no @promptoptimizer prefix needed',
+      detail: current === 'agent' ? '\u25CF Active' : undefined,
+      value: 'agent',
     },
     {
       label: '$(comment-discussion) Direct send',

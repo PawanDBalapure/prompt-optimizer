@@ -16,7 +16,6 @@ import { renderSecretPatternHelpTooltip } from '../security/secret-help';
 import { ProxyStatusPanel } from './ProxyStatusPanel';
 import {
   addConversationTurn,
-  buildLMMessages,
   getConversation,
   resolveReferences,
 } from '../state/conversation';
@@ -216,9 +215,9 @@ export class PromptProxyViewProvider implements vscode.WebviewViewProvider {
     this._agentCts = new vscode.CancellationTokenSource();
     const agentToken = this._agentCts.token;
 
-    webviewView.webview.postMessage({ type: 'responseStart' });
     try {
       const state = await analyzePrompt(this._context, trimmed, 'panel');
+      if (agentToken.isCancellationRequested) { return; }
       this.publishAnalysis(state);
 
       const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -226,31 +225,19 @@ export class PromptProxyViewProvider implements vscode.WebviewViewProvider {
       const history = getConversation(this._context, wsId);
       const enriched = resolveReferences(state.optimized, history);
 
-      const models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
-      if (models.length === 0 || agentToken.isCancellationRequested) {
-        webviewView.webview.postMessage({
-          type: 'responseError',
-          message: "No Copilot model available. Switch to 'Optimize only' mode or ensure GitHub Copilot is active.",
-        });
-        return;
-      }
+      // Record the user turn locally so follow-up references continue to
+      // resolve. The assistant turn is not captured here because the
+      // response is rendered in Copilot Chat, not the panel.
+      await addConversationTurn(this._context, wsId, {
+        user_raw: trimmed,
+        user_optimized: enriched,
+        assistant: '',
+      });
 
-      const messages = buildLMMessages(history, enriched, state);
-      const lmResponse = await models[0].sendRequest(messages, {}, agentToken);
-
-      let fullResponse = '';
-      for await (const chunk of lmResponse.text) {
-        if (agentToken.isCancellationRequested) { break; }
-        webviewView.webview.postMessage({ type: 'responseChunk', chunk });
-        fullResponse += chunk;
-      }
-      if (fullResponse.trim()) {
-        await addConversationTurn(this._context, wsId, {
-          user_raw: trimmed,
-          user_optimized: enriched,
-          assistant: fullResponse.trim(),
-        });
-      }
+      // Send the optimized prompt straight to Copilot Chat with auto-submit
+      // and no @promptoptimizer participant prefix \u2014 the Copilot agent
+      // handles the request natively in the Chat view.
+      await openChatWithPrompt(enriched, false, true);
       webviewView.webview.postMessage({ type: 'responseDone' });
     } catch (err) {
       webviewView.webview.postMessage({

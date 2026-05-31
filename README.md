@@ -7,11 +7,12 @@ The repository now contains two surfaces:
 - A reusable engine in `src/`.
 - A VS Code extension in `vscode-extension/` that exposes a native `@promptoptimizer` chat participant and a Chat sidebar control panel.
 
-Current release: 2.7.2.
+Current release: 2.8.0.
 
 ## What It Does
 
 - Optimizes a raw prompt locally with code-safe compression.
+- Shortens English sentences when the meaning stays the same, while preserving code blocks and code-like lines.
 - Packs relevant editor context with compact anchors such as `# src/file.ts`.
 - Reuses exact and semantic prompt matches from a local SQLite cache.
 - Applies SDLC modes through slash commands, built-in intent rules, and custom workspace skill definitions.

@@ -4,7 +4,7 @@ import { MODE_KEY } from '../constants';
 import type { ProxyMode } from '../types';
 
 export function getCurrentMode(context: vscode.ExtensionContext): ProxyMode {
-  return context.globalState.get<ProxyMode>(MODE_KEY) ?? 'agent';
+  return context.globalState.get<ProxyMode>(MODE_KEY) ?? 'optimize';
 }
 
 export async function setCurrentMode(
@@ -28,7 +28,7 @@ const MODE_NAMES: Record<ProxyMode, string> = {
 };
 
 const MODE_HELP: Record<ProxyMode, string> = {
-  agent: 'Optimizes your prompt locally, then asks Copilot Chat and streams the answer back.',
+  agent: 'Optimizes your prompt locally, then opens Copilot Chat with the optimized prompt and sends it directly to the Copilot agent.',
   optimize: 'Optimizes the prompt and shows analysis (cost, savings, refinements) without calling Copilot.',
   direct: 'Pre-fills the `@promptoptimizer` chat participant with the prompt — you press Enter to send.',
 };

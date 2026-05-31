@@ -18,10 +18,10 @@ var btnSettingsMenu = document.getElementById('btnSettingsMenu');
 var settingsMenu    = document.getElementById('settingsMenu');
 
 // ── Mode state (currentMode declared in panel.helpers.js as var) ─────────────
-var currentMode = 'agent';
+var currentMode = 'optimize';
 
 var MODE_TITLES = {
-  agent:    'Run Agent \u2014 optimize + call Copilot',
+  agent:    'Run Agent \u2014 optimize + send to Copilot Chat',
   optimize: 'Analyze locally \u2014 optimize only',
   direct:   'Send to @promptoptimizer chat',
 };
@@ -53,9 +53,11 @@ btnPrimary.addEventListener('click', function() {
   if (!text) { clearAlerts(); addAlert('error', 'Enter a prompt.'); return; }
   clearAlerts();
   if (currentMode === 'agent') {
-    responseContent.textContent = '';
-    streamBadge.style.display = 'inline';
-    responseCard.style.display = 'block';
+    // Agent: optimize locally, then send the optimized prompt directly to
+    // Copilot Chat (auto-submitted). The in-panel response card is no
+    // longer used for this mode \u2014 the answer streams in the Chat view.
+    optimizedCard.style.display = 'none';
+    responseCard.style.display = 'none';
     loading.style.display = 'block';
     loading.setAttribute('aria-hidden', 'false');
     vscode.postMessage({ type: 'agentRun', prompt: text });

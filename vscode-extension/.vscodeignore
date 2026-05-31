@@ -22,3 +22,10 @@ engine/package-lock.json
 engine/tsconfig.json
 **/*.map
 **/*.ts.map
+.distill-work/**
+training-data/**
+models/**/_raw/**
+!models/**
+!models/**/*.onnx
+!models/**/*.json
+!models/**/spiece.model

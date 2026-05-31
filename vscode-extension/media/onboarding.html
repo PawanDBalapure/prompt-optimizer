@@ -763,7 +763,7 @@
       <span>fully local</span>
       <span>zero telemetry</span>
       <span class="purple">MIT</span>
-      <span class="blue">v2.7.2</span>
+      <span class="blue">v2.8.0</span>
     </div>
   </header>
 
@@ -790,6 +790,19 @@
       <button class="intro-play" id="btnVisualTour" title="Play the visual tour animation">🚀 Visual Tour</button>
     </div>
 
+    <div class="card" style="margin-bottom:14px;">
+      <h2 class="section">Meaning-preserving sentence shortening</h2>
+      <p class="lead">
+        The compressor does more than remove filler. It rewrites long English sentences into shorter ones when the meaning stays the same,
+        so the prompt is easier for Copilot to read without losing intent.
+      </p>
+      <ul class="bullets">
+        <li>Removes politeness, hedging, and redundant phrasing from natural-language requests.</li>
+        <li>Replaces long expressions such as “in order to” and “due to the fact that” with shorter equivalents.</li>
+        <li>Keeps code blocks, imports, and code-like lines untouched so technical content stays exact.</li>
+      </ul>
+    </div>
+
     <!-- 8-step pipeline ABOVE the graph -->
     <div class="card" style="margin-bottom:14px;">
       <h2 class="section">How your prompt gets optimized for Copilot</h2>
@@ -799,11 +812,11 @@
         Copilot finally sees is shorter, sharper, and cheaper:
       </p>
       <ol class="bullets" style="counter-reset:p;">
-        <li><strong>Compress</strong> filler words, softeners, and redundant phrasing.</li>
+        <li><strong>Compress</strong> filler words, softeners, redundant phrasing, and long English sentences.</li>
         <li><strong>Check the local semantic cache</strong> — reuse a prior result if a similar prompt was already answered.</li>
         <li><strong>Pack workspace context</strong> — active file, open editors, diagnostics, recent saves.</li>
         <li><strong>Estimate token cost</strong> before the request is sent.</li>
-        <li><strong>Call Copilot &amp; stream</strong> the answer in the sidebar (Agent) or hand you the optimized prompt to review (Optimize).</li>
+        <li><strong>Run the chosen mode</strong> — Optimize shows the analysis card, Agent sends the optimized prompt straight to Copilot Chat, Direct pre-fills <code>@promptoptimizer</code>.</li>
         <li><strong>Detect SDLC workflow intent</strong> from slash commands, rules, custom skills, and file context.</li>
         <li><strong>Remember the conversation</strong> across turns per workspace — pronouns like "fix it" resolve correctly.</li>
         <li><strong>Let you enable/edit bundled SDLC agents</strong> from the Agents button in the sidebar.</li>
@@ -862,7 +875,7 @@
           <div class="demo-stage" data-step="4" data-stage="compress">
             <h4><span class="ic">🗜️</span> Compress</h4>
             <div class="body">
-              Strip filler, tighten phrasing, format for target.
+              Strip filler, shorten sentences, format for target.
               <div class="demo-counter">
                 <span id="demoTokensBefore">248</span>
                 <span class="arrow">→</span>
@@ -926,7 +939,7 @@
       <div class="mode-card">
         <div class="icon">🤖</div>
         <h3 class="agent">Agent <span class="pill green">default</span></h3>
-        <p>Type in the sidebar → optimize → Copilot answers → response streams back inline. No <code>@promptoptimizer</code> needed.</p>
+        <p>Type in the sidebar → optimize → Copilot Chat opens with the optimized prompt and submits it for you. No <code>@promptoptimizer</code> needed.</p>
         <div class="pill-row">
           <span class="pill green">streams</span>
           <span class="pill">sidebar</span>
@@ -957,8 +970,8 @@
       <table class="spec">
         <thead><tr><th style="width:170px;">Mode</th><th style="width:230px;">Status bar label</th><th>Behaviour</th></tr></thead>
         <tbody>
-          <tr><td class="k">Agent (default)</td><td class="k">$(robot) Proxy [Agent]</td><td class="v">Optimize + auto-call Copilot. Stream in sidebar.</td></tr>
-          <tr><td class="k">Optimize only</td><td class="k">$(wand) Proxy [Optimize]</td><td class="v">Show analysis &amp; optimized prompt. No send.</td></tr>
+          <tr><td class="k">Optimize only (default)</td><td class="k">$(wand) Proxy [Optimize]</td><td class="v">Show analysis &amp; optimized prompt. No send.</td></tr>
+          <tr><td class="k">Agent</td><td class="k">$(robot) Proxy [Agent]</td><td class="v">Optimize, then open Copilot Chat with the optimized prompt and submit it directly.</td></tr>
           <tr><td class="k">Direct send</td><td class="k">$(comment-discussion) Proxy [Direct]</td><td class="v">Open Chat panel with <code>@promptoptimizer</code> pre-filled.</td></tr>
         </tbody>
       </table>

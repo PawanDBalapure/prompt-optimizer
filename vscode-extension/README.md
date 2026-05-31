@@ -59,13 +59,14 @@ The static file lives at [vscode-extension/media/onboarding.html](vscode-extensi
 Prompt Optimizer sits between you and Copilot. Before your prompt reaches the model it:
 
 1. **Compresses** filler words, softeners, and redundant phrasing
-2. **Checks the local semantic cache** � reuses a prior result if a similar prompt was already answered
-3. **Packs workspace context** � active file, open editors, diagnostics, recent saves
-4. **Estimates token cost** before the request is sent
-5. **Calls Copilot and streams the answer** directly in the sidebar (Agent mode) or hands you the optimized prompt to review first (Optimize mode)
-6. **Detects SDLC workflow intent** from slash commands, built-in rules, custom skills, and file context
-7. **Remembers the conversation** across turns per workspace so follow-up pronouns ("fix it", "add tests for that") resolve correctly
-8. **Lets you enable and edit bundled SDLC agents** directly from the Agents button in the sidebar
+2. **Shortens English sentences** when the meaning stays the same, while leaving code blocks and code-like lines untouched
+3. **Checks the local semantic cache** — reuses a prior result if a similar prompt was already answered
+4. **Packs workspace context** — active file, open editors, diagnostics, recent saves
+5. **Estimates token cost** before the request is sent
+6. **Hands the optimized prompt to Copilot** — Optimize mode shows the analysis card; Agent mode opens Copilot Chat with the optimized prompt auto-submitted; Direct mode pre-fills `@promptoptimizer` in the Chat panel.
+7. **Detects SDLC workflow intent** from slash commands, built-in rules, custom skills, and file context
+8. **Remembers the conversation** across turns per workspace so follow-up pronouns ("fix it", "add tests for that") resolve correctly
+9. **Lets you enable and edit bundled SDLC agents** directly from the Agents button in the sidebar
 
 ---
 
@@ -75,8 +76,8 @@ Select the mode from the **Mode** dropdown in the sidebar or via the status bar 
 
 | Mode | Status bar label | Behaviour |
 |---|---|---|
-| **Agent** *(default)* | `$(robot) Proxy [Agent]` | Type in the sidebar ? optimize ? Copilot answers ? response streams in the sidebar. No `@promptoptimizer` needed. |
-| **Optimize only** | `$(wand) Proxy [Optimize]` | Shows analysis table (cost, tokens saved, cache status) and the optimized prompt. You decide when to send. |
+| **Optimize only** *(default)* | `$(wand) Proxy [Optimize]` | Shows analysis table (cost, tokens saved, cache status) and the optimized prompt. You decide when to send. |
+| **Agent** | `$(robot) Proxy [Agent]` | Optimize the prompt locally, then open Copilot Chat with the optimized prompt and submit it directly to Copilot's native agent. No `@promptoptimizer` prefix. |
 | **Direct send** | `$(comment-discussion) Proxy [Direct]` | Opens the Chat panel with `@promptoptimizer <your prompt>` pre-filled. |
 
 Switch mode any time by:
@@ -88,7 +89,7 @@ Switch mode any time by:
 
 ## SDLC modes and agent skills
 
-Prompt Optimizer 2.7.2 includes a built-in SDLC mode layer that can frame the optimized prompt with a role and checklist before it is sent.
+Prompt Optimizer 2.8.0 includes a built-in SDLC mode layer that can frame the optimized prompt with a role and checklist before it is sent.
 
 ### Built-in modes
 
@@ -169,7 +170,7 @@ Open it from the Chat sidebar or press the status bar item.
 
 ### Send button
 
-The circular **?** button inside the textarea behaves like the Copilot send button � hover shows the current mode action ("Run Agent � optimize + call Copilot").
+The circular **?** button inside the textarea behaves like the Copilot send button — hover shows the current mode action ("Run Agent — optimize + send to Copilot Chat").
 
 ---
 

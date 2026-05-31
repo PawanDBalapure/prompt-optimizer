@@ -77,7 +77,7 @@ export async function handleChatRequest(
       updateStatusBarItem(statusBarItem, arg);
       sinks.notifyModeChange(arg);
       const modeDescriptions: Record<ProxyMode, string> = {
-        agent: 'optimize + call Copilot automatically (no `@promptoptimizer` prefix needed in the sidebar)',
+        agent: 'optimize the prompt locally, then send it directly to Copilot Chat (no `@promptoptimizer` prefix needed)',
         optimize: 'show analysis only \u2014 you control when it goes to Copilot',
         direct: 'pre-fill `@promptoptimizer` in Chat and press Enter',
       };
@@ -87,7 +87,7 @@ export async function handleChatRequest(
       stream.markdown(
         `**Current mode: ${current}**\n\n` +
         'Available modes:\n' +
-        '- `agent` \u2014 optimize + call Copilot automatically\n' +
+        '- `agent` \u2014 optimize the prompt and send it directly to Copilot Chat\n' +
         '- `optimize` \u2014 show optimization analysis only\n' +
         '- `direct` \u2014 open @promptoptimizer chat with prompt pre-filled\n\n' +
         'Usage: `@promptoptimizer /mode agent`',

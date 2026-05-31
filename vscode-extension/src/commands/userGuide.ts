@@ -29,7 +29,7 @@ const ITEMS: GuideItem[] = [
   },
   {
     label: '$(arrow-swap) Switch mode (Agent / Optimize / Direct)',
-    detail: 'Agent = optimize + ask Copilot · Optimize = analysis only · Direct = pre-fill chat.',
+    detail: 'Optimize = analysis only · Agent = optimize + send to Copilot Chat · Direct = pre-fill chat.',
     command: 'prompt-proxy.selectMode',
   },
   {
