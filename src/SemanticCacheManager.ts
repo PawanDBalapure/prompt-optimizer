@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { LocalSemanticVectorizer } from './localSemanticVectorizer.js';
+import type { Vectorizer } from './vector/vectorizer.js';
 import { initializeSchema } from './cache/schema.js';
 import {
   calculateSimilarityScore,
@@ -14,6 +15,23 @@ import {
 import { createLogger } from './engine/logger.js';
 import { redactForPersistence } from './engine/redactor.js';
 import { MetricsRegistry } from './engine/metrics.js';
+import { recordAuditEvent } from './engine/auditLog.js';
+
+/**
+ * Hard cap on how many cache rows we deserialise per similarity scan.  A
+ * full table scan was scaling O(n) on workspaces with hundreds of thousands
+ * of cached prompts; this cap keeps the scan bounded while still surfacing
+ * the highest-quality candidates (most-recently-used wins ties).
+ *
+ * Override at runtime via `PROMPT_OPT_MAX_CANDIDATES`.
+ */
+const CANDIDATE_CAP_DEFAULT = 2000;
+function resolveCandidateCap(): number {
+  const raw = process.env.PROMPT_OPT_MAX_CANDIDATES;
+  if (!raw) { return CANDIDATE_CAP_DEFAULT; }
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? Math.min(50_000, n) : CANDIDATE_CAP_DEFAULT;
+}
 
 const log = createLogger('SemanticCacheManager');
 
@@ -52,7 +70,7 @@ const ROW_COLUMNS = 'id, raw_prompt, optimized_prompt, embedding, timestamp, usa
 
 export class SemanticCacheManager {
   private readonly db: Database.Database;
-  private readonly vectorizer = new LocalSemanticVectorizer();
+  private readonly vectorizer: Vectorizer = new LocalSemanticVectorizer();
   private readonly dbPath: string;
   private isInitialized = false;
   private metricsRegistry: MetricsRegistry | null = null;
@@ -128,7 +146,8 @@ export class SemanticCacheManager {
       matches.sort((l, r) => r.confidence - l.confidence);
       return matches.slice(0, Math.max(1, limit));
     } catch (error) {
-      console.error('[SemanticCacheManager] Semantic search failed:', error);
+      log.error('Semantic search failed', { error: String(error) });
+      this.metricsRegistry?.increment('errors.cache_semantic_search');
       return [];
     }
   }
@@ -162,7 +181,8 @@ export class SemanticCacheManager {
       }
       return null;
     } catch (error) {
-      console.error('[SemanticCacheManager] Cache check failed:', error);
+      log.error('Cache check failed', { error: String(error) });
+      this.metricsRegistry?.increment('errors.cache_check');
       return null;
     }
   }
@@ -202,6 +222,11 @@ export class SemanticCacheManager {
           timestamp = excluded.timestamp
       `).run(rawPrompt, redaction.redacted, buffer, Date.now(), wsId);
       this.metricsRegistry?.increment('cache.writes');
+      recordAuditEvent(this.db, 'cache.write', {
+        workspaceId: wsId,
+        prompt: rawPrompt,
+        redactionHits: redaction.hits.reduce((s, h) => s + h.count, 0),
+      });
     } catch (error) {
       log.error('Write to cache failed', { error: String(error) });
     }
@@ -210,8 +235,10 @@ export class SemanticCacheManager {
   public clearCache(): void {
     try {
       this.db.exec('DELETE FROM semantic_cache');
+      recordAuditEvent(this.db, 'cache.clear', {});
     } catch (error) {
-      console.error('[SemanticCacheManager] Failed to clear database cache:', error);
+      log.error('Failed to clear database cache', { error: String(error) });
+      this.metricsRegistry?.increment('errors.cache_clear');
     }
   }
 
@@ -247,7 +274,8 @@ export class SemanticCacheManager {
       ).run(cutoffMs);
       return result.changes;
     } catch (error) {
-      console.error('[SemanticCacheManager] Prune failed:', error);
+      log.error('Prune failed', { error: String(error) });
+      this.metricsRegistry?.increment('errors.cache_prune');
       return 0;
     }
   }
@@ -293,11 +321,25 @@ export class SemanticCacheManager {
   }
 
   private loadRows(workspaceId?: string): SemanticCacheRow[] {
+    const cap = resolveCandidateCap();
     const scoped = workspaceId !== undefined && workspaceId !== 'global';
+    // ORDER BY usage_count DESC, timestamp DESC — keeps highest-signal rows
+    // in the candidate set when the cap clips the long tail.
     const statement = scoped
-      ? this.db.prepare(`SELECT ${ROW_COLUMNS} FROM semantic_cache WHERE embedding IS NOT NULL AND (workspace_id = ? OR workspace_id = 'global')`)
-      : this.db.prepare(`SELECT ${ROW_COLUMNS} FROM semantic_cache WHERE embedding IS NOT NULL`);
-    return (scoped ? statement.all(workspaceId) : statement.all()) as SemanticCacheRow[];
+      ? this.db.prepare(
+          `SELECT ${ROW_COLUMNS} FROM semantic_cache
+             WHERE embedding IS NOT NULL
+               AND (workspace_id = ? OR workspace_id = 'global')
+             ORDER BY COALESCE(usage_count, 0) DESC, timestamp DESC
+             LIMIT ?`,
+        )
+      : this.db.prepare(
+          `SELECT ${ROW_COLUMNS} FROM semantic_cache
+             WHERE embedding IS NOT NULL
+             ORDER BY COALESCE(usage_count, 0) DESC, timestamp DESC
+             LIMIT ?`,
+        );
+    return (scoped ? statement.all(workspaceId, cap) : statement.all(cap)) as SemanticCacheRow[];
   }
 
   private findExactMatch(

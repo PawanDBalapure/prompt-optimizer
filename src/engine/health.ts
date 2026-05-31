@@ -89,6 +89,30 @@ export function runHealthCheck(db: Database.Database, dbPath: string): HealthRep
   const fileStats = statSafe(dbPath);
   const walStats = statSafe(dbPath + '-wal');
 
+  // 6. Peer-workspace DBs declared in `peer_workspaces`: every enabled peer
+  //    must point to an existing readable file.  Broken peers don't fail
+  //    optimization (the federation layer skips them) but they do degrade
+  //    cross-workspace recall, so surface them in health.
+  try {
+    const rows = db.prepare(
+      'SELECT label, db_path AS dbPath, enabled FROM peer_workspaces',
+    ).all() as Array<{ label: string; dbPath: string; enabled: number }>;
+    const enabled = rows.filter((r) => r.enabled === 1);
+    const broken = enabled.filter((r) => {
+      try { return !fs.statSync(r.dbPath).isFile(); }
+      catch { return true; }
+    });
+    checks.push({
+      id: 'peers.readable',
+      ok: broken.length === 0,
+      detail: broken.length === 0
+        ? `${enabled.length} enabled peer(s) reachable`
+        : `unreachable: ${broken.map((b) => `${b.label}@${b.dbPath}`).join(', ')}`,
+    });
+  } catch (err) {
+    checks.push({ id: 'peers.readable', ok: false, detail: String(err) });
+  }
+
   const ok = checks.every((c) => c.ok);
 
   return {

@@ -226,15 +226,91 @@ node dist/cli.js --redact-test
 | `PROMPT_OPT_LOG_FORMAT` | `text` | Set to `json` for structured logs in shipping pipelines |
 | `PROMPT_OPT_REDACT` | `1` | Set to `0` to disable persistence-time secret redaction (not recommended) |
 | `PROMPT_OPT_REDACT_PII` | `0` | Set to `1` to additionally redact email / phone / SSN / credit card |
+| `POMEMORY_MAX_BYTES_PER_FILE` | `12000` | Per-file byte cap when ingesting workspace memory (AGENTS.md / CLAUDE.md / etc.) |
+| `POMEMORY_MAX_TOTAL_BYTES` | `24000` | Aggregate byte cap across all workspace memory files |
+| `POMEMORY_MAX_AUGMENTED_BYTES` | `18000` | Hard ceiling on the combined memory + KG + digests + peer context the engine prepends |
+| `PROMPT_OPT_MAX_CANDIDATES` | `2000` | Cap on rows scanned per semantic similarity query (highest `usage_count` first) |
+| `PROMPT_OPT_AUDIT_ENABLED` | `1` | Set to `0` to disable the tamper-evident `audit_log` table entirely |
+| `PROMPT_OPT_AUDIT_RAW` | `0` | Set to `1` to persist raw prompt text in the audit log (default: hash-only) |
+| `PROMPT_OPT_OTLP_ENDPOINT` | _unset_ | Default OTLP/HTTP endpoint used by `--metrics-otlp` when no `--otlp-endpoint` is given |
+| `PROMPT_OPT_AUGMENT_RPS` | `4` | Per-augment-source rate limit (memory / kg / digest / peers) |
+| `PROMPT_OPT_AUGMENT_BREAKER` | `5` | Consecutive-failure threshold before an augment source is tripped |
+| `PROMPT_OPT_AUGMENT_COOLDOWN` | `30000` | Cool-down (ms) after the breaker trips before retrying |
+
+The same keys are also accepted from a JSON config file.  At engine
+startup we read, in priority order (later wins): `~/.promptoptimizer/config.json`,
+`<workspace_root>/.promptoptimizer/config.json`, and finally the
+environment variables above.  Use the file form for fleet rollouts and the
+env vars for ad-hoc local overrides.
+
+### Correlation IDs
+
+Every `PromptOptimizationResponse` now carries a 32-char hex `request_id`.
+Callers can supply their own via `request.correlation_id` (must be 32 hex
+chars) — the engine echoes it back so distributed traces line up across
+the IDE and the optimizer sidecar.
+
+### Compliance: tamper-evident audit log
+
+Cache writes, cache clears, peer changes, and redaction events are
+appended to an `audit_log` table.  Each row stores a SHA-256 prompt hash
+(raw bodies are off by default) and a chained `row_hash` so a missing or
+mutated row breaks the chain.  Inspect with:
+
+```bash
+node dist/cli.js --audit-log --limit 50          # last 50 events
+node dist/cli.js --audit-log --verify            # walk the chain
+```
 
 ### What is hardened
 
-- **SQLite**: WAL journaling, 5s busy timeout, `synchronous=NORMAL`, `foreign_keys=ON`, schema-version row (currently 3) for forward-compatible migrations.
+- **SQLite**: WAL journaling, 5s busy timeout, `synchronous=NORMAL`, `foreign_keys=ON`, schema-version row (currently 5) for forward-compatible migrations.
 - **Secret / PII redaction** at every persistence boundary (semantic cache writes, workspace memory snapshots, file digest summaries).
 - **Metrics** persisted in an `engine_metrics` table; counters are incremented on every request, cache outcome, write, redaction hit, and maintenance run.
 - **Retention** caps the database row growth per workspace and prunes stale entries.
 - **Health check** validates integrity, schema version, and that all 9 required tables exist.
 - **Online backup** produces a consistent point-in-time copy without stopping the engine.
+
+### Error reporting
+
+Engine subsystems funnel their failures through a single helper
+(`reportEngineError` in `src/engine/logger.ts`).  The helper:
+
+1. emits a structured log line on stderr respecting `PROMPT_OPT_LOG_LEVEL` and `PROMPT_OPT_LOG_FORMAT`;
+2. increments an `errors.<scope>` counter in the `engine_metrics` table whenever a `MetricsRegistry` is supplied (which `PromptProxyEngine` and `SemanticCacheManager` both do).
+
+Inspect failures with:
+
+```bash
+node dist/cli.js --metrics --db prompt_semantic_cache.db | jq '.[] | select(.metric | startswith("errors."))'
+```
+
+Recognised counter scopes include `errors.cache_lookup`, `errors.cache_search`, `errors.cache_write`, `errors.cache_check`, `errors.cache_clear`, `errors.cache_prune`, `errors.cache_semantic_search`, `errors.versioning_record`, `errors.augment_memory`, `errors.augment_kg`, `errors.augment_digest`, `errors.augment_peers`, and `errors.augment_global_peer`.  The augment-* scopes log at `warn` level because the optimizer always recovers; cache-* scopes log at `error`.  The VS Code extension wires its own `reportError()` (in `vscode-extension/src/util/errorReporter.ts`) for user-facing toasts with a one-click "📧 Email author" recovery action.
+
+### Metrics export (OpenTelemetry)
+
+Counters can be exported in OTLP/JSON line-protocol shape so any
+OpenTelemetry Collector / Fluent Bit / Vector sidecar can ingest them
+without a custom plug-in:
+
+```bash
+# Print to stdout (pipe into a sidecar):
+node dist/cli.js --metrics-otlp
+
+# Or POST directly to an OTLP/HTTP collector:
+node dist/cli.js --metrics-otlp --otlp-endpoint https://otel.example.com/v1/metrics
+```
+
+### Validating requests against the contract
+
+The CLI ships the JSON Schema that mirrors `src/contracts.ts`:
+
+```bash
+node dist/cli.js --schema > contracts.schema.json
+```
+
+Use it from CI / IntelliJ / curl pipelines to validate request shapes
+without taking a TypeScript dependency.
 
 ## VS Code Extension Package
 

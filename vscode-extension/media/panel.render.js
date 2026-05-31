@@ -125,6 +125,9 @@ function renderState(state) {
     refinementsAccordion.open = false;
   }
 
+  // ── Forecast cost details (estimates only) ────────────────────────────────
+  renderCostForecast(state);
+
   // ── Lint diagnostics ───────────────────────────────────────────────────────
   var diagnosticsGrid = document.getElementById('diagnosticsGrid');
   clearChildren(diagnosticsGrid);
@@ -167,4 +170,55 @@ function renderState(state) {
       diagnosticsGrid.appendChild(li);
     });
   }
+}
+
+// ── Forecast cost rendering ───────────────────────────────────────────────────
+// Renders the input/output/total breakdown into the accordion table.  The
+// figures come straight from the engine's pricing module (see
+// src/engine/pricing.ts) — they are estimates, not billed amounts.
+function renderCostForecast(state) {
+  var body  = document.getElementById('costForecastBody');
+  var foot  = document.getElementById('costForecastFooterTotal');
+  var badge = document.getElementById('costForecastTotal');
+  if (!body || !foot || !badge) { return; }
+
+  var metrics  = state.metrics  || {};
+  var analysis = state.analysis || {};
+  var cost     = analysis.cost  || {};
+  var inputTokens  = metrics.optimized_input_tokens  || 0;
+  var outputTokens = metrics.estimated_output_tokens || 0;
+  var inputRate    = cost.input_cost_per_1k_tokens   || 0;
+  var outputRate   = cost.output_cost_per_1k_tokens  || 0;
+  var inputCost    = cost.input_cost_usd  || 0;
+  var outputCost   = cost.output_cost_usd || 0;
+  var totalCost    = cost.total_cost_usd  || 0;
+
+  var rows = [
+    { label: 'Optimized input',     tokens: inputTokens,  rate: inputRate,  cost: inputCost  },
+    { label: 'Estimated output',    tokens: outputTokens, rate: outputRate, cost: outputCost },
+  ];
+
+  // Tear down + rebuild — small table, simpler than diffing.
+  while (body.firstChild) { body.removeChild(body.firstChild); }
+  rows.forEach(function(row) {
+    var tr = document.createElement('tr');
+    var tdLabel  = document.createElement('td'); tdLabel.textContent  = row.label;
+    var tdTok    = document.createElement('td'); tdTok.textContent    = String(row.tokens);
+    tdTok.style.textAlign = 'right';
+    var tdRate   = document.createElement('td'); tdRate.textContent   = formatCurrency(row.rate);
+    tdRate.style.textAlign = 'right';
+    var tdCost   = document.createElement('td'); tdCost.textContent   = formatCurrency(row.cost);
+    tdCost.style.textAlign = 'right';
+    tr.appendChild(tdLabel);
+    tr.appendChild(tdTok);
+    tr.appendChild(tdRate);
+    tr.appendChild(tdCost);
+    body.appendChild(tr);
+  });
+
+  foot.textContent  = formatCurrency(totalCost);
+  badge.textContent = formatCurrency(totalCost);
+
+  var accordion = document.getElementById('costForecastAccordion');
+  if (accordion) { accordion.open = false; }
 }

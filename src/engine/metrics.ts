@@ -21,7 +21,23 @@ export type MetricName =
   | 'kg.nodes_upserted'
   | 'kg.edges_upserted'
   | 'maintenance.runs'
-  | 'maintenance.entries_evicted';
+  | 'maintenance.entries_evicted'
+  | 'errors.cache_lookup'
+  | 'errors.cache_search'
+  | 'errors.cache_write'
+  | 'errors.cache_check'
+  | 'errors.cache_clear'
+  | 'errors.cache_prune'
+  | 'errors.cache_init'
+  | 'errors.cache_open'
+  | 'errors.cache_close'
+  | 'errors.cache_semantic_search'
+  | 'errors.versioning_record'
+  | 'errors.augment_memory'
+  | 'errors.augment_kg'
+  | 'errors.augment_digest'
+  | 'errors.augment_peers'
+  | 'errors.augment_global_peer';
 
 export class MetricsRegistry {
   private readonly incStmt;

@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/promptoptimizer/contracts.schema.json",
+  "title": "PromptOptimizer Contracts",
+  "description": "Hand-authored JSON Schema for the engine's request and response objects. Lets non-TypeScript callers (CI, IntelliJ plugin, REST sidecars) validate payloads against the same contract that ships in src/contracts.ts.",
+  "definitions": {
+    "EngineMode": {
+      "type": "string",
+      "enum": ["fast", "balanced", "high-fidelity"]
+    },
+    "PromptOptimizationRequest": {
+      "type": "object",
+      "required": ["raw_prompt"],
+      "additionalProperties": true,
+      "properties": {
+        "raw_prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200000,
+          "description": "The user's original prompt text."
+        },
+        "target_model": {
+          "type": "string",
+          "description": "Logical name of the downstream LLM (e.g. 'gpt-4o', 'claude-3-5-sonnet')."
+        },
+        "session_id": {
+          "type": "string",
+          "description": "Caller-defined session identifier; used for deduplication and log grouping."
+        },
+        "correlation_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$",
+          "description": "Optional 32-hex-character correlation ID. When omitted the engine assigns its own."
+        },
+        "mode": { "$ref": "#/definitions/EngineMode" },
+        "max_optimized_chars": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 200000
+        },
+        "include_context": {
+          "type": "boolean"
+        },
+        "workspace_root": {
+          "type": "string"
+        }
+      }
+    },
+    "PromptOptimizationResponse": {
+      "type": "object",
+      "required": ["optimized_prompt", "cache_hit"],
+      "additionalProperties": true,
+      "properties": {
+        "optimized_prompt": { "type": "string" },
+        "cache_hit": { "type": "boolean" },
+        "similarity_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "applied_signals": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "vector_version": { "type": "string" },
+        "schema_version": { "type": "integer" },
+        "redaction_hits": { "type": "integer", "minimum": 0 },
+        "augmented_bytes": { "type": "integer", "minimum": 0 }
+      }
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/definitions/PromptOptimizationRequest" },
+    { "$ref": "#/definitions/PromptOptimizationResponse" }
+  ]
+}

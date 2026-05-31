@@ -728,6 +728,7 @@ export async function runRegressionScenarios(): Promise<void> {
   console.log('  enterprise hardening: PASSED');
 
   await runPhaseAMemoryScenario();
+  await runPropertyTestScenario();
 }
 
 async function runPhaseAMemoryScenario(): Promise<void> {
@@ -816,6 +817,79 @@ async function runPhaseAMemoryScenario(): Promise<void> {
     process.env.PROMPT_OPT_DISABLE_GLOBAL = '1'; // keep hermetic for any later scenarios
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   }
+}
+
+/**
+ * Scenario 19 — property-based fuzz over the redactor + IR round-trip.
+ *
+ * Uses a deterministic LCG seed so failures are reproducible.  Two
+ * invariants are checked across 200 random inputs:
+ *
+ *   1. After `redactForPersistence` runs, no portion of any known secret
+ *      prefix (sk-, ghp_, AKIA, xoxb-, AIza) survives in the redacted text.
+ *   2. `compilePromptIR(parseToPromptIR(s))` never throws on Unicode-rich
+ *      input and always produces a non-empty string.
+ */
+async function runPropertyTestScenario(): Promise<void> {
+  console.log('\n19. Property-based fuzz over redactor + IR round-trip...');
+  const { redactForPersistence } = await import('../engine/redactor.js');
+  const { parseToPromptIR, compilePromptIR } = await import('../PromptIRHelper.js');
+
+  // Tiny LCG (Numerical Recipes) for deterministic randomness.
+  let state = 0x1337c0de;
+  const rand = (): number => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state / 0x1_0000_0000;
+  };
+  const pickChar = (): string => {
+    const cp = Math.floor(rand() * 0x2000) + 0x20;
+    return String.fromCodePoint(cp);
+  };
+  const randomString = (min: number, max: number): string => {
+    const len = Math.floor(rand() * (max - min)) + min;
+    let out = '';
+    for (let i = 0; i < len; i++) { out += pickChar(); }
+    return out;
+  };
+
+  // Each fake secret is shaped so it actually matches the production redactor patterns.
+  const FAKE_SECRETS: Array<{ prefix: string; secret: string }> = [
+    { prefix: 'sk-',   secret: 'sk-' + 'A'.repeat(40) },
+    { prefix: 'ghp_',  secret: 'ghp_' + 'a'.repeat(40) },
+    { prefix: 'AKIA',  secret: 'AKIA' + 'ABCDEFGHIJKLMNOP' },
+    { prefix: 'xoxb-', secret: 'xoxb-' + '1234567890-1234567890-' + 'a'.repeat(24) },
+    { prefix: 'AIza',  secret: 'AIza' + 'a'.repeat(35) },
+  ];
+  let redactionsTested = 0;
+  for (let i = 0; i < 200; i++) {
+    const fuzz = randomString(20, 400);
+    const fake = FAKE_SECRETS[i % FAKE_SECRETS.length];
+    const haystack = `${fuzz} ${fake.secret} ${fuzz}`;
+    const result = redactForPersistence(haystack);
+    if (!result.redacted.includes(fake.secret)) { redactionsTested++; }
+    assert.ok(
+      !result.redacted.includes(fake.secret),
+      `redactor must remove ${fake.prefix} secret tokens (iteration ${i})`,
+    );
+  }
+  assert.ok(redactionsTested >= 200, 'every fake secret should be redacted');
+
+  let irRoundTrips = 0;
+  for (let i = 0; i < 200; i++) {
+    const fuzz = randomString(15, 300);
+    try {
+      const ir = parseToPromptIR(fuzz);
+      const compiled = compilePromptIR(ir, 'local');
+      assert.ok(typeof compiled === 'string' && compiled.length > 0,
+        'compilePromptIR must always return a non-empty string');
+      irRoundTrips++;
+    } catch (err) {
+      throw new Error(`IR round-trip threw on input ${JSON.stringify(fuzz)}: ${(err as Error).message}`);
+    }
+  }
+  assert.equal(irRoundTrips, 200, 'all 200 IR round-trips should succeed');
+
+  console.log('  property-based fuzz: PASSED');
 }
 
 

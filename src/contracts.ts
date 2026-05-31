@@ -54,6 +54,12 @@ export interface PromptOptimizationRequest {
   pricing?: PromptPricingConfig;
   workspace_id?: string;
   target_model?: 'claude' | 'gpt' | 'gemini' | 'local';
+  /**
+   * Optional caller-supplied correlation ID that the engine will echo back
+   * on the response.  Must be 32 hex characters; if omitted (or invalid)
+   * the engine assigns its own.
+   */
+  correlation_id?: string;
 }
 
 export interface PromptCacheCandidate {
@@ -107,6 +113,12 @@ export interface PromptOptimizationResponse {
     trigger: string | null;
     read_only: boolean;
   };
+  /**
+   * Per-call correlation ID (32 hex chars).  Echoes back the request's
+   * `correlation_id` if it was valid; otherwise this is a freshly-minted
+   * ID for log/audit join.
+   */
+  request_id?: string;
 }
 
 export type ProcessPromptResponse = PromptOptimizationResponse;

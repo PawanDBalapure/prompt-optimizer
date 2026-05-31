@@ -1,5 +1,27 @@
 ﻿# Changelog
 
+## 2.9.0 — Forecast cost details + enterprise hardening
+
+### Added
+
+- **Forecast cost details accordion** under Refinements — clear tabular breakdown of optimized input tokens, estimated output tokens, per‑1K rates, and estimated subtotals, with an explicit notice that the figures are **estimates**, not actual billed amounts.
+- **Tamper‑evident audit log** (`audit_log` table, schema v4) — chained `row_hash` records cache writes, clears, and redaction events. Hash‑only by default; opt into raw bodies with `PROMPT_OPT_AUDIT_RAW=1`. New CLI flags `--audit-log [--limit N | --verify]`.
+- **Correlation IDs** — every `PromptOptimizationResponse` now carries a 32‑hex `request_id`. Callers can supply their own via `request.correlation_id`.
+- **Per‑augment‑source circuit breaker** — token bucket + failure threshold protects optimizer latency when memory / KG / digest / peer ingestion misbehaves.
+- **OpenTelemetry export** — new `--metrics-otlp [--otlp-endpoint URL]` CLI flag emits OTLP/JSON line‑protocol metrics for any OTel Collector / Vector / Fluent Bit sidecar (no SDK dependency).
+- **JSON Schema for the wire contract** — `schemas/contracts.schema.json`, exposed via `--schema` CLI flag.
+- **Engine config file** — `~/.promptoptimizer/config.json` and `<workspace>/.promptoptimizer/config.json` merge with env vars at startup.
+
+### Changed
+
+- **Schema version bumped to 5** — migrations refactored into a `MIGRATIONS[]` array (`src/cache/migrations.ts`); `peer_workspaces` gains `kind` / `endpoint` / `auth_token` columns (transport not yet wired).
+- **Cache similarity scan is now bounded** — `loadRows()` honours `PROMPT_OPT_MAX_CANDIDATES` (default 2000), ordered by `usage_count DESC, timestamp DESC`. Avoids O(n) full‑table scans on large workspaces.
+- **`Vectorizer` interface** decouples `SemanticCacheManager` from the concrete `LocalSemanticVectorizer`, paving the way for ONNX/MiniLM swaps without cache invalidation surprises.
+
+### Tests
+
+- New scenario 19: deterministic property‑based fuzz over the redactor and IR parser/compiler round‑trip (200 iterations × 5 known secret families). All 19 scenarios pass.
+
 ## 2.8.0 — Local model bundle + Optimize-first defaults
 
 ### Added

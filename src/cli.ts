@@ -47,6 +47,9 @@ function printHelp(): void {
       '   or: prompt-proxy-engine --digest-clear [--workspace <id>] [--db <path>]\n' +
       '   or: prompt-proxy-engine --health-check [--db <path>]\n' +
       '   or: prompt-proxy-engine --metrics [--reset] [--db <path>]\n' +
+      '   or: prompt-proxy-engine --metrics-otlp [--otlp-endpoint <url>] [--db <path>]\n' +
+      '   or: prompt-proxy-engine --schema (prints schemas/contracts.schema.json)\n' +
+      '   or: prompt-proxy-engine --audit-log [--limit N] [--verify] [--db <path>]\n' +
       '   or: prompt-proxy-engine --db-prune [--max-cache N] [--max-digests N] [--max-kg N] [--older-than-days N] [--vacuum] [--db <path>]\n' +
       '   or: prompt-proxy-engine --export-db <destination.db> [--db <path>]\n' +
       '   or: prompt-proxy-engine --recall-memory [--query "..."] [--workspace <id>] [--scope workspace|user|all] [--limit N] [--format json|markdown] [--db <path>]\n' +
@@ -323,6 +326,74 @@ async function handleMetrics(args: string[]): Promise<void> {
   }
 }
 
+async function handleMetricsOtlp(args: string[]): Promise<void> {
+  const { snapshotAsOtlp, pushOtlp } = await import('./engine/otlp.js');
+  const endpoint = resolveArg(args, '--otlp-endpoint') ?? process.env.PROMPT_OPT_OTLP_ENDPOINT;
+  const engine = new PromptProxyEngine(resolveDbPath(args) ? { db_path: resolveDbPath(args) } : {});
+  await engine.initialize();
+  try {
+    const metrics = engine.getCacheManager().metrics();
+    if (!metrics) {
+      process.stdout.write(`${JSON.stringify({ ok: false, error: 'metrics unavailable' })}\n`);
+      process.exitCode = 1;
+      return;
+    }
+    const envelope = snapshotAsOtlp(metrics);
+    if (!endpoint) {
+      // No endpoint — print the OTLP/JSON payload so a sidecar can pipe it.
+      process.stdout.write(`${JSON.stringify(envelope)}\n`);
+      return;
+    }
+    const result = await pushOtlp(endpoint, envelope);
+    process.stdout.write(`${JSON.stringify({ endpoint, ...result })}\n`);
+    if (!result.ok) { process.exitCode = 1; }
+  } finally {
+    engine.close();
+  }
+}
+
+function handleSchemaPrint(): void {
+  // schemas/ ships beside the package; resolve relative to this module.
+  const here = path.dirname(new URL(import.meta.url).pathname.replace(/^\//, '')) ;
+  const candidates = [
+    path.resolve(here, '..', 'schemas', 'contracts.schema.json'),
+    path.resolve(here, '..', '..', 'schemas', 'contracts.schema.json'),
+    path.resolve(process.cwd(), 'schemas', 'contracts.schema.json'),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      process.stdout.write(fs.readFileSync(candidate, 'utf8'));
+      if (!fs.readFileSync(candidate, 'utf8').endsWith('\n')) {
+        process.stdout.write('\n');
+      }
+      return;
+    }
+  }
+  process.stderr.write('Error: contracts.schema.json not found.\n');
+  process.exitCode = 1;
+}
+
+async function handleAuditLog(args: string[]): Promise<void> {
+  const { readAuditTail, verifyAuditChain } = await import('./engine/auditLog.js');
+  const engine = new PromptProxyEngine(resolveDbPath(args) ? { db_path: resolveDbPath(args) } : {});
+  await engine.initialize();
+  try {
+    const db = engine.getCacheManager().rawDatabase();
+    if (args.includes('--verify')) {
+      const result = verifyAuditChain(db);
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      if (!result.ok) { process.exitCode = 1; }
+      return;
+    }
+    const limitRaw = resolveArg(args, '--limit');
+    const limit = limitRaw ? Math.max(1, Number.parseInt(limitRaw, 10) || 100) : 100;
+    const rows = readAuditTail(db, limit);
+    process.stdout.write(`${JSON.stringify({ rows }, null, 2)}\n`);
+  } finally {
+    engine.close();
+  }
+}
+
 async function handleDbPrune(args: string[]): Promise<void> {
   const numArg = (flag: string): number | undefined => {
     const v = resolveArg(args, flag);
@@ -553,8 +624,23 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (args.includes('--metrics-otlp')) {
+    await handleMetricsOtlp(args);
+    return;
+  }
+
   if (args.includes('--metrics')) {
     await handleMetrics(args);
+    return;
+  }
+
+  if (args.includes('--schema')) {
+    handleSchemaPrint();
+    return;
+  }
+
+  if (args.includes('--audit-log')) {
+    await handleAuditLog(args);
     return;
   }
 

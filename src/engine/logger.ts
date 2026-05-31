@@ -69,3 +69,58 @@ export function createLogger(scope: string): Logger {
 
 /** Expose the resolved level for diagnostics / health reports. */
 export function activeLogLevel(): LogLevel { return ACTIVE_LEVEL; }
+
+/**
+ * Minimal counter sink the unified `reportEngineError` helper writes to.
+ *
+ * The engine library cannot import `MetricsRegistry` here without creating a
+ * cycle (metrics.ts depends on `Database` and is constructed by the cache
+ * manager).  Instead we accept a duck-typed `{ increment(name, by?) }`
+ * implementation, which `MetricsRegistry` satisfies natively.
+ */
+export interface ErrorMetricSink {
+  increment(name: string, by?: number): void;
+}
+
+export interface ReportErrorOptions {
+  /** Optional structured metadata appended to the log line. */
+  meta?: Record<string, unknown>;
+  /** Optional metrics sink; receives `errors.<scope>` += 1. */
+  metrics?: ErrorMetricSink | null;
+  /** Override the metric name (defaults to `errors.<scope>`). */
+  metricName?: string;
+  /**
+   * Log level (default `error`).  Use `warn` for recoverable failures that
+   * the engine deliberately swallows so the optimization stays online.
+   */
+  level?: 'warn' | 'error';
+}
+
+/**
+ * Single funnel for engine-side failures.  Every catch-block in the engine
+ * should call this instead of `console.error` so:
+ *
+ *   1. the message respects `PROMPT_OPT_LOG_LEVEL` and JSON formatting;
+ *   2. an `errors.<scope>` counter is bumped on the supplied metrics sink
+ *      (defaults to a no-op when not wired) so health/insights surfaces
+ *      can show *which* subsystem is failing without scraping logs;
+ *   3. extension hosts that wire a higher-level reporter can subscribe to
+ *      the metrics row instead of patching console output.
+ *
+ * Never throws — error reporting must not error.
+ */
+export function reportEngineError(
+  scope: string,
+  error: unknown,
+  options: ReportErrorOptions = {},
+): void {
+  const message = error instanceof Error ? error.message : String(error);
+  const meta: Record<string, unknown> = { ...(options.meta ?? {}), error: message };
+  if (error instanceof Error && error.stack) { meta.stack = error.stack; }
+  const level = options.level ?? 'error';
+  emit(level, scope, message || 'unknown error', meta);
+  try {
+    options.metrics?.increment(options.metricName ?? `errors.${scope}`);
+  } catch { /* metrics must never break reporting */ }
+}
+

@@ -4,6 +4,7 @@ export interface VectorizedTextFeatures {
 }
 
 import { STOP_WORDS, SYNONYM_MAP } from './vector/lexicon.js';
+import type { Vectorizer } from './vector/vectorizer.js';
 
 const DEFAULT_DIMENSION = 512;
 const DEFAULT_VECTOR_VERSION = 'local-hashed-rag-v1';
@@ -23,7 +24,7 @@ const SIGNAL_RULES: Array<{ test: (lower: string, raw: string) => boolean; signa
   { test: (_l, r) => r.split(/\r?\n/).length > 3, signal: 'signal_multiline_prompt' },
 ];
 
-export class LocalSemanticVectorizer {
+export class LocalSemanticVectorizer implements Vectorizer {
   public readonly dimension = DEFAULT_DIMENSION;
   public readonly vectorVersion = DEFAULT_VECTOR_VERSION;
 

@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { reportEngineError } from '../engine/logger.js';
 
 export interface PromptVersionRow {
   version: number;
@@ -30,7 +31,7 @@ export function recordVersion(
     `).run(key, nextVer, rawPrompt, optimizedPrompt, targetModel, Date.now(), performanceScore, branch);
     return nextVer;
   } catch (error) {
-    console.error('[SemanticCacheManager] Failed to record version:', error);
+    reportEngineError('versioning_record', error);
     return -1;
   }
 }

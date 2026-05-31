@@ -179,6 +179,38 @@
         </details>
       </div>
 
+      <div style="margin-top:10px">
+        <details class="po-accordion" id="costForecastAccordion">
+          <summary class="po-accordion-summary">
+            <span class="po-accordion-chevron" aria-hidden="true">▶</span>
+            <span class="section-title" style="margin:0">Forecast Cost Details</span>
+            <span class="po-count-badge po-count-zero" id="costForecastTotal" aria-label="Estimated total cost">$0.00</span>
+          </summary>
+          <div class="po-accordion-body">
+            <p class="po-cost-disclaimer" id="costForecastDisclaimer">
+              ⚠️ Values shown are <strong>estimates</strong> based on token counting and configured pricing — they are not actual billed amounts. Real costs depend on the upstream provider's tokenizer and metering.
+            </p>
+            <table class="po-cost-table" id="costForecastTable" aria-label="Forecast cost details">
+              <thead>
+                <tr>
+                  <th scope="col">Item</th>
+                  <th scope="col" style="text-align:right">Tokens</th>
+                  <th scope="col" style="text-align:right">Rate / 1K</th>
+                  <th scope="col" style="text-align:right">Est. Cost</th>
+                </tr>
+              </thead>
+              <tbody id="costForecastBody"></tbody>
+              <tfoot>
+                <tr>
+                  <th scope="row" colspan="3" style="text-align:right">Estimated Total</th>
+                  <td id="costForecastFooterTotal" style="text-align:right">$0.00</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </details>
+      </div>
+
       <div style="margin-top:10px" id="diagnosticsSection">
         <details class="po-accordion" id="diagnosticsAccordion">
           <summary class="po-accordion-summary">

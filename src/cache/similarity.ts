@@ -1,4 +1,4 @@
-import type { LocalSemanticVectorizer } from '../localSemanticVectorizer.js';
+import type { Vectorizer } from '../vector/vectorizer.js';
 
 export const SEMANTIC_HIT_THRESHOLD = 0.68;
 // Confidence-aware threshold tuning: well-used entries match more readily.
@@ -31,7 +31,7 @@ function buildComparisonFeatures(features: { tokens: string[]; signals: string[]
 }
 
 export function calculateSimilarityScore(
-  vectorizer: LocalSemanticVectorizer,
+  vectorizer: Vectorizer,
   queryText: string,
   queryVector: Float32Array,
   candidateText: string,

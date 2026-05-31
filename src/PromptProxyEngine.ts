@@ -33,6 +33,16 @@ import {
 import { containsLegacyExampleSection, sanitizeOptimizedPrompt } from './engine/sanitizer.js';
 import type { ResolvedPromptPricingConfig } from './engine/types.js';
 import { hashPromptKey, withTimeout } from './engine/utils.js';
+import { reportEngineError } from './engine/logger.js';
+import { newRequestId, isRequestId } from './engine/requestId.js';
+import { AugmentBreaker } from './engine/circuitBreaker.js';
+import {
+  loadEngineConfig,
+  pickAugmentRps,
+  pickBreakerThreshold,
+  pickBreakerCooldown,
+  type ResolvedEngineConfig,
+} from './engine/config.js';
 import { KnowledgeGraph } from './engine/knowledgeGraph.js';
 import { FileDigestStore } from './engine/fileDigest.js';
 import {
@@ -65,11 +75,23 @@ export class PromptProxyEngine {
   private federation: CrossWorkspaceFederation | null = null;
   private fileDigests: FileDigestStore | null = null;
   private maintenanceService: MaintenanceService | null = null;
+  private readonly engineConfig: ResolvedEngineConfig;
+  private readonly augmentBreaker: AugmentBreaker;
 
   constructor(options?: string | PromptProxyEngineOptions) {
     const dbPath = typeof options === 'string' ? options : options?.db_path;
     this.cacheManager = new SemanticCacheManager(dbPath);
     this.defaultPricing = resolvePricing(typeof options === 'string' ? undefined : options?.pricing);
+    // Config is loaded once at construction; ops can hot-restart the host
+    // process to pick up new values — cheap given how short engine startup is.
+    this.engineConfig = loadEngineConfig(
+      typeof options === 'string' ? undefined : options?.db_path ? undefined : undefined,
+    );
+    this.augmentBreaker = new AugmentBreaker({
+      ratePerSec: pickAugmentRps(this.engineConfig),
+      failureThreshold: pickBreakerThreshold(this.engineConfig),
+      cooldownMs: pickBreakerCooldown(this.engineConfig),
+    });
   }
 
   public async initialize(): Promise<void> {
@@ -83,7 +105,12 @@ export class PromptProxyEngine {
       // Auto-register the user-global memory DB so workspace recall is
       // automatically federated against the user's L1 memory tier.
       try { ensureGlobalPeer(this.federation, this.cacheManager.databasePath()); }
-      catch { /* never fail init on federation hiccup */ }
+      catch (err) {
+        reportEngineError('augment_global_peer', err, {
+          metrics: this.cacheManager.metrics(),
+          level: 'warn',
+        });
+      }
     }
   }
 
@@ -123,10 +150,11 @@ export class PromptProxyEngine {
   public async processRequest(
     request: PromptOptimizationRequest,
   ): Promise<PromptOptimizationResponse> {
+    const requestId = isRequestId(request.correlation_id) ? request.correlation_id : newRequestId();
     const originalRaw = request.raw_prompt?.trim() ?? '';
     const pricing = resolvePricing(request.pricing, this.defaultPricing);
     if (originalRaw === '') {
-      return createEmptyResponse(pricing);
+      return { ...createEmptyResponse(pricing), request_id: requestId };
     }
 
     // SDLC mode detection (slash command or intent words).  We strip the
@@ -163,6 +191,7 @@ export class PromptProxyEngine {
       workspaceId,
       request.ide_context,
       stackInfo,
+      requestId,
     );
 
     const cacheStatus = cacheResult?.matchType ?? 'miss';
@@ -231,6 +260,7 @@ export class PromptProxyEngine {
       sdlc_mode: sdlcMode
         ? { id: sdlcMode.id, label: sdlcMode.label, trigger: sdlcMode.trigger, read_only: sdlcMode.readOnly }
         : undefined,
+      request_id: requestId,
     };
   }
 
@@ -251,49 +281,91 @@ export class PromptProxyEngine {
     workspaceId: string,
     ide: PromptIDEContext | undefined,
     stackInfo: ReturnType<typeof inferRepoStack>,
+    requestId: string,
   ): string[] {
     const sections: string[] = [];
     const db = this.cacheManager.rawDatabase();
+    const breaker = this.augmentBreaker;
 
-    try {
-      const memory = readWorkspaceMemory(ide?.workspace_root, workspaceId);
-      if (memory.entries.length > 0) {
-        sections.push(...formatMemorySections(memory));
-        if (db) { persistMemorySnapshot(db, memory); }
+    if (!breaker.shouldSkip('memory')) {
+      try {
+        const memory = readWorkspaceMemory(ide?.workspace_root, workspaceId);
+        if (memory.entries.length > 0) {
+          sections.push(...formatMemorySections(memory));
+          if (db) { persistMemorySnapshot(db, memory); }
+        }
+        breaker.recordSuccess('memory');
+      } catch (err) {
+        breaker.recordFailure('memory');
+        reportEngineError('augment_memory', err, {
+          metrics: this.cacheManager.metrics(),
+          level: 'warn',
+          meta: { request_id: requestId },
+        });
       }
-    } catch { /* memory ingestion must never break optimization */ }
+    }
 
-    try {
-      if (this.knowledgeGraph) {
-        this.knowledgeGraph.recordWorkspaceGraph(workspaceId, rawPrompt, ide, stackInfo);
-        const suggestions = this.knowledgeGraph.collectGraphContext(workspaceId, rawPrompt);
-        for (const suggestion of suggestions) { sections.push(suggestion.text); }
+    if (!breaker.shouldSkip('kg')) {
+      try {
+        if (this.knowledgeGraph) {
+          this.knowledgeGraph.recordWorkspaceGraph(workspaceId, rawPrompt, ide, stackInfo);
+          const suggestions = this.knowledgeGraph.collectGraphContext(workspaceId, rawPrompt);
+          for (const suggestion of suggestions) { sections.push(suggestion.text); }
+        }
+        breaker.recordSuccess('kg');
+      } catch (err) {
+        breaker.recordFailure('kg');
+        reportEngineError('augment_kg', err, {
+          metrics: this.cacheManager.metrics(),
+          level: 'warn',
+          meta: { request_id: requestId },
+        });
       }
-    } catch { /* KG must never break optimization */ }
+    }
 
     // Per-file digest: record what we have studied this turn, then surface
     // recall hints for files we have seen before but are NOT re-injecting in
     // full content this turn.  This is the cross-session "I remember this
     // file" signal that survives a new chat.
-    try {
-      if (this.fileDigests) {
-        this.fileDigests.recordFromIde(workspaceId, ide);
-        const liveFilePaths = new Set<string>();
-        if (ide?.active_file?.path) { liveFilePaths.add(ide.active_file.path); }
-        for (const f of ide?.open_files ?? []) {
-          if (f?.path) { liveFilePaths.add(f.path); }
+    if (!breaker.shouldSkip('digest')) {
+      try {
+        if (this.fileDigests) {
+          this.fileDigests.recordFromIde(workspaceId, ide);
+          const liveFilePaths = new Set<string>();
+          if (ide?.active_file?.path) { liveFilePaths.add(ide.active_file.path); }
+          for (const f of ide?.open_files ?? []) {
+            if (f?.path) { liveFilePaths.add(f.path); }
+          }
+          const recall = this.fileDigests.formatRecallSections(workspaceId, liveFilePaths);
+          sections.push(...recall);
         }
-        const recall = this.fileDigests.formatRecallSections(workspaceId, liveFilePaths);
-        sections.push(...recall);
+        breaker.recordSuccess('digest');
+      } catch (err) {
+        breaker.recordFailure('digest');
+        reportEngineError('augment_digest', err, {
+          metrics: this.cacheManager.metrics(),
+          level: 'warn',
+          meta: { request_id: requestId },
+        });
       }
-    } catch { /* digest layer must never break optimization */ }
+    }
 
-    try {
-      if (this.federation) {
-        const peerMatches = this.federation.searchPeers(rawPrompt);
-        sections.push(...CrossWorkspaceFederation.formatPeerSections(peerMatches));
+    if (!breaker.shouldSkip('peers')) {
+      try {
+        if (this.federation) {
+          const peerMatches = this.federation.searchPeers(rawPrompt);
+          sections.push(...CrossWorkspaceFederation.formatPeerSections(peerMatches));
+        }
+        breaker.recordSuccess('peers');
+      } catch (err) {
+        breaker.recordFailure('peers');
+        reportEngineError('augment_peers', err, {
+          metrics: this.cacheManager.metrics(),
+          level: 'warn',
+          meta: { request_id: requestId },
+        });
       }
-    } catch { /* peer search must never break optimization */ }
+    }
 
     return enforceAugmentedBudget(sections);
   }
@@ -307,7 +379,7 @@ export class PromptProxyEngine {
       const lookup = this.cacheManager.checkCache(snapshot, workspaceId);
       return mode === 'blocking' ? await lookup : await withTimeout(lookup, CACHE_TIMEOUT_MS, null);
     } catch (error) {
-      console.error('[PromptProxyEngine] Cache lookup error:', error);
+      reportEngineError('cache_lookup', error, { metrics: this.cacheManager.metrics() });
       return null;
     }
   }
@@ -326,7 +398,7 @@ export class PromptProxyEngine {
         timestamp: match.timestamp,
       }));
     } catch (error) {
-      console.error('[PromptProxyEngine] Cache search error:', error);
+      reportEngineError('cache_search', error, { metrics: this.cacheManager.metrics() });
       return [];
     }
   }
@@ -342,7 +414,7 @@ export class PromptProxyEngine {
       return;
     }
     this.cacheManager.writeToCache(snapshot, optimizedPrompt, workspaceId).catch((error) => {
-      console.error('[PromptProxyEngine] Async background write error:', error);
+      reportEngineError('cache_write', error, { metrics: this.cacheManager.metrics() });
     });
   }
 }
