@@ -33,6 +33,7 @@ import { renderWebviewHtml } from '../webview/loader';
 import { validateMessage } from '../webview/validator';
 import { PROMPT_PROXY_VIEW_TYPE } from './view-type';
 import { runEngineRaw } from '../engine/runner';
+import { ocrImage as runOcrOnBuffer } from '../chat/ocr';
 
 // `scanForSecrets` is re-exported for callers that share the secrets module
 // surface with the panel.
@@ -180,6 +181,7 @@ export class PromptProxyViewProvider implements vscode.WebviewViewProvider {
         return this._sendStatusOverview(webviewView);
       case 'openSecretSettings': return this._sendSecretSettings(webviewView);
       case 'saveSecretSettings': return this._saveSecretSettings(webviewView, data);
+      case 'ocrImage': return this._handleOcrImage(webviewView, data);
     }
   }
 
@@ -277,6 +279,46 @@ export class PromptProxyViewProvider implements vscode.WebviewViewProvider {
     await saveCfg.update('enableSecretDetection', data.enabled === true, vscode.ConfigurationTarget.Global);
     await saveCfg.update('secretPatterns', data.customPatterns ?? [], vscode.ConfigurationTarget.Global);
     webviewView.webview.postMessage({ type: 'secretSettingsSaved' });
+  }
+
+  /**
+   * Decode the base64 image payload posted by the webview, run it through
+   * Tesseract OCR (fully offline), and ship the extracted text back. The
+   * webview correlates responses to requests via the `id` field.
+   */
+  private async _handleOcrImage(
+    webviewView: vscode.WebviewView,
+    data: { id?: string; name?: string; dataBase64?: string },
+  ): Promise<void> {
+    const id = data.id;
+    if (!id || !data.dataBase64) {
+      if (id) {
+        webviewView.webview.postMessage({ type: 'ocrImageResult', id, ok: false, error: 'invalid payload' });
+      }
+      return;
+    }
+    try {
+      const buffer = Buffer.from(data.dataBase64, 'base64');
+      if (buffer.length === 0) {
+        webviewView.webview.postMessage({ type: 'ocrImageResult', id, ok: false, error: 'empty image' });
+        return;
+      }
+      const text = await runOcrOnBuffer(this._context, buffer);
+      webviewView.webview.postMessage({
+        type: 'ocrImageResult',
+        id,
+        ok: true,
+        name: data.name,
+        text: text ?? '',
+      });
+    } catch (err) {
+      webviewView.webview.postMessage({
+        type: 'ocrImageResult',
+        id,
+        ok: false,
+        error: err instanceof Error ? err.message : 'OCR failed',
+      });
+    }
   }
 
   private _getHtmlForWebview(): string {

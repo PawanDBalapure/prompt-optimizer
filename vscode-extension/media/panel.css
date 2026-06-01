@@ -138,6 +138,14 @@
     .send-btn.mic-btn:hover {
       background: var(--vscode-list-hoverBackground, rgba(127, 127, 127, 0.4));
     }
+    .send-btn.attach-btn {
+      right: 84px;
+      background: var(--vscode-button-secondaryBackground, rgba(127, 127, 127, 0.28));
+      color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+    }
+    .send-btn.attach-btn:hover {
+      background: var(--vscode-list-hoverBackground, rgba(127, 127, 127, 0.4));
+    }
     .send-btn:hover { transform: scale(1.1); }
     .send-btn:active { transform: scale(0.95); }
     .send-btn.mic-recording {
@@ -150,6 +158,56 @@
       50%      { box-shadow: 0 0 0 6px rgba(255, 80, 80, 0); }
     }
     .send-btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+    /* Drag-and-drop highlight on the textarea wrapper */
+    .input-wrap.drop-target textarea {
+      outline: 2px dashed var(--vscode-focusBorder, #007acc);
+      outline-offset: -2px;
+      background: var(--vscode-list-hoverBackground, rgba(127, 127, 127, 0.08));
+    }
+    /* Image-attachment chip strip shown below the textarea */
+    .attachment-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 6px;
+      min-height: 0;
+    }
+    .attachment-strip:empty { display: none; }
+    .attach-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      background: var(--vscode-badge-background, rgba(80, 130, 200, 0.25));
+      color: var(--vscode-badge-foreground, var(--vscode-foreground));
+      border: 1px solid var(--vscode-input-border, rgba(128, 128, 128, 0.35));
+      max-width: 240px;
+    }
+    .attach-chip .chip-name {
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      max-width: 160px;
+    }
+    .attach-chip .chip-status {
+      opacity: 0.75;
+      font-size: 10px;
+    }
+    .attach-chip.error {
+      background: var(--vscode-inputValidation-errorBackground, rgba(200, 80, 80, 0.25));
+      color: var(--vscode-inputValidation-errorForeground, #f88);
+    }
+    .attach-chip .chip-remove {
+      background: transparent;
+      border: none;
+      color: inherit;
+      cursor: pointer;
+      padding: 0 2px;
+      font-size: 13px;
+      line-height: 1;
+      opacity: 0.7;
+    }
+    .attach-chip .chip-remove:hover { opacity: 1; }
     .actions {
       display: grid;
       grid-template-columns: 1fr 1fr;

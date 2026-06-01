@@ -19,6 +19,7 @@ const ALLOWED_TYPES = new Set([
   'manageAgentSkills', 'openUserGuide', 'openOnboarding', 'showHistory',
   'commitPrompt', 'showPromptLog', 'switchPromptBranch',
   'reportIssue',
+  'ocrImage',
 ]);
 
 const ALLOWED_MODES = new Set(['agent', 'optimize', 'direct']);
@@ -32,6 +33,11 @@ const MAX_PROMPT_CHARS = 200_000;
 const MAX_PATTERN_CHARS = 2_000;
 const MAX_LABEL_CHARS = 200;
 const MAX_CUSTOM_PATTERNS = 200;
+/** Cap base64 image payloads at ~12 MB encoded (~9 MB raw). */
+const MAX_IMAGE_BASE64_CHARS = 12 * 1024 * 1024;
+const MAX_FILENAME_CHARS = 256;
+const MAX_MIME_CHARS = 64;
+const BASE64_RE = /^[A-Za-z0-9+/=\s]+$/;
 
 function isString(v: unknown): v is string {
   return typeof v === 'string';
@@ -50,6 +56,14 @@ export interface ValidWebviewMessage {
   model?: string;
   enabled?: boolean;
   customPatterns?: CustomSecretPatternConfig[];
+  /** OCR request id (round-trip correlation token from the webview). */
+  id?: string;
+  /** OCR original filename (display only). */
+  name?: string;
+  /** OCR image MIME type, e.g. "image/png". */
+  mime?: string;
+  /** OCR image bytes, base64-encoded. */
+  dataBase64?: string;
 }
 
 /**
@@ -111,6 +125,30 @@ export function validateMessage(raw: unknown): ValidWebviewMessage | null {
       cleaned.push({ pattern, label, matchMode });
     }
     out.customPatterns = cleaned;
+  }
+
+  if (data.id !== undefined) {
+    const id = clampString(data.id, 64);
+    if (id === undefined || !/^[A-Za-z0-9._-]+$/.test(id)) { return null; }
+    out.id = id;
+  }
+  if (data.name !== undefined) {
+    const name = clampString(data.name, MAX_FILENAME_CHARS);
+    if (name === undefined) { return null; }
+    out.name = name;
+  }
+  if (data.mime !== undefined) {
+    const mime = clampString(data.mime, MAX_MIME_CHARS);
+    if (mime === undefined || !/^image\/[a-zA-Z0-9.+-]+$/.test(mime)) { return null; }
+    out.mime = mime;
+  }
+  if (data.dataBase64 !== undefined) {
+    if (!isString(data.dataBase64)) { return null; }
+    if (data.dataBase64.length === 0 || data.dataBase64.length > MAX_IMAGE_BASE64_CHARS) {
+      return null;
+    }
+    if (!BASE64_RE.test(data.dataBase64)) { return null; }
+    out.dataBase64 = data.dataBase64;
   }
 
   return out;

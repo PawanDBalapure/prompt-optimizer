@@ -21,6 +21,7 @@ vsix-2.7-check.zip
 engine/package-lock.json
 engine/tsconfig.json
 .node-runtime-cache/**
+.vsix-prune-cache/**
 dist/**
 **/*.map
 **/*.ts.map
@@ -31,3 +32,58 @@ models/**/_raw/**
 !models/**/*.onnx
 !models/**/*.json
 !models/**/spiece.model
+
+# --- Aggressive node_modules pruning ----------------------------------------
+# These modules carry browser/image artifacts the engine does not need at
+# runtime in Node, plus the dev-only TypeScript compiler. Drop entirely.
+# Use **/node_modules/ so the rules apply to nested engine/node_modules too.
+**/node_modules/sharp/**
+**/node_modules/onnxruntime-web/**
+**/node_modules/typescript/**
+**/node_modules/@xenova/transformers/dist/*.wasm
+
+# gpt-tokenizer ships cjs/, esm/, dist/ (CDN bundle), and src/ (TypeScript).
+# The engine sidecar is ESM ("type": "module"), so the resolver picks esm/.
+# The host extension is CJS and uses cjs/. Keep both; drop dist/ and src/.
+**/node_modules/gpt-tokenizer/dist/**
+**/node_modules/gpt-tokenizer/src/**
+
+# tesseract.js-core ships 6 wasm variants (legacy + simd + relaxedsimd, each
+# with/without LSTM-only). We use the LSTM-only variants (Tesseract 4+ engine).
+# Keep simd-lstm (preferred in Node) and lstm (fallback). Drop the rest.
+**/node_modules/tesseract.js-core/tesseract-core.js
+**/node_modules/tesseract.js-core/tesseract-core.wasm
+**/node_modules/tesseract.js-core/tesseract-core.wasm.js
+**/node_modules/tesseract.js-core/tesseract-core-simd.js
+**/node_modules/tesseract.js-core/tesseract-core-simd.wasm
+**/node_modules/tesseract.js-core/tesseract-core-simd.wasm.js
+**/node_modules/tesseract.js-core/tesseract-core-relaxedsimd.js
+**/node_modules/tesseract.js-core/tesseract-core-relaxedsimd.wasm
+**/node_modules/tesseract.js-core/tesseract-core-relaxedsimd.wasm.js
+**/node_modules/tesseract.js-core/tesseract-core-relaxedsimd-lstm.js
+**/node_modules/tesseract.js-core/tesseract-core-relaxedsimd-lstm.wasm
+**/node_modules/tesseract.js-core/tesseract-core-relaxedsimd-lstm.wasm.js
+
+# Strip dev artifacts from every dep.
+**/node_modules/**/*.ts
+**/node_modules/**/*.map
+**/node_modules/**/test/**
+**/node_modules/**/tests/**
+**/node_modules/**/__tests__/**
+**/node_modules/**/docs/**
+**/node_modules/**/example/**
+**/node_modules/**/examples/**
+**/node_modules/**/.github/**
+**/node_modules/**/.bin/**
+**/node_modules/**/CHANGELOG*
+**/node_modules/**/HISTORY*
+**/node_modules/**/AUTHORS*
+
+# Re-include type declarations the runtime may probe.
+!**/node_modules/**/*.d.ts
+
+# Final overrides: ensure scratch folders never leak even if a negative
+# pattern above re-includes their nested files.
+vsix-check/**
+vsix-2.7-check/**
+.vsix-prune-cache/**

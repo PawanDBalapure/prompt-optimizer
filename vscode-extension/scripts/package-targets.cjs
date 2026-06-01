@@ -130,9 +130,18 @@ function packageTarget(target) {
   // sync-engine.cjs copies repoRoot/node_modules/better-sqlite3 into the
   // extension bundle, so it will pick up the freshly-fetched binary.
   run('npm', ['run', 'compile'], { cwd: extensionRoot });
-  run('npx', ['vsce', 'package', '--target', target, '--out', `dist/${target}.vsix`], {
-    cwd: extensionRoot,
-  });
+  // Move non-target onnxruntime-node prebuilds out of node_modules so vsce
+  // does not include them. Always restore, even on failure, so the working
+  // tree is left clean.
+  const pruneScript = path.join(__dirname, 'prune-target-bins.cjs');
+  run(process.execPath, [pruneScript, 'apply', target]);
+  try {
+    run('npx', ['vsce', 'package', '--target', target, '--out', `dist/${target}.vsix`], {
+      cwd: extensionRoot,
+    });
+  } finally {
+    run(process.execPath, [pruneScript, 'restore']);
+  }
 }
 
 function main() {

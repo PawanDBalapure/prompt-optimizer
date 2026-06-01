@@ -20,6 +20,7 @@ import { formatCurrency } from '../util/format';
 import { computeWorkspaceId } from '../util/workspace';
 import { analyzePrompt, buildRuntimeSnapshot } from './analyzer';
 import { addContextReferences, renderChatAnalysisMarkdown, renderContextReportMarkdown } from './rendering';
+import { ocrChatReferences } from './ocr';
 
 void openExtensionReadme; // re-exported helper kept reachable for command wiring
 
@@ -151,8 +152,27 @@ export async function handleChatRequest(
     return { metadata: { command: request.command ?? 'optimize' } };
   }
 
+  // Image attachments: extract text via local OCR (fully offline) and fold
+  // it into the prompt before optimization. Skipped silently when there are
+  // no image references or the OCR worker is unavailable.
+  let promptWithOcr = prompt;
+  try {
+    if ((request.references?.length ?? 0) > 0) {
+      stream.progress('Reading text from attached images\u2026');
+      const ocrText = await ocrChatReferences(context, request);
+      if (ocrText.length > 0) {
+        promptWithOcr = `${prompt}\n\n${ocrText}`;
+        stream.markdown(
+          `> \uD83D\uDDBC\uFE0F *Extracted ${ocrText.length} characters from attached image(s) and added to the prompt context.*\n\n`,
+        );
+      }
+    }
+  } catch (err) {
+    console.warn('[prompt-optimizer] OCR step failed (continuing without it):', err);
+  }
+
   stream.progress('Checking the local semantic cache and packing workspace context\u2026');
-  const state = await analyzePrompt(context, prompt, 'chat', chatContext);
+  const state = await analyzePrompt(context, promptWithOcr, 'chat', chatContext);
 
   if (token.isCancellationRequested) {
     return { metadata: { command: request.command ?? 'optimize' } };
@@ -181,7 +201,7 @@ export async function handleChatRequest(
   if (confirmBeforeSend && (request.command === undefined || request.command === 'optimize')) {
     const pending = setPendingOptimization(context, {
       workspaceId,
-      rawPrompt: prompt,
+      rawPrompt: promptWithOcr,
       optimized: state.optimized,
       enriched: enrichedPrompt,
       state,
@@ -200,7 +220,7 @@ export async function handleChatRequest(
   await forwardToCopilot(
     context,
     workspaceId,
-    prompt,
+    promptWithOcr,
     enrichedPrompt,
     state,
     stream,

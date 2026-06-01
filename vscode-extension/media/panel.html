@@ -91,8 +91,12 @@
                 aria-label="Prompt input"
                 aria-multiline="true"
                 placeholder="Type a prompt — Optimize shows analysis, Agent sends optimized prompt to Copilot Chat, Direct pre-fills @promptoptimizer. (Ctrl+Enter to run)"></textarea>
+      <input type="file" id="imageFileInput" accept="image/*" multiple style="display:none" aria-hidden="true">
       <button class="clear-corner-btn" id="btnClearInput" type="button" title="Clear the prompt input" aria-label="Clear input">
         <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3.72 3.72a.75.75 0 011.06 0L8 6.94l3.22-3.22a.75.75 0 111.06 1.06L9.06 8l3.22 3.22a.75.75 0 11-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 01-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 010-1.06z"/></svg>
+      </button>
+      <button class="send-btn attach-btn" id="btnAttachImage" type="button" title="Attach an image — text will be extracted via local OCR" aria-label="Attach image">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M11.5 1a3.5 3.5 0 00-3.5 3.5v7a2.5 2.5 0 005 0v-6a.5.5 0 00-1 0v6a1.5 1.5 0 11-3 0v-7A2.5 2.5 0 0111.5 2a2.5 2.5 0 012.5 2.5v7a4.5 4.5 0 11-9 0V4a.5.5 0 00-1 0v7.5a5.5 5.5 0 1011 0v-7A3.5 3.5 0 0011.5 1z"/></svg>
       </button>
       <button class="send-btn mic-btn" id="btnMic" type="button" title="Dictate prompt — click to start/stop voice input" aria-label="Voice input" aria-pressed="false">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1a2.5 2.5 0 00-2.5 2.5v4a2.5 2.5 0 005 0v-4A2.5 2.5 0 008 1zm-4 6.5a.5.5 0 011 0 3 3 0 006 0 .5.5 0 011 0 4 4 0 01-3.5 3.969V13H10a.5.5 0 010 1H6a.5.5 0 010-1h1.5v-1.531A4 4 0 014 7.5z"/></svg>
@@ -101,6 +105,7 @@
         <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M7 2.414V13h2V2.414l3.293 3.293 1.414-1.414L8 .586 2.293 4.293l1.414 1.414z"/></svg>
       </button>
     </div>
+    <div id="attachmentStrip" class="attachment-strip" aria-live="polite"></div>
 
     <div id="alerts" class="alerts" role="status" aria-live="polite" aria-atomic="false"></div>
 

@@ -56,7 +56,30 @@ function findSystemNode(): string {
   // 1. Bundled runtime (preferred).
   const bundledName = process.platform === 'win32' ? 'node.exe' : 'node';
   const bundled = path.resolve(__dirname, '../../engine-runtime', bundledName);
-  if (fs.existsSync(bundled) && probe(bundled)) { return bundled; }
+  if (fs.existsSync(bundled)) {
+    // Cross-platform safety: .vsix is a ZIP, which doesn't always preserve
+    // the Unix executable bit. Force +x on macOS/Linux before probing so a
+    // .vsix produced on Windows still works on POSIX.
+    if (process.platform !== 'win32') {
+      try {
+        const st = fs.statSync(bundled);
+        // 0o111 = any-execute bits set
+        if ((st.mode & 0o111) === 0) {
+          fs.chmodSync(bundled, 0o755);
+        }
+      } catch { /* ignore — probe will fail and we fall through */ }
+    }
+    // macOS Gatekeeper marks downloaded binaries with com.apple.quarantine.
+    // Strip it so spawn() doesn't get blocked. Best-effort; ignore failure.
+    if (process.platform === 'darwin') {
+      try {
+        child_process.spawnSync('xattr', ['-d', 'com.apple.quarantine', bundled], {
+          stdio: 'ignore', shell: false,
+        });
+      } catch { /* ignore */ }
+    }
+    if (probe(bundled)) { return bundled; }
+  }
 
   // 2. System node on PATH.
   const name = process.platform === 'win32' ? 'node.exe' : 'node';

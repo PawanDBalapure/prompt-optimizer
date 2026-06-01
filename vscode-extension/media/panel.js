@@ -363,6 +363,9 @@ window.addEventListener('message', function(event) {
     case 'statusOverview':
       renderStatusOverview(msg.payload);
       break;
+    case 'ocrImageResult':
+      handleOcrImageResult(msg);
+      break;
   }
 });
 
@@ -409,6 +412,186 @@ function renderStatusOverview(overview) {
     if (pillDigests) { pillDigests.hidden = true; }
   }
   strip.hidden = !hasAnyData;
+}
+
+// ── Image attachments + OCR ──────────────────────────────────────────────────
+// Users can attach images via the paperclip button, drag-and-drop, or paste
+// from clipboard. Each image is shipped to the extension host as base64; the
+// host runs Tesseract OCR (fully offline, English) and posts back the
+// extracted text, which we append to the textarea so it becomes part of the
+// prompt the optimizer sees.
+
+var attachmentStrip = document.getElementById('attachmentStrip');
+var imageFileInput  = document.getElementById('imageFileInput');
+var btnAttachImage  = document.getElementById('btnAttachImage');
+var inputWrap       = promptInput && promptInput.parentElement;
+
+// Hard cap to avoid OOM-ing the host when someone drags a 50 MP photo.
+var MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+var pendingOcrChips = Object.create(null); // requestId -> { chipEl, name }
+var ocrSeq = 0;
+
+function genOcrId() {
+  ocrSeq += 1;
+  return 'ocr-' + Date.now().toString(36) + '-' + ocrSeq;
+}
+
+function makeChip(id, name) {
+  var chip = document.createElement('span');
+  chip.className = 'attach-chip';
+  chip.dataset.id = id;
+  var nameEl = document.createElement('span');
+  nameEl.className = 'chip-name';
+  nameEl.textContent = name;
+  nameEl.title = name;
+  var statusEl = document.createElement('span');
+  statusEl.className = 'chip-status';
+  statusEl.textContent = '\u22EF reading\u2026';
+  var removeBtn = document.createElement('button');
+  removeBtn.type = 'button';
+  removeBtn.className = 'chip-remove';
+  removeBtn.setAttribute('aria-label', 'Remove attachment');
+  removeBtn.textContent = '\u2715';
+  removeBtn.addEventListener('click', function() {
+    chip.remove();
+    delete pendingOcrChips[id];
+  });
+  chip.appendChild(nameEl);
+  chip.appendChild(statusEl);
+  chip.appendChild(removeBtn);
+  return chip;
+}
+
+function arrayBufferToBase64(buffer) {
+  var bytes = new Uint8Array(buffer);
+  var binary = '';
+  var chunk = 0x8000;
+  for (var i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+function appendOcrText(name, text) {
+  if (!text) { return; }
+  var block = '\n\n--- OCR text from ' + name + ' ---\n' + text;
+  // Append at end of textarea so users can see the extracted content
+  // directly and edit it before optimizing.
+  if (promptInput.value.trim().length === 0) {
+    promptInput.value = block.replace(/^\n+/, '');
+  } else {
+    promptInput.value = promptInput.value + block;
+  }
+  promptInput.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function handleOcrImageResult(msg) {
+  var entry = pendingOcrChips[msg.id];
+  if (!entry) { return; }
+  delete pendingOcrChips[msg.id];
+  var chip = entry.chipEl;
+  var statusEl = chip.querySelector('.chip-status');
+  if (msg.ok && typeof msg.text === 'string' && msg.text.length > 0) {
+    appendOcrText(entry.name, msg.text);
+    if (statusEl) { statusEl.textContent = '\u2713 ' + msg.text.length + ' chars'; }
+    setTimeout(function() {
+      chip.classList.add('chip-fade');
+      chip.remove();
+    }, 2500);
+  } else {
+    chip.classList.add('error');
+    if (statusEl) { statusEl.textContent = msg.error ? msg.error : 'no text found'; }
+  }
+}
+
+function processFile(file) {
+  if (!file || !/^image\//.test(file.type)) {
+    addAlert('warning', 'Skipped "' + (file && file.name || 'file') + '": not an image.');
+    return;
+  }
+  if (file.size > MAX_IMAGE_BYTES) {
+    addAlert('warning', '"' + file.name + '" is larger than 8 MB and was skipped.');
+    return;
+  }
+  var id = genOcrId();
+  var chip = makeChip(id, file.name || 'image');
+  pendingOcrChips[id] = { chipEl: chip, name: file.name || 'image' };
+  attachmentStrip.appendChild(chip);
+
+  var reader = new FileReader();
+  reader.onload = function() {
+    try {
+      var b64 = arrayBufferToBase64(reader.result);
+      vscode.postMessage({
+        type: 'ocrImage',
+        id: id,
+        name: file.name || 'image',
+        mime: file.type || 'image/png',
+        dataBase64: b64,
+      });
+    } catch (err) {
+      handleOcrImageResult({ id: id, ok: false, error: 'encode failed' });
+    }
+  };
+  reader.onerror = function() {
+    handleOcrImageResult({ id: id, ok: false, error: 'read failed' });
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function processFiles(files) {
+  if (!files) { return; }
+  for (var i = 0; i < files.length; i++) { processFile(files[i]); }
+}
+
+if (btnAttachImage && imageFileInput) {
+  btnAttachImage.addEventListener('click', function() { imageFileInput.click(); });
+  imageFileInput.addEventListener('change', function() {
+    processFiles(imageFileInput.files);
+    imageFileInput.value = ''; // allow re-selecting the same file
+  });
+}
+
+// Drag-and-drop on the textarea wrapper.
+if (inputWrap) {
+  ['dragenter', 'dragover'].forEach(function(evt) {
+    inputWrap.addEventListener(evt, function(e) {
+      if (e.dataTransfer && Array.prototype.some.call(e.dataTransfer.types || [], function(t) { return t === 'Files'; })) {
+        e.preventDefault();
+        e.stopPropagation();
+        inputWrap.classList.add('drop-target');
+      }
+    });
+  });
+  ['dragleave', 'drop'].forEach(function(evt) {
+    inputWrap.addEventListener(evt, function(e) {
+      if (evt === 'drop') {
+        e.preventDefault();
+        e.stopPropagation();
+        var dt = e.dataTransfer;
+        if (dt && dt.files && dt.files.length > 0) {
+          processFiles(dt.files);
+        }
+      }
+      inputWrap.classList.remove('drop-target');
+    });
+  });
+}
+
+// Clipboard paste support: `Ctrl+V` an image into the textarea.
+if (promptInput) {
+  promptInput.addEventListener('paste', function(e) {
+    var items = e.clipboardData && e.clipboardData.items;
+    if (!items) { return; }
+    var anyImage = false;
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].kind === 'file' && /^image\//.test(items[i].type)) {
+        var f = items[i].getAsFile();
+        if (f) { processFile(f); anyImage = true; }
+      }
+    }
+    if (anyImage) { e.preventDefault(); }
+  });
 }
 
 vscode.postMessage({ type: 'ready' });

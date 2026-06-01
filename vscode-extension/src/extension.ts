@@ -203,7 +203,15 @@ async function maybeAutoOpenOnboarding(
   }, 1200);
 }
 
-export function deactivate() {}
+export function deactivate() {
+  // Best-effort: shut down the OCR worker if one was started.
+  // Imported lazily to avoid loading tesseract.js when never used.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { disposeOcr } = require('./chat/ocr') as { disposeOcr: () => Promise<void> };
+    void disposeOcr();
+  } catch { /* ignore */ }
+}
 
 function registerCommands(
   context: vscode.ExtensionContext,
