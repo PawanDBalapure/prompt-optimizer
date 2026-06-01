@@ -101,17 +101,27 @@ function sha256(file) {
   });
 }
 
-function extractTarGz(archive, outDir) {
+function extractTarGz(archive, outDir, members) {
   // tar with -z works on Linux/macOS and Windows 10+ (bsdtar).
-  run('tar', ['-xzf', archive, '-C', outDir]);
+  // We pass only the members we actually need (bin/node + LICENSE) because
+  // the Linux/macOS Node tarballs contain symlinks (npm, npx, corepack)
+  // that Windows tar cannot recreate ("Invalid argument" errors).
+  const args = ['-xzf', archive, '-C', outDir];
+  if (members && members.length) { args.push(...members); }
+  run('tar', args);
 }
 
-function extractZip(archive, outDir) {
+function extractZip(archive, outDir, members) {
   if (process.platform === 'win32') {
     // bsdtar in Windows 10+ understands zip.
-    run('tar', ['-xf', archive, '-C', outDir]);
+    const args = ['-xf', archive, '-C', outDir];
+    if (members && members.length) { args.push(...members); }
+    run('tar', args);
   } else {
-    run('unzip', ['-q', archive, '-d', outDir]);
+    const args = ['-q', archive];
+    if (members && members.length) { args.push(...members); }
+    args.push('-d', outDir);
+    run('unzip', args);
   }
 }
 
@@ -156,10 +166,13 @@ async function main() {
 
   const stagingDir = fs.mkdtempSync(path.join(cacheDir, 'stage-'));
   try {
+    // Only extract the binary + LICENSE — the symlinks (npm/npx/corepack)
+    // in Linux/macOS tarballs cannot be created on Windows.
+    const members = [`${stem}/${meta.bin}`, `${stem}/LICENSE`];
     if (meta.ext === 'tar.gz') {
-      extractTarGz(archivePath, stagingDir);
+      extractTarGz(archivePath, stagingDir, members);
     } else {
-      extractZip(archivePath, stagingDir);
+      extractZip(archivePath, stagingDir, members);
     }
 
     const innerBinary = path.join(stagingDir, stem, meta.bin);

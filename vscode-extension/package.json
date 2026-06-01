@@ -579,6 +579,8 @@
     "package:win32-arm64": "node scripts/package-targets.cjs win32-arm64",
     "package:linux-x64": "node scripts/package-targets.cjs linux-x64",
     "package:linux-arm64": "node scripts/package-targets.cjs linux-arm64",
+    "publish:all": "node scripts/publish-all.cjs",
+    "publish:dry-run": "node scripts/publish-all.cjs --dry-run",
     "release": "node scripts/prepare-release.cjs",
     "release:patch": "node scripts/prepare-release.cjs patch",
     "release:minor": "node scripts/prepare-release.cjs minor",
