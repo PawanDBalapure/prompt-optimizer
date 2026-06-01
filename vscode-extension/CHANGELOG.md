@@ -1,4 +1,9 @@
 
+
+## 2.9.2 - 2026-06-01
+
+- _Describe changes here._
+
 ## 2.9.1 - 2026-06-01
 
 - _Describe changes here._
