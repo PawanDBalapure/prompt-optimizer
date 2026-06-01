@@ -565,7 +565,9 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "npm --prefix .. run build && tsc -p ./ && node ./scripts/sync-engine.cjs",
+    "compile": "node ./scripts/sync-versions.cjs && npm --prefix .. run build && tsc -p ./ && node ./scripts/sync-engine.cjs",
+    "sync-versions": "node ./scripts/sync-versions.cjs",
+    "sync-versions:check": "node ./scripts/sync-versions.cjs --check",
     "watch": "tsc -watch -p ./",
     "fetch-model": "node scripts/fetch-model.cjs",
     "distill": "node scripts/distill/run-pipeline.cjs",

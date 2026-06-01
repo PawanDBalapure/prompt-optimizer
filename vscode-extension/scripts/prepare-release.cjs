@@ -134,8 +134,12 @@ function main() {
   updatePackageJson(newVersion);
   updateChangelog(newVersion);
 
+  // Propagate the new version into onboarding/README/lockfiles so every
+  // user-facing surface stays consistent with package.json.
+  run('node', ['scripts/sync-versions.cjs']);
+
   if (!NO_COMMIT) {
-    run('git', ['add', 'package.json', 'CHANGELOG.md'], { cwd: extensionRoot });
+    run('git', ['add', '-A'], { cwd: extensionRoot });
     run('git', ['commit', '-m', `chore(release): v${newVersion}`], { cwd: repoRoot });
   }
 
@@ -143,9 +147,10 @@ function main() {
     run('node', ['scripts/package-targets.cjs', 'all']);
   }
 
-  // Always produce a host-platform .vsix locally so the developer has
-  // something installable to test before/instead of pushing to CI.
-  // (The full matrix build above already produced it; skip in that case.)
+  // Always produce a fresh host-platform .vsix locally so the developer has
+  // an installable artifact for testing. We rebuild unconditionally after a
+  // version bump because a stale dist/<target>.vsix from an earlier version
+  // would otherwise be picked up by an existence check.
   let localVsix = null;
   if (!NO_LOCAL_VSIX) {
     const target = hostTarget();
@@ -153,9 +158,17 @@ function main() {
       console.warn(`\nSkipping local .vsix: unsupported host ${process.platform}/${process.arch}`);
     } else {
       localVsix = path.join(extensionRoot, 'dist', `${target}.vsix`);
-      if (NO_BUILD || !fs.existsSync(localVsix)) {
+      const builtThisRun = !NO_BUILD; // package:all already produced it
+      if (!builtThisRun) {
+        // Remove any stale .vsix from a previous release before rebuilding.
+        if (fs.existsSync(localVsix)) {
+          try { fs.unlinkSync(localVsix); } catch { /* ignore */ }
+        }
         console.log(`\nBuilding host-platform .vsix (${target}) for local install...`);
         run('node', ['scripts/package-targets.cjs', target]);
+      }
+      if (!fs.existsSync(localVsix)) {
+        throw new Error(`Expected ${localVsix} to exist after build.`);
       }
     }
   }

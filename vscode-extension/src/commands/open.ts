@@ -95,11 +95,16 @@ export async function openOnboardingGuide(
     const snapshot = collectMemorySnapshot();
     const injection =
       `<script id="__poMemorySeed">window.__POMemorySeed = ${JSON.stringify(snapshot)};</script>`;
+    // Substitute version + any other simple template tokens. The version
+    // is read from package.json at runtime, so onboarding always shows the
+    // installed extension's actual version with no static asset edits.
+    const version = (context.extension.packageJSON?.version ?? '') as string;
+    const templated = raw.replace(/\{\{PROMPT_OPTIMIZER_VERSION\}\}/g, version);
     // Replace placeholder if present, else inject before </body>
-    if (raw.includes('<!-- __PO_MEMORY_SNAPSHOT__ -->')) {
-      return raw.replace('<!-- __PO_MEMORY_SNAPSHOT__ -->', injection);
+    if (templated.includes('<!-- __PO_MEMORY_SNAPSHOT__ -->')) {
+      return templated.replace('<!-- __PO_MEMORY_SNAPSHOT__ -->', injection);
     }
-    return raw.replace('</body>', `${injection}\n</body>`);
+    return templated.replace('</body>', `${injection}\n</body>`);
   };
 
   onboardingPanel.webview.html = renderHtml();
