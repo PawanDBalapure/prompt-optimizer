@@ -39,6 +39,13 @@ if (!/^\d+\.\d+\.\d+/.test(VERSION)) {
  * file rewrite is needed there.
  */
 const rules = [
+  // Root engine package.json — the `npm --prefix .. run build` log shows this.
+  {
+    file: path.join(repoRoot, 'package.json'),
+    find: /("version"\s*:\s*")\d+\.\d+\.\d+(")/g,
+    replace: `$1${VERSION}$2`,
+    reason: 'root engine package.json',
+  },
   // README sentence: "Prompt Optimizer 2.8.0 includes ..."
   {
     file: path.join(extensionRoot, 'README.md'),

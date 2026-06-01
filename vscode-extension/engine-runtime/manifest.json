@@ -1,5 +1,5 @@
 {
-  "target": "darwin-arm64",
+  "target": "linux-x64",
   "nodeVersion": "22.11.0",
   "binary": "node"
 }

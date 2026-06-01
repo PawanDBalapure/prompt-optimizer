@@ -1,4 +1,6 @@
 import Database from 'better-sqlite3';
+import fs from 'fs';
+import path from 'path';
 import { LocalSemanticVectorizer } from './localSemanticVectorizer.js';
 import type { Vectorizer } from './vector/vectorizer.js';
 import { initializeSchema } from './cache/schema.js';
@@ -83,11 +85,6 @@ export class SemanticCacheManager {
       // common cause of "Failed to open SQLite database" on a fresh machine.
       // Skip for in-memory / URI databases.
       if (dbPath !== ':memory:' && !dbPath.startsWith('file:')) {
-        // Lazy require to avoid pulling fs into bundled browser builds.
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const fs: typeof import('fs') = require('fs');
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const path: typeof import('path') = require('path');
         const dir = path.dirname(path.resolve(dbPath));
         if (dir && dir !== '.') { fs.mkdirSync(dir, { recursive: true }); }
       }
