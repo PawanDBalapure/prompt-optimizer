@@ -1,3 +1,8 @@
+
+## 2.9.1 - 2026-06-01
+
+- _Describe changes here._
+
 ﻿# Changelog
 
 ## 2.9.0 — Forecast cost details + enterprise hardening
