@@ -54,11 +54,26 @@ function hostTarget() {
   return map[key] || null;
 }
 
+/**
+ * Quote an argument so it survives Windows cmd.exe when spawnSync is invoked
+ * with `shell: true`. Without this, args containing spaces, parens, or `:`
+ * (e.g. `chore(release): v1.2.3`) get split into multiple tokens.
+ */
+function quoteArgIfNeeded(arg) {
+  if (process.platform !== 'win32') { return arg; }
+  if (arg === '' || /[\s"()&|<>^]/.test(arg)) {
+    return `"${String(arg).replace(/"/g, '\\"')}"`;
+  }
+  return arg;
+}
+
 function run(cmd, cmdArgs, opts = {}) {
   console.log(`> ${cmd} ${cmdArgs.join(' ')}`);
-  const r = spawnSync(cmd, cmdArgs, {
+  const useShell = process.platform === 'win32';
+  const finalArgs = useShell ? cmdArgs.map(quoteArgIfNeeded) : cmdArgs;
+  const r = spawnSync(cmd, finalArgs, {
     stdio: 'inherit',
-    shell: process.platform === 'win32',
+    shell: useShell,
     cwd: opts.cwd || extensionRoot,
     ...opts,
   });
@@ -66,9 +81,11 @@ function run(cmd, cmdArgs, opts = {}) {
 }
 
 function capture(cmd, cmdArgs, opts = {}) {
-  const r = spawnSync(cmd, cmdArgs, {
+  const useShell = process.platform === 'win32';
+  const finalArgs = useShell ? cmdArgs.map(quoteArgIfNeeded) : cmdArgs;
+  const r = spawnSync(cmd, finalArgs, {
     encoding: 'utf8',
-    shell: process.platform === 'win32',
+    shell: useShell,
     cwd: opts.cwd || repoRoot,
   });
   if (r.status !== 0) { throw new Error(`Command failed: ${cmd} ${cmdArgs.join(' ')}\n${r.stderr}`); }
