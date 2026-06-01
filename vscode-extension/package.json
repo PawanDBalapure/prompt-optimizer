@@ -80,6 +80,14 @@
             "description": "Optimize the current prompt with local cache and editor context"
           },
           {
+            "name": "send",
+            "description": "Send the most recent optimized prompt to Copilot (after reviewing)"
+          },
+          {
+            "name": "cancel",
+            "description": "Discard the pending optimized prompt without sending"
+          },
+          {
             "name": "estimate",
             "description": "Estimate input and output token cost for the current prompt"
           },
@@ -174,6 +182,11 @@
           "type": "boolean",
           "default": true,
           "description": "Scan prompts for potential secrets (API keys, tokens, passwords) before sending and show a warning in the panel."
+        },
+        "promptProxy.confirmBeforeSend": {
+          "type": "boolean",
+          "default": true,
+          "description": "When using @promptoptimizer in chat, show the optimized prompt and require explicit confirmation before forwarding to Copilot. Disable to send automatically (legacy behavior)."
         },
         "promptProxy.tokenBudget.augmentedBytes": {
           "type": "number",
@@ -305,6 +318,14 @@
       {
         "command": "prompt-proxy.sendPromptToChat",
         "title": "Prompt Optimizer: Send Last Optimized Prompt To Chat"
+      },
+      {
+        "command": "prompt-proxy.confirmAndSend",
+        "title": "Prompt Optimizer: Send Pending Optimized Prompt"
+      },
+      {
+        "command": "prompt-proxy.cancelPending",
+        "title": "Prompt Optimizer: Cancel Pending Optimized Prompt"
       },
       {
         "command": "prompt-proxy.openReadme",

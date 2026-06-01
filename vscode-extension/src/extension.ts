@@ -37,6 +37,10 @@ import {
   setCurrentMode,
   updateStatusBarItem,
 } from './state/mode';
+import {
+  clearPendingOptimization,
+  getPendingOptimization,
+} from './state/pending';
 import type { ProxyMode } from './types';
 import { formatCurrency } from './util/format';
 import { computeWorkspaceId } from './util/workspace';
@@ -453,6 +457,52 @@ function registerCommands(
       return;
     }
     await openChatWithPrompt(text, false);
+  }));
+
+  // Confirms the most recent pending optimized prompt and forwards it to
+  // Copilot via the chat participant. The pending state was stored when the
+  // user typed `@promptoptimizer <prompt>`. We re-enter the participant by
+  // opening chat with `@promptoptimizer /send` and auto-submitting it; the
+  // /send handler in the participant streams the LM response back in chat.
+  push(vscode.commands.registerCommand('prompt-proxy.confirmAndSend', async (pendingId?: string) => {
+    const pending = getPendingOptimization(context);
+    if (!pending) {
+      vscode.window.showWarningMessage('No pending optimized prompt to send. Run @promptoptimizer first.');
+      return;
+    }
+    if (pendingId && pending.id !== pendingId) {
+      // The user clicked an older confirmation card after a newer one was created.
+      vscode.window.showWarningMessage(
+        'A newer optimized prompt is pending. Use the most recent confirmation card.',
+      );
+      return;
+    }
+    await vscode.commands.executeCommand('workbench.action.chat.open', {
+      query: '@promptoptimizer /send',
+      isPartialQuery: false,
+    });
+  }));
+
+  // Opens the chat with the optimized prompt prefilled (no auto-submit) so
+  // the user can edit it before sending. Clears the pending state because
+  // any further send goes through the user's manual submit, not /send.
+  push(vscode.commands.registerCommand('prompt-proxy.editPendingPrompt', async (pendingId?: string) => {
+    const pending = getPendingOptimization(context);
+    if (!pending) {
+      vscode.window.showWarningMessage('No pending optimized prompt to edit.');
+      return;
+    }
+    if (pendingId && pending.id !== pendingId) {
+      vscode.window.showWarningMessage('A newer optimized prompt is pending.');
+      return;
+    }
+    clearPendingOptimization(context);
+    await openChatWithPrompt(pending.optimized, true, false);
+  }));
+
+  push(vscode.commands.registerCommand('prompt-proxy.cancelPending', async (_pendingId?: string) => {
+    clearPendingOptimization(context);
+    vscode.window.showInformationMessage('Prompt Optimizer: pending optimized prompt discarded.');
   }));
 
   push(vscode.commands.registerCommand('prompt-proxy.openReadme', async () => {

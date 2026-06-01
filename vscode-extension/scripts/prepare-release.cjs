@@ -2,7 +2,7 @@
 /**
  * One-shot release helper.
  *
- *   node scripts/prepare-release.cjs [<bump> | <explicit-version>] [--no-tag] [--no-build] [--push]
+ *   node scripts/prepare-release.cjs [<bump> | <explicit-version>] [--no-tag] [--no-build] [--no-local-vsix] [--push]
  *
  *   bump: patch (default) | minor | major
  *
@@ -11,9 +11,11 @@
  *   2. Bump version in vscode-extension/package.json.
  *   3. Update CHANGELOG.md with a new heading + today's date (if file exists).
  *   4. Commit the bump (unless --no-commit).
- *   5. Build all platform .vsix files (unless --no-build).
- *   6. Tag the commit `v<version>` (unless --no-tag).
- *   7. Optionally `git push --follow-tags` (with --push) to trigger CI publish.
+ *   5. Build all 7 platform .vsix files (unless --no-build).
+ *   6. Always build a host-platform .vsix for local install/testing
+ *      (unless --no-local-vsix; skipped when step 5 already built it).
+ *   7. Tag the commit `v<version>` (unless --no-tag).
+ *   8. Optionally `git push --follow-tags` (with --push) to trigger CI publish.
  */
 'use strict';
 
@@ -30,11 +32,27 @@ const args = process.argv.slice(2);
 const flags = new Set(args.filter((a) => a.startsWith('--')));
 const positional = args.filter((a) => !a.startsWith('--'));
 
-const ALLOW_DIRTY = flags.has('--allow-dirty');
-const NO_COMMIT  = flags.has('--no-commit');
-const NO_TAG     = flags.has('--no-tag');
-const NO_BUILD   = flags.has('--no-build');
-const DO_PUSH    = flags.has('--push');
+const ALLOW_DIRTY    = flags.has('--allow-dirty');
+const NO_COMMIT      = flags.has('--no-commit');
+const NO_TAG         = flags.has('--no-tag');
+const NO_BUILD       = flags.has('--no-build');
+const NO_LOCAL_VSIX  = flags.has('--no-local-vsix');
+const DO_PUSH        = flags.has('--push');
+
+/** Map process.platform + process.arch to a vsce --target string. */
+function hostTarget() {
+  const map = {
+    'win32:x64':    'win32-x64',
+    'win32:arm64':  'win32-arm64',
+    'linux:x64':    'linux-x64',
+    'linux:arm64':  'linux-arm64',
+    'linux:arm':    'linux-armhf',
+    'darwin:x64':   'darwin-x64',
+    'darwin:arm64': 'darwin-arm64',
+  };
+  const key = `${process.platform}:${process.arch}`;
+  return map[key] || null;
+}
 
 function run(cmd, cmdArgs, opts = {}) {
   console.log(`> ${cmd} ${cmdArgs.join(' ')}`);
@@ -125,6 +143,23 @@ function main() {
     run('node', ['scripts/package-targets.cjs', 'all']);
   }
 
+  // Always produce a host-platform .vsix locally so the developer has
+  // something installable to test before/instead of pushing to CI.
+  // (The full matrix build above already produced it; skip in that case.)
+  let localVsix = null;
+  if (!NO_LOCAL_VSIX) {
+    const target = hostTarget();
+    if (!target) {
+      console.warn(`\nSkipping local .vsix: unsupported host ${process.platform}/${process.arch}`);
+    } else {
+      localVsix = path.join(extensionRoot, 'dist', `${target}.vsix`);
+      if (NO_BUILD || !fs.existsSync(localVsix)) {
+        console.log(`\nBuilding host-platform .vsix (${target}) for local install...`);
+        run('node', ['scripts/package-targets.cjs', target]);
+      }
+    }
+  }
+
   const tag = `v${newVersion}`;
   if (!NO_TAG) {
     run('git', ['tag', '-a', tag, '-m', `Release ${tag}`], { cwd: repoRoot });
@@ -138,6 +173,11 @@ function main() {
     if (!NO_BUILD) {
       console.log(`Local .vsix files are in vscode-extension/dist/`);
     }
+  }
+
+  if (localVsix && fs.existsSync(localVsix)) {
+    console.log(`\nInstall locally for testing:`);
+    console.log(`  code --install-extension "${localVsix}" --force`);
   }
 }
 

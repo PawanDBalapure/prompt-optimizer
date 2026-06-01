@@ -10,7 +10,12 @@ import {
   resolveReferences,
 } from '../state/conversation';
 import { getCurrentMode, setCurrentMode, updateStatusBarItem } from '../state/mode';
-import type { ConversationTurn, ProxyMode } from '../types';
+import {
+  clearPendingOptimization,
+  getPendingOptimization,
+  setPendingOptimization,
+} from '../state/pending';
+import type { ConversationTurn, ProxyMode, PromptProxyPanelState } from '../types';
 import { formatCurrency } from '../util/format';
 import { computeWorkspaceId } from '../util/workspace';
 import { analyzePrompt, buildRuntimeSnapshot } from './analyzer';
@@ -96,6 +101,48 @@ export async function handleChatRequest(
     return { metadata: { command: 'mode' } };
   }
 
+  if (request.command === 'cancel') {
+    clearPendingOptimization(context);
+    stream.markdown('Pending optimized prompt discarded. Nothing was sent to Copilot.');
+    return { metadata: { command: 'cancel' } };
+  }
+
+  if (request.command === 'send') {
+    const pending = getPendingOptimization(context);
+    if (!pending) {
+      stream.markdown(
+        'No pending optimized prompt to send. Type `@promptoptimizer <your prompt>` first to optimize, then run `/send`.',
+      );
+      return { metadata: { command: 'send' } };
+    }
+    if (pending.workspaceId !== workspaceId) {
+      stream.markdown(
+        'The pending optimized prompt belongs to a different workspace. Re-run `@promptoptimizer` here to optimize again.',
+      );
+      return { metadata: { command: 'send' } };
+    }
+    stream.markdown(
+      `> \u2192 *Sending the optimized prompt you confirmed (${pending.state.metrics.tokens_saved} tokens saved).*\n\n`,
+    );
+    await forwardToCopilot(
+      context,
+      workspaceId,
+      pending.rawPrompt,
+      pending.enriched,
+      pending.state,
+      stream,
+      token,
+    );
+    clearPendingOptimization(context);
+    return {
+      metadata: {
+        command: 'send',
+        cache: pending.state.analysis.cache.status,
+        estimatedCostUSD: pending.state.metrics.estimated_cost_usd,
+      },
+    };
+  }
+
   const prompt = request.prompt.trim();
   if (!prompt) {
     stream.markdown(
@@ -125,6 +172,115 @@ export async function handleChatRequest(
   const history = getConversation(context, workspaceId);
   const enrichedPrompt = resolveReferences(state.optimized, history);
 
+  // Confirmation gate: when enabled (default), present the optimized prompt
+  // and wait for the user to click Send / Edit / Cancel before forwarding to
+  // Copilot. This prevents the surprise of a prompt being sent automatically.
+  const confirmBeforeSend = vscode.workspace.getConfiguration('promptProxy')
+    .get<boolean>('confirmBeforeSend') !== false;
+
+  if (confirmBeforeSend && (request.command === undefined || request.command === 'optimize')) {
+    const pending = setPendingOptimization(context, {
+      workspaceId,
+      rawPrompt: prompt,
+      optimized: state.optimized,
+      enriched: enrichedPrompt,
+      state,
+    });
+    renderConfirmationCard(stream, state, pending.id);
+    return {
+      metadata: {
+        command: request.command ?? 'optimize',
+        cache: state.analysis.cache.status,
+        estimatedCostUSD: state.metrics.estimated_cost_usd,
+        pendingId: pending.id,
+      },
+    };
+  }
+
+  await forwardToCopilot(
+    context,
+    workspaceId,
+    prompt,
+    enrichedPrompt,
+    state,
+    stream,
+    token,
+  );
+
+  stream.button({ command: 'prompt-proxy.focusPanel', title: 'Open control panel' });
+
+  return {
+    metadata: {
+      command: request.command ?? 'optimize',
+      cache: state.analysis.cache.status,
+      estimatedCostUSD: state.metrics.estimated_cost_usd,
+    },
+  };
+}
+
+/**
+ * Renders the optimized prompt with explicit Send / Edit / Cancel buttons.
+ * The user must click one before the prompt is forwarded to Copilot.
+ */
+function renderConfirmationCard(
+  stream: vscode.ChatResponseStream,
+  state: PromptProxyPanelState,
+  pendingId: string,
+): void {
+  stream.markdown('### Optimized prompt — review before sending\n\n');
+  stream.markdown('```text\n' + state.optimized + '\n```\n\n');
+
+  if (state.warnings && state.warnings.length > 0) {
+    stream.markdown('> \u26A0\uFE0F **Warnings**\n');
+    for (const w of state.warnings) {
+      stream.markdown(`> - ${w}\n`);
+    }
+    stream.markdown('\n');
+  }
+
+  stream.markdown(
+    '_Click **Send** to forward this to Copilot, **Edit** to tweak it first, or **Cancel** to discard. ' +
+    'You can also disable this confirmation in settings (`promptProxy.confirmBeforeSend`)._\n',
+  );
+
+  stream.button({
+    command: 'prompt-proxy.confirmAndSend',
+    title: '\u2713 Send to Copilot',
+    arguments: [pendingId],
+  });
+  stream.button({
+    command: 'prompt-proxy.editPendingPrompt',
+    title: '\u270E Edit & send',
+    arguments: [pendingId],
+  });
+  stream.button({
+    command: 'prompt-proxy.cancelPending',
+    title: '\u2715 Cancel',
+    arguments: [pendingId],
+  });
+  stream.button({
+    command: 'prompt-proxy.copyPrompt',
+    title: 'Copy optimized prompt',
+    arguments: [state.optimized],
+  });
+  stream.button({ command: 'prompt-proxy.focusPanel', title: 'Open control panel' });
+}
+
+/**
+ * Sends the (already-optimized, already-enriched) prompt to the Copilot
+ * language model and streams the response into the chat. Falls back to the
+ * static analysis card if no LM is available.
+ */
+async function forwardToCopilot(
+  context: vscode.ExtensionContext,
+  workspaceId: string,
+  rawPrompt: string,
+  enrichedPrompt: string,
+  state: PromptProxyPanelState,
+  stream: vscode.ChatResponseStream,
+  token: vscode.CancellationToken,
+): Promise<void> {
+  const history = getConversation(context, workspaceId);
   let lmSucceeded = false;
   try {
     const models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
@@ -141,7 +297,7 @@ export async function handleChatRequest(
 
       if (fullResponse) {
         await addConversationTurn(context, workspaceId, {
-          user_raw: prompt,
+          user_raw: rawPrompt,
           user_optimized: enrichedPrompt,
           assistant: fullResponse,
         });
@@ -158,7 +314,7 @@ export async function handleChatRequest(
   }
 
   if (!lmSucceeded) {
-    stream.markdown(renderChatAnalysisMarkdown(state, request.command ?? 'optimize'));
+    stream.markdown(renderChatAnalysisMarkdown(state, 'optimize'));
     addContextReferences(stream, state.analysis.context);
     stream.button({
       command: 'prompt-proxy.copyPrompt',
@@ -171,17 +327,12 @@ export async function handleChatRequest(
       arguments: [state.optimized],
     });
   }
-
-  stream.button({ command: 'prompt-proxy.focusPanel', title: 'Open control panel' });
-
-  return {
-    metadata: {
-      command: request.command ?? 'optimize',
-      cache: state.analysis.cache.status,
-      estimatedCostUSD: state.metrics.estimated_cost_usd,
-    },
-  };
 }
+
+// Re-introduce the trailing helpers below; the original `}` of
+// handleChatRequest already closed in the early-return path above.
+function _unused() { /* keeps formatting tools from collapsing the file */ }
+void _unused;
 
 /** Re-export for activation helper that builds chat followups. */
 export function getConversationForWorkspace(

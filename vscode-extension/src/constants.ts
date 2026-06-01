@@ -13,6 +13,8 @@ export const CONVERSATION_KEY = 'promptProxy.conversation';
 export const MODE_KEY = 'promptProxy.mode';
 export const TARGET_MODEL_KEY = 'promptProxy.targetModel';
 export const PASSIVE_EVENTS_KEY = 'promptProxy.passiveEvents';
+/** Pending (analyzed-but-not-yet-sent) optimization awaiting user confirmation. */
+export const PENDING_OPTIMIZATION_KEY = 'promptProxy.pendingOptimization';
 
 // Bounds.
 export const MAX_SESSION_ITEMS = 8;
