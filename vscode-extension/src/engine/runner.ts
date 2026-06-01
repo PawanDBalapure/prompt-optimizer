@@ -29,10 +29,17 @@ function budgetEnv(): NodeJS.ProcessEnv {
 }
 
 /**
- * Locate the system Node.js binary.  VS Code's `process.execPath` is the
- * Electron binary whose embedded Node ABI differs from the ABI used when
- * `better-sqlite3` was compiled, so the engine sidecar must run under system
- * Node instead.
+ * Locate the Node.js binary the engine sidecar should run under.
+ *
+ * Order:
+ *   1. Bundled Node runtime that ships inside the .vsix at
+ *      `<extension>/engine-runtime/node[.exe]`. Each platform-specific
+ *      .vsix carries the matching binary, so end users need nothing
+ *      installed.
+ *   2. System `node` on PATH (legacy fallback for source installs).
+ *   3. Common Windows install locations.
+ *   4. Electron binary (process.execPath) — last resort; will fail for
+ *      native modules but better than throwing here.
  */
 function findSystemNode(): string {
   const probe = (exe: string): boolean => {
@@ -46,9 +53,16 @@ function findSystemNode(): string {
     }
   };
 
+  // 1. Bundled runtime (preferred).
+  const bundledName = process.platform === 'win32' ? 'node.exe' : 'node';
+  const bundled = path.resolve(__dirname, '../../engine-runtime', bundledName);
+  if (fs.existsSync(bundled) && probe(bundled)) { return bundled; }
+
+  // 2. System node on PATH.
   const name = process.platform === 'win32' ? 'node.exe' : 'node';
   if (probe(name)) { return name; }
 
+  // 3. Well-known Windows install locations.
   if (process.platform === 'win32') {
     const candidates = [
       'C:\\Program Files\\nodejs\\node.exe',
@@ -59,8 +73,7 @@ function findSystemNode(): string {
     }
   }
 
-  // Fallback: Electron binary.  Will fail for native modules but better than
-  // crashing the call site.
+  // 4. Electron fallback.
   return process.execPath;
 }
 

@@ -78,6 +78,19 @@ export class SemanticCacheManager {
   constructor(dbPath: string = 'prompt_semantic_cache.db') {
     this.dbPath = dbPath;
     try {
+      // Ensure the parent directory exists before SQLite tries to open the
+      // file. SQLite does not create missing directories, which is the most
+      // common cause of "Failed to open SQLite database" on a fresh machine.
+      // Skip for in-memory / URI databases.
+      if (dbPath !== ':memory:' && !dbPath.startsWith('file:')) {
+        // Lazy require to avoid pulling fs into bundled browser builds.
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const fs: typeof import('fs') = require('fs');
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const path: typeof import('path') = require('path');
+        const dir = path.dirname(path.resolve(dbPath));
+        if (dir && dir !== '.') { fs.mkdirSync(dir, { recursive: true }); }
+      }
       this.db = new Database(dbPath);
     } catch (error) {
       log.error('Failed to open SQLite database', { dbPath, error: String(error) });

@@ -548,7 +548,18 @@
     "watch": "tsc -watch -p ./",
     "fetch-model": "node scripts/fetch-model.cjs",
     "distill": "node scripts/distill/run-pipeline.cjs",
-    "distill:setup": "pip install transformers datasets \"optimum[onnxruntime]\" onnxruntime sentencepiece accelerate"
+    "distill:setup": "pip install transformers datasets \"optimum[onnxruntime]\" onnxruntime sentencepiece accelerate",
+    "package:all": "node scripts/package-targets.cjs all",
+    "package:darwin-x64": "node scripts/package-targets.cjs darwin-x64",
+    "package:darwin-arm64": "node scripts/package-targets.cjs darwin-arm64",
+    "package:win32-x64": "node scripts/package-targets.cjs win32-x64",
+    "package:win32-arm64": "node scripts/package-targets.cjs win32-arm64",
+    "package:linux-x64": "node scripts/package-targets.cjs linux-x64",
+    "package:linux-arm64": "node scripts/package-targets.cjs linux-arm64",
+    "release": "node scripts/prepare-release.cjs",
+    "release:patch": "node scripts/prepare-release.cjs patch",
+    "release:minor": "node scripts/prepare-release.cjs minor",
+    "release:major": "node scripts/prepare-release.cjs major"
   },
   "dependencies": {
     "@xenova/transformers": "^2.17.2",

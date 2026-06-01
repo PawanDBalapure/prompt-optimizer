@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
@@ -10,10 +11,13 @@ function getConfig(): vscode.WorkspaceConfiguration {
 
 export function getDbPath(context: vscode.ExtensionContext): string {
   const configuredPath = getConfig().get<string>('dbPath');
-  if (configuredPath && configuredPath.trim() !== '') {
-    return path.resolve(configuredPath);
-  }
-  return path.resolve(context.globalStorageUri.fsPath, 'prompt_semantic_cache.db');
+  const resolved = configuredPath && configuredPath.trim() !== ''
+    ? path.resolve(configuredPath)
+    : path.resolve(context.globalStorageUri.fsPath, 'prompt_semantic_cache.db');
+  // SQLite will not create parent directories; guarantee the folder exists
+  // on every machine before we hand the path to the engine sidecar.
+  try { fs.mkdirSync(path.dirname(resolved), { recursive: true }); } catch { /* surfaced later if open fails */ }
+  return resolved;
 }
 
 export function getPricingConfig(): {

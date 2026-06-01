@@ -20,6 +20,8 @@ vsix-2.7-check.zip
 .github/**
 engine/package-lock.json
 engine/tsconfig.json
+.node-runtime-cache/**
+dist/**
 **/*.map
 **/*.ts.map
 .distill-work/**
