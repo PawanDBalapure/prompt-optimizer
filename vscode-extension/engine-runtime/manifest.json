@@ -1,0 +1,5 @@
+{
+  "target": "win32-x64",
+  "nodeVersion": "22.11.0",
+  "binary": "node.exe"
+}

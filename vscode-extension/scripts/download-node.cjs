@@ -38,8 +38,19 @@ const TARGETS = {
   'darwin-arm64': { dist: 'darwin-arm64',ext: 'tar.gz', bin: 'bin/node' },
 };
 
+function quoteForShell(s) {
+  if (process.platform !== 'win32') { return s; }
+  if (s === '' || /[\s"()&|<>^]/.test(s)) {
+    return `"${String(s).replace(/"/g, '\\"')}"`;
+  }
+  return s;
+}
+
 function run(cmd, args, opts = {}) {
-  const r = spawnSync(cmd, args, { stdio: 'inherit', shell: process.platform === 'win32', ...opts });
+  const useShell = process.platform === 'win32';
+  const finalCmd = useShell ? quoteForShell(cmd) : cmd;
+  const finalArgs = useShell ? args.map(quoteForShell) : args;
+  const r = spawnSync(finalCmd, finalArgs, { stdio: 'inherit', shell: useShell, ...opts });
   if (r.status !== 0) { throw new Error(`Command failed: ${cmd} ${args.join(' ')}`); }
 }
 

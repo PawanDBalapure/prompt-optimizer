@@ -43,11 +43,27 @@ const TARGET_TO_NPM = {
   'darwin-arm64':{ platform: 'darwin', arch: 'arm64' },
 };
 
+/**
+ * Quote args (and the command path) so they survive cmd.exe when running
+ * with `shell: true` on Windows. Otherwise paths like
+ * `C:\Program Files\nodejs\node.exe` get split on the space.
+ */
+function quoteForShell(s) {
+  if (process.platform !== 'win32') { return s; }
+  if (s === '' || /[\s"()&|<>^]/.test(s)) {
+    return `"${String(s).replace(/"/g, '\\"')}"`;
+  }
+  return s;
+}
+
 function run(cmd, args, opts = {}) {
   console.log(`\n> ${cmd} ${args.join(' ')}`);
-  const r = spawnSync(cmd, args, {
+  const useShell = process.platform === 'win32';
+  const finalCmd = useShell ? quoteForShell(cmd) : cmd;
+  const finalArgs = useShell ? args.map(quoteForShell) : args;
+  const r = spawnSync(finalCmd, finalArgs, {
     stdio: 'inherit',
-    shell: process.platform === 'win32',
+    shell: useShell,
     ...opts,
   });
   if (r.status !== 0) {
