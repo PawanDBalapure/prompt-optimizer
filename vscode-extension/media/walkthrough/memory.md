@@ -7,5 +7,5 @@ Prompt Optimizer automatically indexes these files in your workspace:
 * `.promptoptimizer/memory.md`, `.promptoptimizer/knowledge.md`
 * `.cursorrules`, `.clinerules`
 
-Anything you write there becomes part of the local knowledge graph the
-optimizer pulls from.  Save the file and it is re-indexed within seconds.
+Anything you write there can guide local optimization. Save the file and it is
+re-indexed automatically. Marketplace updates preserve these files.

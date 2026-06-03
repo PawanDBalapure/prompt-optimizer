@@ -126,8 +126,7 @@ function updatePackageJson(newVersion) {
 
 function updateChangelog(newVersion) {
   if (!fs.existsSync(changelogPath)) { return; }
-  const today = new Date().toISOString().slice(0, 10);
-  const heading = `## ${newVersion} - ${today}\n\n- _Describe changes here._\n\n`;
+  const heading = `## ${newVersion}\n\n- _Summarize this release in a few high-level, user-facing bullets. Keep it generic — avoid internal/implementation detail._\n\n`;
   const existing = fs.readFileSync(changelogPath, 'utf8');
   // Insert after the first H1 line if present, otherwise prepend.
   const lines = existing.split(/\r?\n/);

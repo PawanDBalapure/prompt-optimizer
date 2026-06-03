@@ -220,3 +220,10 @@
       max-height: 160px;
       overflow: auto;
     }
+    /* The optimized prompt can be long — give it room and let the user resize
+       so the full text is visible instead of being clipped to a few lines. */
+    #optimizedPrompt {
+      max-height: 60vh;
+      min-height: 64px;
+      resize: vertical;
+    }

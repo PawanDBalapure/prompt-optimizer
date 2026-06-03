@@ -2,7 +2,7 @@
   "name": "vc-prompt-optimizer--local",
   "displayName": "Prompt Optimizer - Local",
   "description": "Fully local prompt optimization, semantic cache, and token cost forecasting for VS Code. Your prompts and code never leave your machine — no telemetry, no cloud processing. Works with GitHub Copilot.",
-  "version": "2.9.5",
+  "version": "2.9.6",
   "publisher": "PawanBalapure",
   "license": "MIT",
   "icon": "images/icon.png",
@@ -178,6 +178,38 @@
           "default": 0.002,
           "description": "Output cost per 1K tokens in USD (defaults to $0.002)."
         },
+        "promptProxy.subscriptionPlan": {
+          "type": "string",
+          "enum": [
+            "free",
+            "pro",
+            "pro-plus",
+            "business",
+            "enterprise"
+          ],
+          "enumDescriptions": [
+            "Copilot Free — 50 premium requests / month.",
+            "Copilot Pro — 300 premium requests / month.",
+            "Copilot Pro+ — 1500 premium requests / month.",
+            "Copilot Business — 300 premium requests / month per seat.",
+            "Copilot Enterprise — 1000 premium requests / month per seat."
+          ],
+          "default": "pro",
+          "description": "Your GitHub Copilot subscription plan. Determines the monthly included premium-request (credit) allowance used by the forecast."
+        },
+        "promptProxy.forecastRequestsPerDay": {
+          "type": "number",
+          "default": 20,
+          "minimum": 0,
+          "maximum": 5000,
+          "description": "Estimated number of optimized requests you send per working day. Used to project monthly premium-request (credit) usage in the forecast."
+        },
+        "promptProxy.creditOveragePrice": {
+          "type": "number",
+          "default": 0.04,
+          "minimum": 0,
+          "description": "Price in USD charged per additional premium request once your monthly included allowance is exhausted (GitHub default $0.04 per request)."
+        },
         "promptProxy.enableSecretDetection": {
           "type": "boolean",
           "default": true,
@@ -347,6 +379,11 @@
       {
         "command": "prompt-proxy.clearMemory",
         "title": "Prompt Optimizer: Clear Conversation Memory"
+      },
+      {
+        "command": "prompt-proxy.resetToDefaults",
+        "title": "Prompt Optimizer: Reset to Defaults",
+        "icon": "$(discard)"
       },
       {
         "command": "prompt-proxy.openMemoryFile",

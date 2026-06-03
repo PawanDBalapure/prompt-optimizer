@@ -1,15 +1,24 @@
 {
   "name": "prompt-proxy-engine",
-  "version": "2.9.5",
+  "version": "2.9.6",
   "description": "Production-grade local prompt proxy engine designed for IDE extensions.",
   "repository": {
     "type": "git",
-    "url": "https://github.com/PawanDBalapure/prompt-optimizer"
+    "url": "git+https://github.com/PawanDBalapure/prompt-optimizer.git"
   },
   "exports": {
     ".": "./dist/index.js",
     "./cli": "./dist/cli.js"
   },
+  "files": [
+    "dist/**",
+    "!dist/test.*",
+    "!dist/tests/**",
+    "!dist/*.new.*",
+    "schemas/**",
+    "README.md",
+    "LICENSE"
+  ],
   "bin": {
     "prompt-proxy-engine": "dist/cli.js"
   },

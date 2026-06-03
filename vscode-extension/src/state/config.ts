@@ -35,6 +35,36 @@ export function getProcessingMode(): string {
   return getConfig().get<string>('processingMode') ?? 'blocking';
 }
 
+const PLAN_ALLOWANCES: Record<string, { label: string; allowance: number }> = {
+  'free': { label: 'Copilot Free', allowance: 50 },
+  'pro': { label: 'Copilot Pro', allowance: 300 },
+  'pro-plus': { label: 'Copilot Pro+', allowance: 1500 },
+  'business': { label: 'Copilot Business', allowance: 300 },
+  'enterprise': { label: 'Copilot Enterprise', allowance: 1000 },
+};
+
+export function getCreditForecastConfig(): {
+  plan: string;
+  planLabel: string;
+  monthlyAllowance: number;
+  requestsPerDay: number;
+  overagePrice: number;
+} {
+  const config = getConfig();
+  const planRaw = config.get<string>('subscriptionPlan') ?? 'pro';
+  const plan = PLAN_ALLOWANCES[planRaw] ? planRaw : 'pro';
+  const entry = PLAN_ALLOWANCES[plan];
+  const requestsPerDay = Math.max(0, config.get<number>('forecastRequestsPerDay') ?? 20);
+  const overagePrice = Math.max(0, config.get<number>('creditOveragePrice') ?? 0.04);
+  return {
+    plan,
+    planLabel: entry.label,
+    monthlyAllowance: entry.allowance,
+    requestsPerDay,
+    overagePrice,
+  };
+}
+
 function isTargetModel(value: unknown): value is TargetModel {
   return value === 'claude' || value === 'gpt' || value === 'gemini' || value === 'local';
 }

@@ -757,7 +757,7 @@
     <div class="logo">P</div>
     <div>
       <h1>Prompt Optimizer</h1>
-      <p>Compress prompts, reuse local cache, and forecast token cost before they reach Copilot — all on your machine.</p>
+      <p>Optimize prompts, use local memory/cache, forecast credits, and send to Copilot only when you choose.</p>
     </div>
     <div class="badges">
       <span>fully local</span>
@@ -784,8 +784,7 @@
     <!-- One-line intro + visual tour button -->
     <div class="intro-bar">
       <p class="intro-text">
-        This plugin indexes your <strong>workspace</strong>, <strong>cache</strong>, and <strong>instructions</strong>,
-        then uses them to refine and format your prompt — optimizing token consumption before it ever reaches Copilot.
+        Prompt Optimizer reads local context, removes noise, forecasts cost, and keeps your setup across updates.
       </p>
       <button class="intro-play" id="btnVisualTour" title="Play the visual tour animation">🚀 Visual Tour</button>
     </div>
@@ -793,13 +792,12 @@
     <div class="card" style="margin-bottom:14px;">
       <h2 class="section">Meaning-preserving sentence shortening</h2>
       <p class="lead">
-        The compressor does more than remove filler. It rewrites long English sentences into shorter ones when the meaning stays the same,
-        so the prompt is easier for Copilot to read without losing intent.
+        The compressor removes noise and shortens English only when intent stays intact.
       </p>
       <ul class="bullets">
-        <li>Removes politeness, hedging, and redundant phrasing from natural-language requests.</li>
-        <li>Replaces long expressions such as “in order to” and “due to the fact that” with shorter equivalents.</li>
-        <li>Keeps code blocks, imports, and code-like lines untouched so technical content stays exact.</li>
+        <li>Removes politeness, hedging, and repeated context.</li>
+        <li>Shortens phrases such as “in order to” → “to”.</li>
+        <li>Leaves code, imports, paths, and stack traces exact.</li>
       </ul>
     </div>
 
@@ -807,19 +805,17 @@
     <div class="card" style="margin-bottom:14px;">
       <h2 class="section">How your prompt gets optimized for Copilot</h2>
       <p class="lead">
-        Eight smart steps run locally between your keystroke and Copilot — each one
-        trims noise, packs only what's needed, and forecasts cost so the prompt
-        Copilot finally sees is shorter, sharper, and cheaper:
+        Local steps run before Copilot sees anything:
       </p>
       <ol class="bullets" style="counter-reset:p;">
-        <li><strong>Compress</strong> filler words, softeners, redundant phrasing, and long English sentences.</li>
-        <li><strong>Check the local semantic cache</strong> — reuse a prior result if a similar prompt was already answered.</li>
-        <li><strong>Pack workspace context</strong> — active file, open editors, diagnostics, recent saves.</li>
-        <li><strong>Estimate token cost</strong> before the request is sent.</li>
-        <li><strong>Run the chosen mode</strong> — Optimize shows the analysis card, Agent sends the optimized prompt straight to Copilot Chat, Direct pre-fills <code>@promptoptimizer</code>.</li>
-        <li><strong>Detect SDLC workflow intent</strong> from slash commands, rules, custom skills, and file context.</li>
-        <li><strong>Remember the conversation</strong> across turns per workspace — pronouns like "fix it" resolve correctly.</li>
-        <li><strong>Let you enable/edit bundled SDLC agents</strong> from the Agents button in the sidebar.</li>
+        <li><strong>Compress</strong> prompt text without touching code-like content.</li>
+        <li><strong>Scan secrets</strong> before any send.</li>
+        <li><strong>Check cache</strong> for exact or semantic matches.</li>
+        <li><strong>Pack context</strong> from files, diagnostics, memory, KG, and peers.</li>
+        <li><strong>Apply mode/agent</strong> from slash commands, rules, or custom skills.</li>
+        <li><strong>Forecast tokens, cost, and credits</strong> for the selected plan/model.</li>
+        <li><strong>Remember conversation</strong> so “fix it” resolves correctly.</li>
+        <li><strong>Preserve your setup</strong> across updates; reset is manual and selective.</li>
       </ol>
       <div style="display:flex;gap:8px;margin-top:12px;">
         <button class="intro-play" id="btnPlay" title="Play the workspace animation">▶ Demo</button>
@@ -932,14 +928,14 @@
 
   <!-- ────────────────────────────────────────────── TAB 2: Modes ────── -->
   <section class="tab-panel" id="tab-modes">
-    <h2 class="section">Three modes — pick how much control you want</h2>
+    <h2 class="section">Three modes — pick the send behavior</h2>
     <p class="lead">Switch via the status-bar item, the sidebar dropdown, or <code>@promptoptimizer /mode &lt;name&gt;</code>.</p>
 
     <div class="grid-3">
       <div class="mode-card">
         <div class="icon">🤖</div>
-        <h3 class="agent">Agent <span class="pill green">default</span></h3>
-        <p>Type in the sidebar → optimize → Copilot Chat opens with the optimized prompt and submits it for you. No <code>@promptoptimizer</code> needed.</p>
+        <h3 class="agent">Agent <span class="pill green">auto-send</span></h3>
+        <p>Optimize locally, open Copilot Chat, and submit the optimized prompt. No <code>@promptoptimizer</code> prefix.</p>
         <div class="pill-row">
           <span class="pill green">streams</span>
           <span class="pill">sidebar</span>
@@ -947,8 +943,8 @@
       </div>
       <div class="mode-card">
         <div class="icon">✨</div>
-        <h3 class="optim">Optimize only</h3>
-        <p>Shows analysis table (cost, tokens saved, cache status) and the optimized prompt. You decide when to send.</p>
+        <h3 class="optim">Optimize only <span class="pill purple">default</span></h3>
+        <p>Show analysis, cache status, credit forecast, and optimized prompt. You decide when to send.</p>
         <div class="pill-row">
           <span class="pill purple">no send</span>
           <span class="pill">analysis</span>
@@ -957,7 +953,7 @@
       <div class="mode-card">
         <div class="icon">💬</div>
         <h3 class="direct">Direct send</h3>
-        <p>Opens the Chat panel with <code>@promptoptimizer &lt;your prompt&gt;</code> pre-filled. You hit Enter.</p>
+        <p>Open Chat with <code>@promptoptimizer &lt;your prompt&gt;</code> prefilled. You hit Enter.</p>
         <div class="pill-row">
           <span class="pill blue">chat panel</span>
           <span class="pill">prefilled</span>
@@ -982,7 +978,7 @@
   <!-- ────────────────────────────────────────── TAB 3: SDLC & agents ── -->
   <section class="tab-panel" id="tab-sdlc">
     <h2 class="section">Built-in SDLC modes</h2>
-    <p class="lead">Slash-triggered roles that frame the optimized prompt with a checklist before sending. Or let the picker score intent automatically.</p>
+    <p class="lead">Slash roles add the right checklist and tone. Without a slash, skills are scored from intent, files, and keywords.</p>
 
     <div class="chip-grid">
       <div class="sdlc-chip"><span class="slash">/plan</span><span class="desc">Decompose the work</span></div>
@@ -1003,7 +999,7 @@
     <div class="grid-2" style="margin-top:14px;">
       <div class="card">
         <h2 class="section">Custom skills</h2>
-        <p class="lead">Workspace skills live in <code>.promptoptimizer/skills/*.md</code>. User-global skills via <code>PROMPT_OPTIMIZER_SKILLS_DIR</code>.</p>
+        <p class="lead">Workspace skills live in <code>.promptoptimizer/skills/*.md</code>. Global skills can come from <code>PROMPT_OPTIMIZER_SKILLS_DIR</code>.</p>
         <h3 class="sub">Supported frontmatter</h3>
         <ul class="bullets">
           <li><code>id</code>, <code>label</code>, <code>readOnly</code></li>
@@ -1016,12 +1012,13 @@
       </div>
       <div class="card">
         <h2 class="section">🤖 Agents button</h2>
-        <p class="lead">The <strong>Agents</strong> chip in the sidebar opens a multi-select picker for the bundled SDLC agent library.</p>
+        <p class="lead">The <strong>Agents</strong> chip manages bundled and custom workspace agents.</p>
         <ul class="bullets">
           <li><strong>Tick</strong> an agent to enable it for the current workspace.</li>
           <li><strong>Untick</strong> to disable it.</li>
           <li>Click the <strong>✎ pencil</strong> to enable-and-open the workspace copy for editing.</li>
           <li>Click <strong>↺ reset</strong> to restore the bundled definition over local edits.</li>
+          <li>Remove user-created agents without touching bundled definitions.</li>
           <li>Use the title-bar <strong>+</strong> to create a custom agent from a template.</li>
         </ul>
         <p class="lead" style="margin-top:8px;">Enabled agents are copied into <code>.promptoptimizer/skills/</code> — customize them like any other skill.</p>
@@ -1034,9 +1031,7 @@
     <div class="card">
       <h2 class="section">🎬 Live walkthrough — every control in the sidebar</h2>
       <p class="lead">
-        Press <strong>▶ Play tour</strong> and watch the spotlight visit every button, chip, and field
-        one-by-one with a short description. Click any control directly to jump there, or use
-        <strong>‹ Prev</strong> / <strong>Next ›</strong> to step manually.
+        Press <strong>▶ Play tour</strong> to spotlight each control. Click a control to jump, or step with <strong>‹ Prev</strong> / <strong>Next ›</strong>.
       </p>
 
       <div class="mock-stage" id="mockStage">
@@ -1051,13 +1046,13 @@
             <button class="mock-select"
                     data-walk="1"
                     data-walk-title="Mode selector"
-                    data-walk-desc="Switch between <b>Agent</b> (auto-send to Copilot), <b>Optimize only</b> (show analysis, you decide), and <b>Direct send</b> (open Chat with prompt pre-filled).">
-              Agent ▾
+                      data-walk-desc="Switch between <b>Optimize only</b> (default review), <b>Agent</b> (auto-send to Copilot), and <b>Direct send</b> (pre-fill Chat).">
+                    Optimize only ▾
             </button>
             <button class="mock-status"
                     data-walk="2"
                     data-walk-title="⌬ Status pill"
-                    data-walk-desc="Live indicator showing seed progress, indexing, cache hits, and current mode. Click to open the status overview & quick command list.">
+                    data-walk-desc="Live status for indexing, cache, memory, graph, peers, and current mode.">
               ⌬ ready
             </button>
           </div>
@@ -1108,7 +1103,7 @@
             <button class="mock-chip"
                     data-walk="10"
                     data-walk-title="🤖 Agents"
-                    data-walk-desc="Enable bundled SDLC agents (code-review, test-writer, doc-author…) or create custom ones from a template. Edits live in .promptoptimizer/skills/.">
+                    data-walk-desc="Enable, edit, reset, remove, or create agents. Edits live in .promptoptimizer/skills/ and survive updates.">
               🤖 Agents
             </button>
           </div>
@@ -1129,7 +1124,7 @@
             <button class="mock-btn primary"
                     data-walk="13"
                     data-walk-title="✨ Optimize Prompt"
-                    data-walk-desc="The main action. Runs the 8-step pipeline: compress, cache-check, pack context, estimate cost, then either show the optimized prompt or send it to Copilot — depending on the mode above.">
+                    data-walk-desc="Runs compression, secret scan, cache lookup, context packing, mode selection, and credit forecast before send.">
               ✨ Optimize Prompt
             </button>
           </div>
@@ -1188,7 +1183,7 @@
     <div class="grid-2" style="margin-top:14px;">
       <div class="card">
         <h2 class="section">Sidebar — Prompt Optimizer Control</h2>
-        <p class="lead">Open it from the Chat sidebar or press the status-bar item. Every chip is a shortcut into common actions:</p>
+        <p class="lead">Open it from the Chat sidebar or status bar. Chips are shortcuts:</p>
         <ul class="bullets">
           <li><strong>🚀 Visual Tour</strong> — reopen this onboarding guide.</li>
           <li><strong>🎓 Guide</strong> — single-screen list of every common action.</li>
@@ -1198,6 +1193,8 @@
           <li><strong>📓 Memory</strong> — opens <code>AGENTS.md</code> / <code>CLAUDE.md</code> / <code>.promptoptimizer/memory.md</code>.</li>
           <li><strong>🔗 Peers</strong> — federate cache with peer workspaces.</li>
           <li><strong>🤖 Agents</strong> — enable bundled or custom SDLC agents.</li>
+          <li><strong>↻ Refresh</strong> — re-index status overview on demand.</li>
+          <li><strong>⚙</strong> — secret settings and selective reset to defaults.</li>
         </ul>
         <h3 class="sub" style="margin-top:14px;">Analysis table (Optimize mode)</h3>
         <dl class="kv">
@@ -1211,7 +1208,7 @@
         <h2 class="section">💬 Chat participant — <code>@promptoptimizer</code></h2>
         <p class="lead">In the VS Code Chat panel just type:</p>
         <pre style="background:var(--bg-2);border:1px solid var(--bg-3);border-radius:6px;padding:10px;font-family:var(--mono);font-size:12px;color:var(--accent);margin:0 0 12px;overflow-x:auto;">@promptoptimizer refactor the auth middleware to use async/await</pre>
-        <p class="lead">Every message is auto-optimized. Copilot's answer streams back in chat.</p>
+        <p class="lead">Messages are optimized before Copilot receives them.</p>
 
         <h3 class="sub" style="margin-top:14px;">Slash commands</h3>
         <dl class="kv">
@@ -1222,7 +1219,7 @@
         </dl>
 
         <h3 class="sub" style="margin-top:14px;">Conversation memory</h3>
-        <p class="lead">Up to <strong>12 turns per workspace</strong> are remembered. Back-references resolve automatically — typing <em>"now add unit tests for it"</em> injects <code>[Continuing from: '...']</code> before sending.</p>
+        <p class="lead">Up to <strong>12 turns per workspace</strong> are remembered, so “now add tests for it” can reference the prior task.</p>
       </div>
     </div>
   </section>
@@ -1232,9 +1229,7 @@
     <div class="mem-live" id="memLive">
       <h3>● Live memory snapshot · this workspace</h3>
       <p class="lead" style="margin:4px 0 10px;">
-        Real-time abstract view of what Prompt Optimizer has indexed locally — letters and
-        digits are replaced with <code>•</code> so nothing sensitive is rendered. Click any
-        file row to open the real source for editing.
+        Real-time local index view. Letters and digits are masked as <code>•</code>; click a row to open the real source.
       </p>
       <div class="mem-totals" id="memTotals">
         <div class="mem-stat"><strong>—</strong> files</div>
@@ -1259,8 +1254,7 @@
     <div class="card" style="margin-bottom:14px;">
       <h2 class="section">📊 What's inside the memory — abstract dashboard</h2>
       <p class="lead">
-        Every panel below is derived from real local state — file counts, cache entries, version log timestamps —
-        rendered as abstract shapes so structure is visible but content stays private.
+        Panels use local counts and timestamps, rendered as abstract shapes so content stays private.
       </p>
       <div class="mem-dash">
         <div class="mem-dash-cell">
@@ -1298,14 +1292,13 @@
     <div class="card">
       <h2 class="section">The memory lifecycle — three <em>distinct</em> stages</h2>
       <p class="lead">
-        Every saved file, every committed prompt, and every memory file passes through three stages — all local.
-        Storage lives in <code>.promptoptimizer/</code> next to your workspace and in VS Code's <code>globalState</code>.
+        Saved files, prompt versions, and memory files pass through three local stages.
       </p>
 
       <div class="grid-3" style="margin-top:8px;">
         <div class="stage">
           <h3><span class="seq">①</span> Ingestion</h3>
-          <p>Files saved → workspace memory (<code>AGENTS.md</code>, <code>CLAUDE.md</code>, <code>.promptoptimizer/memory.md</code>) re-read; Copilot chat history, git log, README and active editors are harvested.</p>
+          <p>Workspace memory, git log, README/package metadata, active editors, diagnostics, and recent saves are indexed.</p>
           <div class="anim-ingest" aria-hidden="true">
             <div class="file-token">md</div>
             <div class="file-token t2">ts</div>
@@ -1319,7 +1312,7 @@
 
         <div class="stage">
           <h3><span class="seq">②</span> Storage</h3>
-          <p>Tokens, embeddings, and conversation turns are committed to a local <strong>SQLite</strong> cache + JSON state. Prompt versions live in a <strong>Git-style graph</strong> with branches, tags, and parent links.</p>
+          <p>Tokens, embeddings, conversation turns, and prompt versions are stored in local SQLite/JSON state.</p>
           <div class="anim-store" aria-hidden="true">
             <div class="vault"></div>
             <div class="brick b1"></div><div class="brick b2"></div><div class="brick b3"></div><div class="brick b4"></div>
@@ -1330,7 +1323,7 @@
 
         <div class="stage">
           <h3><span class="seq">③</span> Retrieval</h3>
-          <p>Prompt arrives → semantic cache lookup → matching context repacked → only the optimized prompt + token forecast pass to Copilot. <em>Raw file text and secrets never leave your machine.</em></p>
+          <p>Prompt arrives → cache lookup → context repacked → optimized payload and forecast are ready. Secrets are warned before send.</p>
           <div class="anim-retrieve" aria-hidden="true">
             <div class="radar"></div>
             <div class="sweep"></div>
@@ -1380,7 +1373,7 @@
           <tr><td class="k">Miss</td><td class="v">Optimizes fresh and writes the result to cache for next time.</td></tr>
         </tbody>
       </table>
-      <p class="lead" style="margin-top:10px;">Seed sources on activation: <code>git log</code>, Copilot chat history, <code>README.md</code>, <code>package.json</code>, AI instruction files (<code>.github/copilot-instructions.md</code>, <code>AGENTS.md</code>, <code>CLAUDE.md</code>, etc.). Manage via <code>Prompt Optimizer: Show Cache Statistics</code> / <code>Clear Semantic Cache</code>.</p>
+      <p class="lead" style="margin-top:10px;">Seed sources: <code>git log</code>, Prompt Optimizer history, <code>README.md</code>, <code>package.json</code>, and instruction files. Manage with cache statistics, clear cache, or reset-to-defaults.</p>
     </div>
   </section>
 
@@ -1396,6 +1389,7 @@
             <tr><td class="k">Secret scanning</td><td class="v">API keys and tokens are detected <strong>before</strong> any network call and blocked with a warning.</td></tr>
             <tr><td class="k">Telemetry</td><td class="v"><strong>None.</strong> Zero usage or diagnostic data collected.</td></tr>
             <tr><td class="k">Network calls</td><td class="v">Only the GitHub Copilot inference request you explicitly send via the VS Code Chat API.</td></tr>
+            <tr><td class="k">Updates</td><td class="v">Settings, cache, memory, prompt versions, and custom agents are preserved across marketplace updates.</td></tr>
             <tr><td class="k">Open source</td><td class="v"><a href="https://github.com/PawanDBalapure/prompt-optimizer" style="color:var(--blue);">github.com/PawanDBalapure/prompt-optimizer</a> — audit it yourself.</td></tr>
           </tbody>
         </table>
@@ -1438,6 +1432,7 @@
           <tr><td class="k">Show Cache Statistics</td><td class="v">Entry count, avg confidence, total hits</td></tr>
           <tr><td class="k">Clear Semantic Cache</td><td class="v">Wipe the local SQLite cache</td></tr>
           <tr><td class="k">Clear Conversation Memory</td><td class="v">Reset this workspace's conversation history</td></tr>
+          <tr><td class="k">Reset to Defaults</td><td class="v">Choose settings, cache, memory, or custom agents to restore</td></tr>
           <tr><td class="k">Show Prompt History</td><td class="v">QuickPick of prior prompts with diff/restore/send actions</td></tr>
           <tr><td class="k">Commit / Log / Branch / Tag Prompt</td><td class="v">Git-style versioning of prompts</td></tr>
           <tr><td class="k">List Agent Skills (Modes)</td><td class="v">Every registered built-in and custom mode</td></tr>
@@ -1458,6 +1453,9 @@
           <tr><td class="k">promptProxy.enableSessionContext</td><td class="k">true</td><td class="v">Feed recent turns back as session history.</td></tr>
           <tr><td class="k">promptProxy.pricingInput</td><td class="k">0.0015</td><td class="v">Input cost per 1K tokens (USD).</td></tr>
           <tr><td class="k">promptProxy.pricingOutput</td><td class="k">0.002</td><td class="v">Output cost per 1K tokens (USD).</td></tr>
+          <tr><td class="k">promptProxy.subscriptionPlan</td><td class="k">pro</td><td class="v">Monthly credit allowance used by the forecast.</td></tr>
+          <tr><td class="k">promptProxy.forecastRequestsPerDay</td><td class="k">20</td><td class="v">Requests/day used for monthly overage.</td></tr>
+          <tr><td class="k">promptProxy.secretPatterns</td><td class="k">[]</td><td class="v">Custom scanner rules.</td></tr>
           <tr><td class="k">promptProxy.versions.author</td><td class="k">you</td><td class="v">Author name stamped on prompt commits.</td></tr>
         </tbody>
       </table>

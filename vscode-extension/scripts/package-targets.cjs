@@ -134,6 +134,9 @@ function packageTarget(target) {
   // does not include them. Always restore, even on failure, so the working
   // tree is left clean.
   const pruneScript = path.join(__dirname, 'prune-target-bins.cjs');
+  // Recover from any previous interrupted package run that left the prune
+  // cache behind so repeated packaging does not require manual cleanup.
+  run(process.execPath, [pruneScript, 'restore']);
   run(process.execPath, [pruneScript, 'apply', target]);
   try {
     run('npx', ['vsce', 'package', '--target', target, '--out', `dist/${target}.vsix`], {

@@ -7,6 +7,7 @@ import type {
   PromptOptimizationRequest,
   PromptOptimizationResponse,
   PromptProxyEngineOptions,
+  ReusedCacheSegment,
 } from './contracts.js';
 import {
   parseToPromptIR,
@@ -31,6 +32,7 @@ import {
   selectImprovementSuggestions,
 } from './engine/promptBuilder.js';
 import { containsLegacyExampleSection, sanitizeOptimizedPrompt } from './engine/sanitizer.js';
+import { SegmentReuseStore } from './engine/segmentCache.js';
 import type { ResolvedPromptPricingConfig } from './engine/types.js';
 import { hashPromptKey, withTimeout } from './engine/utils.js';
 import { reportEngineError } from './engine/logger.js';
@@ -213,14 +215,27 @@ export class PromptProxyEngine {
     const hashedKey = hashPromptKey(rawPrompt);
     this.cacheManager.recordVersion(hashedKey, rawPrompt, compiledRequest, targetModel, 'main', 0.0);
 
-    const optimizedPrompt = applySdlcMode(
-      sanitizeOptimizedPrompt(
-        shouldReuseCached
-          ? (cacheResult as CacheQueryResult).optimizedPrompt
-          : buildOptimizedPrompt(compiledRequest, [...contextPack.sections, ...augmentedSections]),
-      ),
-      sdlcMode,
-    );
+    // Partial (segment-level) cache reuse: collapse recurring context blocks
+    // that were already sent for this workspace into compact cache references
+    // instead of resending them.  Only applies on the build path — an exact
+    // whole-prompt hit already returns the cached optimized prompt verbatim.
+    const reuseEnabled =
+      request.reuse_cached_segments !== false && process.env.PROMPT_OPT_SEGMENT_REUSE !== 'off';
+    let reusedSegments: ReusedCacheSegment[] = [];
+    let builtPrompt: string;
+    if (shouldReuseCached) {
+      builtPrompt = (cacheResult as CacheQueryResult).optimizedPrompt;
+    } else {
+      const segmentStore = new SegmentReuseStore(this.cacheManager.rawDatabase(), reuseEnabled);
+      const reuse = segmentStore.applyReuse(workspaceId, [
+        ...contextPack.sections,
+        ...augmentedSections,
+      ]);
+      reusedSegments = reuse.reused;
+      builtPrompt = buildOptimizedPrompt(compiledRequest, reuse.sections);
+    }
+
+    const optimizedPrompt = applySdlcMode(sanitizeOptimizedPrompt(builtPrompt), sdlcMode);
 
     if (!shouldReuseCached) {
       this.persistCacheEntry(rawSnapshot, optimizedPrompt, workspaceId, mode);
@@ -246,11 +261,18 @@ export class PromptProxyEngine {
       optimized_prompt: optimizedPrompt,
       improvements: [
         ...(sdlcMode ? [describeMode(sdlcMode)] : []),
+        ...(reusedSegments.length > 0
+          ? [
+              `Reused ${reusedSegments.length} context block${reusedSegments.length === 1 ? '' : 's'} ` +
+                `from cache (~${reusedSegments.reduce((sum, seg) => sum + seg.tokens_saved, 0)} tokens saved); ` +
+                'these are referenced in the optimized prompt instead of resent.',
+            ]
+          : []),
         ...diagnostics.map((d) => `[${d.code}]: ${d.message} (Suggestion: ${d.fix_suggestion})`),
         ...selectImprovementSuggestions(optimizedPrompt, request.ide_context),
       ].slice(0, MAX_IMPROVEMENTS),
       analysis: {
-        cache: buildCacheInsight(cacheStatus, cacheResult, cacheCandidates),
+        cache: buildCacheInsight(cacheStatus, cacheResult, cacheCandidates, reusedSegments),
         context: contextPack.insight,
         cost: costInsight,
       },

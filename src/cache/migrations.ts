@@ -185,6 +185,29 @@ const v5_peer_transport: Migration = {
   },
 };
 
+/** Content-addressed store of context segments already sent to the model so
+ *  recurring file/log/memory blocks can be referenced instead of resent. */
+const v6_prompt_segments: Migration = {
+  version: 6,
+  description: 'prompt_segments store for partial (segment-level) cache reuse',
+  up: (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS prompt_segments (
+        workspace_id TEXT NOT NULL,
+        segment_hash TEXT NOT NULL,
+        label TEXT NOT NULL DEFAULT '',
+        char_length INTEGER NOT NULL DEFAULT 0,
+        token_estimate INTEGER NOT NULL DEFAULT 0,
+        hit_count INTEGER NOT NULL DEFAULT 0,
+        first_seen INTEGER NOT NULL,
+        last_seen INTEGER NOT NULL,
+        PRIMARY KEY (workspace_id, segment_hash)
+      );
+      CREATE INDEX IF NOT EXISTS idx_prompt_segments_ws ON prompt_segments(workspace_id);
+    `);
+  },
+};
+
 /** Ordered list — append new migrations to the end. */
 export const MIGRATIONS: Migration[] = [
   v1_initial,
@@ -192,6 +215,7 @@ export const MIGRATIONS: Migration[] = [
   v3_engine_metrics,
   v4_audit_log,
   v5_peer_transport,
+  v6_prompt_segments,
 ];
 
 export const CURRENT_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;

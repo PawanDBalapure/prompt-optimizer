@@ -100,6 +100,18 @@ function renderState(state) {
   optimizedPrompt.textContent  = state.optimized;
   optimizedCard.style.display  = state.optimized ? 'block' : 'none';
 
+  // ── Partial cache reuse banner ─────────────────────────────────────────────
+  var reused = analysis.cache && analysis.cache.reused_segments;
+  if (reused && reused.length) {
+    var savedTokens = analysis.cache.reused_tokens_saved || 0;
+    addAlert(
+      'info',
+      '\u267b\ufe0f  ' + reused.length + ' context block' + (reused.length === 1 ? '' : 's') +
+        ' reused from cache (~' + savedTokens + ' tokens saved). Referenced in the optimized prompt instead of resent: ' +
+        reused.map(function(seg) { return seg.label; }).join(', '),
+    );
+  }
+
   // ── Context chips ──────────────────────────────────────────────────────────
   var chipItems = [];
   if (analysis.context.active_file) { chipItems.push('Active: ' + analysis.context.active_file); }
@@ -176,49 +188,89 @@ function renderState(state) {
 // Renders the input/output/total breakdown into the accordion table.  The
 // figures come straight from the engine's pricing module (see
 // src/engine/pricing.ts) — they are estimates, not billed amounts.
-function renderCostForecast(state) {
+// Premium-request (credit) multiplier per target model. A multiplier of 1
+// means one optimized request consumes one premium request; 0 means the model
+// is fully included and never draws from the premium allowance.
+var CREDIT_MODEL_MULTIPLIERS = { gpt: 1, claude: 1, gemini: 1, local: 0 };
+var CREDIT_MODEL_LABELS = { gpt: 'GPT', claude: 'Claude', gemini: 'Gemini', local: 'Local' };
+
+// Latest plan/volume config pushed by the host. Defaults mirror Copilot Pro.
+var creditForecastConfig = {
+  plan: 'pro',
+  planLabel: 'Copilot Pro',
+  monthlyAllowance: 300,
+  requestsPerDay: 20,
+  overagePrice: 0.04,
+};
+
+function setCreditForecastConfig(cfg) {
+  if (cfg && typeof cfg === 'object') {
+    creditForecastConfig = {
+      plan: cfg.plan || 'pro',
+      planLabel: cfg.planLabel || 'Copilot Pro',
+      monthlyAllowance: Number(cfg.monthlyAllowance) || 0,
+      requestsPerDay: Number(cfg.requestsPerDay) || 0,
+      overagePrice: Number(cfg.overagePrice) || 0,
+    };
+  }
+  renderCostForecast();
+}
+
+function renderCostForecast() {
   var body  = document.getElementById('costForecastBody');
   var foot  = document.getElementById('costForecastFooterTotal');
   var badge = document.getElementById('costForecastTotal');
   if (!body || !foot || !badge) { return; }
 
-  var metrics  = state.metrics  || {};
-  var analysis = state.analysis || {};
-  var cost     = analysis.cost  || {};
-  var inputTokens  = metrics.optimized_input_tokens  || 0;
-  var outputTokens = metrics.estimated_output_tokens || 0;
-  var inputRate    = cost.input_cost_per_1k_tokens   || 0;
-  var outputRate   = cost.output_cost_per_1k_tokens  || 0;
-  var inputCost    = cost.input_cost_usd  || 0;
-  var outputCost   = cost.output_cost_usd || 0;
-  var totalCost    = cost.total_cost_usd  || 0;
+  var cfg = creditForecastConfig;
+  var modelSel = document.getElementById('targetModelSelect');
+  var model = (modelSel && modelSel.value) || 'gpt';
+  var multiplier = CREDIT_MODEL_MULTIPLIERS.hasOwnProperty(model)
+    ? CREDIT_MODEL_MULTIPLIERS[model] : 1;
+  var modelLabel = CREDIT_MODEL_LABELS[model] || model;
+
+  var allowance      = cfg.monthlyAllowance;
+  var requestsPerDay = cfg.requestsPerDay;
+  // ~22 working days per month for the projection.
+  var requestsPerMonth = Math.round(requestsPerDay * 22);
+  var creditsPerMonth  = requestsPerMonth * multiplier;
+  var remaining        = Math.max(0, allowance - creditsPerMonth);
+  var overageRequests  = Math.max(0, creditsPerMonth - allowance);
+  var overageCost      = overageRequests * cfg.overagePrice;
+
+  var creditsPerRequestLabel = multiplier === 0
+    ? 'Included (0 credits)'
+    : (multiplier + (multiplier === 1 ? ' credit' : ' credits') + ' / request');
 
   var rows = [
-    { label: 'Optimized input',     tokens: inputTokens,  rate: inputRate,  cost: inputCost  },
-    { label: 'Estimated output',    tokens: outputTokens, rate: outputRate, cost: outputCost },
+    { label: 'Plan',                          value: cfg.planLabel },
+    { label: 'Included premium requests / mo', value: String(allowance) },
+    { label: 'Target model',                  value: modelLabel + ' — ' + creditsPerRequestLabel },
+    { label: 'Estimated requests / day',      value: String(requestsPerDay) },
+    { label: 'Projected requests / mo',       value: String(requestsPerMonth) },
+    { label: 'Premium requests used / mo',    value: String(creditsPerMonth) },
+    { label: 'Remaining included / mo',       value: String(remaining) },
+    { label: 'Overage requests / mo',         value: String(overageRequests) },
+    { label: 'Overage cost / mo',             value: formatCurrency(overageCost) },
   ];
 
-  // Tear down + rebuild — small table, simpler than diffing.
   while (body.firstChild) { body.removeChild(body.firstChild); }
   rows.forEach(function(row) {
     var tr = document.createElement('tr');
-    var tdLabel  = document.createElement('td'); tdLabel.textContent  = row.label;
-    var tdTok    = document.createElement('td'); tdTok.textContent    = String(row.tokens);
-    tdTok.style.textAlign = 'right';
-    var tdRate   = document.createElement('td'); tdRate.textContent   = formatCurrency(row.rate);
-    tdRate.style.textAlign = 'right';
-    var tdCost   = document.createElement('td'); tdCost.textContent   = formatCurrency(row.cost);
-    tdCost.style.textAlign = 'right';
+    var tdLabel = document.createElement('td'); tdLabel.textContent = row.label;
+    var tdValue = document.createElement('td'); tdValue.textContent = row.value;
+    tdValue.style.textAlign = 'right';
     tr.appendChild(tdLabel);
-    tr.appendChild(tdTok);
-    tr.appendChild(tdRate);
-    tr.appendChild(tdCost);
+    tr.appendChild(tdValue);
     body.appendChild(tr);
   });
 
-  foot.textContent  = formatCurrency(totalCost);
-  badge.textContent = formatCurrency(totalCost);
-
-  var accordion = document.getElementById('costForecastAccordion');
-  if (accordion) { accordion.open = false; }
+  foot.textContent = formatCurrency(overageCost);
+  if (overageCost > 0) {
+    badge.textContent = formatCurrency(overageCost);
+    badge.classList.remove('po-count-zero');
+  } else {
+    badge.textContent = 'Included';
+    badge.classList.add('po-count-zero');
+  }
 }

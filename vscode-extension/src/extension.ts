@@ -28,6 +28,7 @@ import {
   getConversation,
 } from './state/conversation';
 import { getDbPath } from './state/config';
+import { resetSettingsToDefault } from './state/userCustomizations';
 import {
   addPassiveEvent,
   getLastAnalysis,
@@ -559,6 +560,105 @@ function registerCommands(
     const wsId = computeWorkspaceId(wsRoot);
     await clearConversationForWorkspace(context, wsId);
     vscode.window.showInformationMessage('Prompt Optimizer conversation memory cleared.');
+  }));
+
+  push(vscode.commands.registerCommand('prompt-proxy.resetToDefaults', async () => {
+    // Opt-in, multi-select reset. Nothing here ever runs automatically — a
+    // marketplace update preserves every one of these surfaces; the only way
+    // they change is if the user explicitly ticks them below.
+    type ResetItem = vscode.QuickPickItem & { value: string };
+    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const items: ResetItem[] = [
+      {
+        label: '$(settings-gear) Settings',
+        description: 'Revert all Prompt Optimizer settings to their defaults',
+        value: 'settings',
+        picked: true,
+      },
+      {
+        label: '$(database) Semantic cache',
+        description: 'Clear the local semantic cache database',
+        value: 'cache',
+      },
+      {
+        label: '$(comment-discussion) Conversation memory',
+        description: 'Clear stored conversation history for this workspace',
+        value: 'conversation',
+      },
+      {
+        label: '$(robot) Custom agents',
+        description: 'Delete user-created agents in .promptoptimizer/skills',
+        value: 'agents',
+      },
+    ];
+    const picks = await vscode.window.showQuickPick(items, {
+      canPickMany: true,
+      title: 'Reset Prompt Optimizer to defaults',
+      placeHolder: 'Tick what to reset — nothing is changed until you confirm',
+    });
+    if (!picks || picks.length === 0) { return; }
+
+    const chosen = new Set(picks.map((p) => p.value));
+    const confirm = await vscode.window.showWarningMessage(
+      `Reset ${picks.length} item(s) to defaults? This cannot be undone.`,
+      { modal: true },
+      'Reset',
+    );
+    if (confirm !== 'Reset') { return; }
+
+    const done: string[] = [];
+    if (chosen.has('settings')) {
+      try { await resetSettingsToDefault(); done.push('settings'); }
+      catch (err) {
+        vscode.window.showWarningMessage(`Settings reset failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    if (chosen.has('cache')) {
+      try { runEngineRaw(['--clear-cache', '--db', getDbPath(context)]); done.push('cache'); }
+      catch (err) {
+        vscode.window.showWarningMessage(`Cache reset failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    if (chosen.has('conversation')) {
+      try {
+        await clearConversationForWorkspace(context, computeWorkspaceId(wsRoot));
+        done.push('conversation memory');
+      } catch (err) {
+        vscode.window.showWarningMessage(`Conversation reset failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    if (chosen.has('agents')) {
+      if (!wsRoot) {
+        vscode.window.showWarningMessage('No workspace folder open — skipped custom agent reset.');
+      } else {
+        try {
+          const skillsDir = path.join(wsRoot, '.promptoptimizer', 'skills');
+          let removed = 0;
+          if (fs.existsSync(skillsDir)) {
+            const libDir = path.join(context.extensionPath, 'media', 'skill-library');
+            const bundled = new Set(
+              fs.existsSync(libDir)
+                ? fs.readdirSync(libDir).filter((f) => /\.md$/i.test(f)).map((f) => f.toLowerCase())
+                : [],
+            );
+            for (const file of fs.readdirSync(skillsDir).filter((f) => /\.md$/i.test(f))) {
+              // Only delete user-created agents — leave enabled bundled copies.
+              if (bundled.has(file.toLowerCase())) { continue; }
+              fs.unlinkSync(path.join(skillsDir, file));
+              removed++;
+            }
+          }
+          done.push(`${removed} custom agent(s)`);
+        } catch (err) {
+          vscode.window.showWarningMessage(`Agent reset failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    }
+
+    if (done.length > 0) {
+      provider.refreshStatusOverview();
+      vscode.window.showInformationMessage(`Prompt Optimizer reset: ${done.join(', ')}.`);
+    }
   }));
 
   push(vscode.commands.registerCommand('prompt-proxy.openMemoryFile', async () => {

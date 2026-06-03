@@ -18,6 +18,8 @@
         </span>
         <div class="hero-actions">
           <span class="badge" aria-label="Features: Local cache and chat">Local cache + chat</span>
+          <button class="readme-icon-btn" id="btnRefreshOverview" title="Refresh workspace index — re-read memory, cache, knowledge graph, peers, studied files, and agents"
+                  aria-label="Refresh workspace index">&#8635;</button>
           <button class="readme-icon-btn" id="btnSettingsMenu" title="Open prompt settings"
                   aria-haspopup="true" aria-expanded="false" aria-label="Open settings menu">&#9881;</button>
           <button class="readme-icon-btn" id="btnReadme" title="Open README — extension documentation"
@@ -25,6 +27,8 @@
           <div class="settings-menu" id="settingsMenu" hidden role="menu" aria-orientation="vertical">
             <button class="settings-item" id="btnSecretSettings" role="menuitem"
                     title="Manage secret detection — add or remove scanning patterns">Secret detection</button>
+            <button class="settings-item" id="btnResetDefaults" role="menuitem"
+                    title="Reset Prompt Optimizer settings, cache, memory, or custom agents back to defaults">Reset to defaults…</button>
           </div>
         </div>
       </div>
@@ -188,26 +192,24 @@
         <details class="po-accordion" id="costForecastAccordion">
           <summary class="po-accordion-summary">
             <span class="po-accordion-chevron" aria-hidden="true">▶</span>
-            <span class="section-title" style="margin:0">Forecast Cost Details</span>
-            <span class="po-count-badge po-count-zero" id="costForecastTotal" aria-label="Estimated total cost">$0.00</span>
+            <span class="section-title" style="margin:0">Credit Forecast</span>
+            <span class="po-count-badge po-count-zero" id="costForecastTotal" aria-label="Projected monthly overage">Included</span>
           </summary>
           <div class="po-accordion-body">
             <p class="po-cost-disclaimer" id="costForecastDisclaimer">
-              ⚠️ Values shown are <strong>estimates</strong> based on token counting and configured pricing — they are not actual billed amounts. Real costs depend on the upstream provider's tokenizer and metering.
+              ⚠️ Values shown are <strong>estimates</strong> based on your configured Copilot plan, model premium-request multiplier, and your estimated request volume — they are not actual billed amounts. Adjust the plan, requests/day, and overage price in settings.
             </p>
-            <table class="po-cost-table" id="costForecastTable" aria-label="Forecast cost details">
+            <table class="po-cost-table" id="costForecastTable" aria-label="Credit forecast details">
               <thead>
                 <tr>
                   <th scope="col">Item</th>
-                  <th scope="col" style="text-align:right">Tokens</th>
-                  <th scope="col" style="text-align:right">Rate / 1K</th>
-                  <th scope="col" style="text-align:right">Est. Cost</th>
+                  <th scope="col" style="text-align:right">Value</th>
                 </tr>
               </thead>
               <tbody id="costForecastBody"></tbody>
               <tfoot>
                 <tr>
-                  <th scope="row" colspan="3" style="text-align:right">Estimated Total</th>
+                  <th scope="row" style="text-align:right">Projected monthly overage</th>
                   <td id="costForecastFooterTotal" style="text-align:right">$0.00</td>
                 </tr>
               </tfoot>
@@ -266,6 +268,48 @@
         <button class="secondary compact" id="btnCancelSecretSettings" title="Close without saving">Cancel</button>
       </div>
       <div class="saved-notice" id="savedNotice" role="status" aria-live="polite">✓ Settings saved</div>
+    </div>
+  </div>
+
+  <div class="secret-mgr-overlay" id="agentMgrOverlay" role="dialog" aria-modal="true"
+       aria-label="Add agent" aria-hidden="true">
+    <div class="secret-mgr">
+      <div class="secret-mgr-hdr">
+        <strong>🤖 Agents</strong>
+        <button class="icon-close-btn" id="btnAgentClose" title="Close" aria-label="Close agents panel">×</button>
+      </div>
+      <p style="font-size:11.5px;color:var(--vscode-descriptionForeground);margin:0 0 10px">
+        Add a custom agent skill for this workspace, or manage the bundled SDLC agents. New agents hot-reload on the next prompt and run via <code>/&lt;id&gt;</code>.
+      </p>
+
+      <button class="secondary compact" id="btnManageBundledAgents" style="margin-bottom:12px"
+              title="Enable / disable the bundled SDLC agents (planner, reviewer, security-auditor, …)">⚙️ Manage bundled agents…</button>
+
+      <div class="sub-hdr">Create a new agent</div>
+      <div class="add-form" id="agentAddForm" role="form" aria-label="Create new agent" style="display:block">
+        <input id="agentName" placeholder="Agent name, e.g. Release Notes Writer" aria-label="Agent name" aria-required="true" />
+        <div id="agentDropZone" class="agent-drop-zone" tabindex="0"
+             role="button" aria-label="Drag a markdown/text file here, or click to browse">
+          <span class="agent-drop-icon" aria-hidden="true">📄</span>
+          <span class="agent-drop-text">Drag &amp; drop a <code>.md</code> / <code>.txt</code> file here, or
+            <button type="button" class="agent-link-btn" id="btnAgentBrowse">browse…</button>
+          </span>
+        </div>
+        <input type="file" id="agentFileInput" accept=".md,.markdown,.txt,text/markdown,text/plain" style="display:none" aria-hidden="true" />
+        <textarea id="agentContent" rows="8"
+                  placeholder="Type the agent definition here (role, instructions, output format), or drop a file above to load its contents."
+                  aria-label="Agent definition"></textarea>
+        <div class="form-row">
+          <button class="primary compact" id="btnSaveAgent" title="Create this agent in .promptoptimizer/skills">Create agent</button>
+          <button class="secondary compact" id="btnCancelAgent" title="Close">Cancel</button>
+        </div>
+        <div id="agentError" style="display:none;font-size:11px;color:var(--vscode-inputValidation-errorForeground,#f88)" role="alert"></div>
+      </div>
+      <div class="saved-notice" id="agentSavedNotice" role="status" aria-live="polite">
+        <span id="agentSavedText">✓ Agent created</span>
+        <button class="secondary compact" id="btnRemoveAgent" type="button"
+                title="Delete the agent that was just created" style="margin-left:8px">✕ Remove</button>
+      </div>
     </div>
   </div>
 

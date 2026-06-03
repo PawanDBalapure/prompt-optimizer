@@ -60,6 +60,12 @@ export interface PromptOptimizationRequest {
    * the engine assigns its own.
    */
   correlation_id?: string;
+  /**
+   * Enable partial (segment-level) cache reuse: recurring context blocks that
+   * were already sent for this workspace are replaced with a compact cache
+   * reference instead of being resent.  Defaults to enabled.
+   */
+  reuse_cached_segments?: boolean;
 }
 
 export interface PromptCacheCandidate {
@@ -68,11 +74,28 @@ export interface PromptCacheCandidate {
   timestamp: number;
 }
 
+export interface ReusedCacheSegment {
+  /** Section header / file path of the block reused from cache. */
+  label: string;
+  /** Stable reference id embedded in the optimized prompt. */
+  ref: string;
+  /** Tokens saved by referencing the block instead of resending it. */
+  tokens_saved: number;
+  /** Number of times this exact block has been reused from cache. */
+  hit_count: number;
+  /** First time this block was seen (epoch ms). */
+  first_seen: number;
+}
+
 export interface PromptOptimizationAnalysis {
   cache: {
     status: 'exact' | 'semantic' | 'miss';
     confidence: number;
     candidates: PromptCacheCandidate[];
+    /** Context blocks served from cache instead of resent this turn. */
+    reused_segments?: ReusedCacheSegment[];
+    /** Total tokens saved by partial (segment-level) cache reuse. */
+    reused_tokens_saved?: number;
   };
   context: {
     workspace_root?: string;

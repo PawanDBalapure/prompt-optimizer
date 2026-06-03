@@ -44,6 +44,19 @@ export function renderChatAnalysisMarkdown(
     }
   }
 
+  const reusedSegments = state.analysis.cache.reused_segments ?? [];
+  if (reusedSegments.length > 0) {
+    const reusedSaved = state.analysis.cache.reused_tokens_saved ?? 0;
+    lines.push(
+      '',
+      `#### Reused from cache (~${reusedSaved} tokens saved)`,
+      '_These context blocks were already sent for this workspace and are referenced in the optimized prompt instead of resent._',
+    );
+    for (const segment of reusedSegments) {
+      lines.push(`- ${segment.label} (~${segment.tokens_saved} tokens, ref: ${segment.ref})`);
+    }
+  }
+
   lines.push('', '#### Optimized prompt', '```text', state.optimized, '```');
   lines.push(
     '',

@@ -3,6 +3,7 @@ import type {
   PromptCacheCandidate,
   PromptOptimizationAnalysis,
   PromptOptimizationResponse,
+  ReusedCacheSegment,
 } from '../contracts.js';
 import type { ResolvedPromptPricingConfig } from './types.js';
 
@@ -10,11 +11,15 @@ export function buildCacheInsight(
   cacheStatus: 'exact' | 'semantic' | 'miss',
   cacheResult: CacheQueryResult | null,
   cacheCandidates: PromptCacheCandidate[],
+  reusedSegments: ReusedCacheSegment[] = [],
 ): PromptOptimizationAnalysis['cache'] {
+  const reusedTokensSaved = reusedSegments.reduce((sum, seg) => sum + seg.tokens_saved, 0);
   return {
     status: cacheStatus,
     confidence: cacheStatus === 'exact' ? 1 : (cacheResult?.confidence ?? 0),
     candidates: cacheCandidates,
+    reused_segments: reusedSegments.length > 0 ? reusedSegments : undefined,
+    reused_tokens_saved: reusedSegments.length > 0 ? reusedTokensSaved : undefined,
   };
 }
 

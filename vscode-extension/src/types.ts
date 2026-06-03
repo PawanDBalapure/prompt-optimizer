@@ -49,6 +49,14 @@ export interface PromptProxyAnalysis {
       confidence: number;
       timestamp: number;
     }>;
+    reused_segments?: Array<{
+      label: string;
+      ref: string;
+      tokens_saved: number;
+      hit_count: number;
+      first_seen: number;
+    }>;
+    reused_tokens_saved?: number;
   };
   context: {
     workspace_root?: string;

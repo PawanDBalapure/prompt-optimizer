@@ -76,6 +76,62 @@ export async function runCoreScenarios(dbFile: string): Promise<void> {
   assert.ok(semanticResponse.optimized_prompt.includes('Explain token cost for this message'));
   assert.ok(!semanticResponse.optimized_prompt.includes('Explain token cost for this prompt'));
 
+  console.log('\n4b. Validating partial (segment-level) cache reuse...');
+  const sharedFile = {
+    path: 'src/shared-config.ts',
+    language: 'ts',
+    is_active: true,
+    content: [
+      'export const restartPolicy = {',
+      '  maxRetries: 5,',
+      '  backoffMs: 2000,',
+      '  jitter: true,',
+      '  escalateAfter: 3,',
+      '  notifyChannel: "ops-alerts",',
+      '};',
+      'export function shouldRestart(failures: number): boolean {',
+      '  return failures < restartPolicy.maxRetries;',
+      '}',
+    ].join('\n'),
+  };
+  const segmentContext = {
+    workspace_root: 'C:/workspace/segment',
+    active_file: sharedFile,
+    open_files: [sharedFile],
+  };
+  const firstTurn = await engine.processRequest({
+    raw_prompt: 'Review the restart policy configuration for correctness.',
+    workspace_id: 'segment-demo',
+    ide_context: segmentContext,
+  });
+  assertSchema(firstTurn);
+  assert.ok(firstTurn.optimized_prompt.includes('escalateAfter'));
+  assert.equal(firstTurn.analysis.cache.reused_segments, undefined);
+
+  const secondTurn = await engine.processRequest({
+    raw_prompt: 'Now add structured logging around the restart decision and answer with a checklist.',
+    workspace_id: 'segment-demo',
+    ide_context: segmentContext,
+  });
+  assertSchema(secondTurn);
+  assert.ok(
+    (secondTurn.analysis.cache.reused_segments ?? []).length > 0,
+    'second turn should reuse the recurring context block from cache',
+  );
+  assert.ok((secondTurn.analysis.cache.reused_tokens_saved ?? 0) > 0);
+  assert.ok(secondTurn.optimized_prompt.includes('[reused-from-cache]'));
+  assert.ok(!secondTurn.optimized_prompt.includes('escalateAfter'));
+
+  const reuseDisabled = await engine.processRequest({
+    raw_prompt: 'Audit the restart policy thresholds one more time.',
+    workspace_id: 'segment-demo',
+    ide_context: segmentContext,
+    reuse_cached_segments: false,
+  });
+  assertSchema(reuseDisabled);
+  assert.equal(reuseDisabled.analysis.cache.reused_segments, undefined);
+  assert.ok(reuseDisabled.optimized_prompt.includes('escalateAfter'));
+
   engine.close();
 }
 

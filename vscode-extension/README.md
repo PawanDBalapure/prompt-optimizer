@@ -1,297 +1,145 @@
 # Prompt Optimizer for VS Code
 
-A local prompt optimizer, semantic cache, and conversational AI agent � all running inside VS Code without leaving your editor.
+Local prompt optimization, semantic cache, credit forecasting, memory, and SDLC agents inside VS Code.
 
 ![Prompt Optimizer Control Panel](https://raw.githubusercontent.com/PawanDBalapure/prompt-optimizer/main/vscode-extension/images/screenshot-panel.png)
 
-[![Fully local](https://img.shields.io/badge/data-fully_local-brightgreen?logo=lock)](https://github.com/PawanDBalapure/prompt-optimizer#privacy--security)
-[![No telemetry](https://img.shields.io/badge/telemetry-none-brightgreen)](https://github.com/PawanDBalapure/prompt-optimizer#privacy--security)
+[![Fully local](https://img.shields.io/badge/data-fully_local-brightgreen?logo=lock)](https://github.com/PawanDBalapure/prompt-optimizer#privacy)
+[![No telemetry](https://img.shields.io/badge/telemetry-none-brightgreen)](https://github.com/PawanDBalapure/prompt-optimizer#privacy)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/PawanDBalapure/prompt-optimizer/blob/main/vscode-extension/LICENSE)
 
-> **?? Fully local � zero telemetry.**
-> All prompt processing, token counting, semantic caching, and secret scanning run entirely on your machine.
-> **No prompts, code, file contents, or metrics are ever sent to any external server.**
-> The only network request is the final Copilot call you explicitly trigger.
+Processing is local. The extension reads your workspace, optimizes the prompt, warns about secrets, and sends data only when you explicitly send to Copilot.
 
----
+## Quick Start
 
-## 🚀 Interactive Visual Onboarding Guide
-
-Markdown renderers (GitHub, Marketplace, VS Code preview) **strip `<script>` and most `<style>` blocks for security**, so an animated HTML walkthrough cannot run inside README.md itself. The extension ships the full interactive guide as a webview instead:
-
-> **Command Palette → `Prompt Optimizer: Open Guide`**
->
-> (or run `prompt-proxy.openOnboarding` from the keyboard shortcut editor)
-
-What the live guide gives you that this static page cannot:
-
-- A **3-frame animated simulator** — workspace indexing → prompt typed in Copilot Chat → optimized prompt + cache hit, with neon node-graph filtering down to just the files your prompt actually touched.
-- An **interactive knowledge graph** of 10 sample files with edges that light up and dim based on the active context.
-- A **memory pipeline** with three conveyor belts (Ingestion → Storage → Retrieval) and a lane-flow diagram showing how the optimized prompt reaches Copilot.
-- Keyboard shortcuts: <kbd>Space</kbd> play/pause, <kbd>R</kbd> reset.
-- Full **Catppuccin Mocha** palette with neon glow, cyberpunk grid, animated cursor, ripple effects, and typing carets — all rendered as real DOM, not source code.
-
-The static file lives at [vscode-extension/media/onboarding.html](vscode-extension/media/onboarding.html) — you can also open it directly in any browser if you want to share it.
-
-### What you'll see (static preview)
-
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│ Prompt Optimizer · Onboarding                          [P spin] │
-├─────────────────────────────────────────────────────────────────┤
-│ [How it works] [Memory & storage] [Privacy & commands]          │
-├──────────────────┬──────────────────────────────────────────────┤
-│ ① Index          │   ●─────●        app.ts                      │
-│   workspace      │  /│     │\                                   │
-│ ② Type a prompt  │ ● │     │ ●     auth.ts ✦ (lit up)           │
-│ ③ Optimized +    │  \│     │/                                   │
-│   cache hit      │   ●─────●        token.ts ✦ (lit up)         │
-│                  │   others dimmed                              │
-│ [ ▶ Play ]       │   ⚡ +71.5× Token Savings · cache hit         │
-└──────────────────┴──────────────────────────────────────────────┘
-```
-
-
----
-
-## What it does
-
-Prompt Optimizer sits between you and Copilot. Before your prompt reaches the model it:
-
-1. **Compresses** filler words, softeners, and redundant phrasing
-2. **Shortens English sentences** when the meaning stays the same, while leaving code blocks and code-like lines untouched
-3. **Checks the local semantic cache** — reuses a prior result if a similar prompt was already answered
-4. **Packs workspace context** — active file, open editors, diagnostics, recent saves
-5. **Estimates token cost** before the request is sent
-6. **Hands the optimized prompt to Copilot** — Optimize mode shows the analysis card; Agent mode opens Copilot Chat with the optimized prompt auto-submitted; Direct mode pre-fills `@promptoptimizer` in the Chat panel.
-7. **Detects SDLC workflow intent** from slash commands, built-in rules, custom skills, and file context
-8. **Remembers the conversation** across turns per workspace so follow-up pronouns ("fix it", "add tests for that") resolve correctly
-9. **Lets you enable and edit bundled SDLC agents** directly from the Agents button in the sidebar
-
----
+1. Run `Prompt Optimizer: Open Prompt Optimizer Guide`.
+2. Open the Prompt Optimizer sidebar in the Chat view.
+3. Pick a mode: `Optimize only`, `Agent`, or `Direct send`.
+4. Type a prompt and press `Ctrl+Enter`.
+5. Review tokens, cache status, credit forecast, and the optimized prompt.
 
 ## Modes
 
-Select the mode from the **Mode** dropdown in the sidebar or via the status bar item (`$(robot) Proxy [Agent]`).
+| Mode | What happens |
+| --- | --- |
+| `Optimize only` | Default. Shows analysis and optimized prompt. You choose when to send. |
+| `Agent` | Optimizes locally, opens Copilot Chat, and submits the optimized prompt. |
+| `Direct send` | Opens Chat with `@promptoptimizer <prompt>` prefilled. |
 
-| Mode | Status bar label | Behaviour |
-|---|---|---|
-| **Optimize only** *(default)* | `$(wand) Proxy [Optimize]` | Shows analysis table (cost, tokens saved, cache status) and the optimized prompt. You decide when to send. |
-| **Agent** | `$(robot) Proxy [Agent]` | Optimize the prompt locally, then open Copilot Chat with the optimized prompt and submit it directly to Copilot's native agent. No `@promptoptimizer` prefix. |
-| **Direct send** | `$(comment-discussion) Proxy [Direct]` | Opens the Chat panel with `@promptoptimizer <your prompt>` pre-filled. |
+Switch from the sidebar, status bar, or `@promptoptimizer /mode agent|optimize|direct`.
 
-Switch mode any time by:
-- Clicking the status bar label (`$(robot) Proxy [Agent]`) ? QuickPick
-- Changing the **Mode** dropdown in the sidebar
-- Typing `@promptoptimizer /mode agent` (or `optimize` / `direct`) in Chat
+## What Runs Locally
 
----
+- Prompt compression and meaning-preserving sentence shortening.
+- Secret detection before send.
+- Exact and semantic cache lookup.
+- Context packing from active file, visible editors, diagnostics, recent saves, memory files, knowledge graph, and optional peer workspaces.
+- SDLC mode/agent selection.
+- Token, cost, and monthly credit forecast.
+- Prompt history and Git-style prompt versions.
 
-## SDLC modes and agent skills
+## Sidebar Controls
 
-Prompt Optimizer 2.9.5 includes a built-in SDLC mode layer that can frame the optimized prompt with a role and checklist before it is sent.
+- `Visual Tour` - opens the interactive onboarding guide.
+- `Guide` - shows common actions.
+- `History` - restores, diffs, re-optimizes, or sends prior prompts.
+- `Versions` - commit, log, branch, switch, and tag prompts.
+- `Try example` - inserts a sample prompt.
+- `Memory` - opens workspace memory files.
+- `Peers` - connects local peer-workspace caches.
+- `Agents` - enables bundled SDLC agents or creates custom agents.
+- Refresh button - re-indexes the overview on demand.
+- Gear menu - secret detection settings and reset-to-defaults.
 
-### Built-in modes
+## Agents And Skills
 
-Slash-triggered modes available out of the box:
+Built-in slash modes: `/plan`, `/arch`, `/code`, `/test`, `/review`, `/security`, `/qa`, `/devops`, `/docs`, `/pr`, `/full`, `/bug-fix`, `/refactor`.
 
-- `/plan`
-- `/arch`
-- `/code`
-- `/test`
-- `/review`
-- `/security`
-- `/qa`
-- `/devops`
-- `/docs`
-- `/pr`
-- `/full`
-- `/bug-fix`
-- `/refactor`
+Custom skills live in `.promptoptimizer/skills/*.md`. Global skills can be loaded from `PROMPT_OPTIMIZER_SKILLS_DIR`. Skill files hot-reload on the next prompt.
 
-If you do not type a slash command, the picker can still activate a mode by scoring prompt intent, keywords, `requires` tokens, `filePatterns`, and `priority` from the registered skills.
+The Agents picker can enable, disable, edit, reset, remove, or create workspace agents. Enabled bundled agents are copied into `.promptoptimizer/skills/` so your edits survive extension updates.
 
-### Custom skills
+## Memory And Cache
 
-Workspace skills live in `.promptoptimizer/skills/*.md`. User-global skills can also be loaded from `PROMPT_OPTIMIZER_SKILLS_DIR`.
+Prompt Optimizer indexes:
 
-Supported frontmatter fields include:
+- `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`
+- `.promptoptimizer/memory.md`, `.promptoptimizer/knowledge.md`
+- `.cursorrules`, `.clinerules`
+- git log, README/package metadata, active editors, diagnostics, and recent saves
 
-- `id`, `label`, `readOnly`
-- `slashAliases`, `intentPatterns`, `keywords`
-- `requires`, `filePatterns`, `priority`, `tags`
-- `rolePreface` as a scalar or block (`|`)
-- `checklist` as frontmatter items or markdown bullets under `## Checklist`
+The semantic cache is SQLite on your disk. Exact matches return immediately. Semantic matches at 68% or higher can reuse prior optimized prompts.
 
-Skill files hot-reload on the next prompt. The parser tolerates comments, block scalars, quoted regex strings, and inline or block arrays. If a skill fails to load, diagnostics are available from the command palette.
+## Privacy
 
-### Agents button in the sidebar
+| Surface | Behavior |
+| --- | --- |
+| Processing | Runs on your machine. |
+| Telemetry | None. |
+| Cache | Local SQLite file from `promptProxy.dbPath`. |
+| Secrets | Warned before any send. Custom patterns supported. |
+| Network | Only the Copilot request you explicitly trigger. |
+| Updates | Preserve settings, memory, cache, prompt versions, and custom agents. |
 
-The `Agents` quick action opens a multi-select picker for the bundled SDLC agent library.
+## Commands
 
-- Tick an agent to enable it for the current workspace.
-- Untick an agent to disable it.
-- Click the pencil icon to enable-and-open the workspace copy for editing.
-- Click reset to restore the bundled definition over local edits.
+| Command | Purpose |
+| --- | --- |
+| `Focus Control Panel` | Open the sidebar. |
+| `Open Chat Participant` | Jump to `@promptoptimizer`. |
+| `Open Prompt Optimizer Guide` | Reopen onboarding. |
+| `Select Mode (Agent / Optimize / Direct)` | Change run mode. |
+| `Optimize Clipboard & Cost Forecast` | Optimize clipboard text. |
+| `Copy Last Optimized Prompt` | Copy the latest result. |
+| `Send Last Optimized Prompt To Chat` | Open Chat with latest result. |
+| `Confirm and Send Pending Optimized Prompt` | Send the reviewed prompt. |
+| `Cancel Pending Optimized Prompt` | Discard pending send. |
+| `Show Cache Statistics` | Inspect local cache. |
+| `Clear Semantic Cache` | Clear cache only. |
+| `Clear Conversation Memory` | Clear this workspace's memory. |
+| `Reset to Defaults` | Choose settings, cache, memory, or custom agents to reset. |
+| `Open Workspace Memory File` | Edit long-lived workspace notes. |
+| `Manage Peer Workspaces` | Add/remove peer caches. |
+| `Show Knowledge Graph Stats` | Inspect graph counts. |
+| `Show File Digest Summary` | Inspect indexed file digests. |
+| `List Agent Skills (Modes)` | Show loaded skills. |
+| `Create / Edit Agent Skill` | Create or edit a workspace skill. |
+| `Diagnose Skill Loading Errors` | Open broken skills. |
+| `Manage SDLC Agent Skills` | Enable, edit, reset, remove, or create agents. |
+| `Health Check` | Check engine/database health. |
+| `Show Engine Metrics` | View request/cache counters. |
+| `Run Database Maintenance` | Prune old local data. |
+| `Export Database` | Back up the SQLite database. |
+| `Sync Copilot Instructions Memory` | Update the managed memory block in Copilot instructions. |
+| `Suggest Workspace Memory Improvements` | Get memory-file improvement ideas. |
+| `Show Memory Budget` | Inspect memory packing limits. |
+| `Show Prompt History` | Browse prior prompts. |
+| `Commit Prompt`, `Prompt Log`, `Create Prompt Branch`, `Switch Prompt Branch` | Version prompts. |
 
-Enabled agents are copied into `.promptoptimizer/skills/` so you can customize them like any other workspace skill.
+## Settings
 
----
+Important settings under `Extensions > Prompt Optimizer`:
 
-## Sidebar panel � Prompt Optimizer Control
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `promptProxy.targetModel` | `gpt-4.1` | Forecast/model pattern target. |
+| `promptProxy.processingMode` | `blocking` | Cache lookup behavior. |
+| `promptProxy.enableSessionContext` | `true` | Include recent turns. |
+| `promptProxy.subscriptionPlan` | `pro` | Monthly credit allowance. |
+| `promptProxy.forecastRequestsPerDay` | `20` | Credit forecast volume. |
+| `promptProxy.enableSecretDetection` | `true` | Secret scanner. |
+| `promptProxy.secretPatterns` | `[]` | Custom scanner rules. |
+| `promptProxy.optimize.autoOpenChat` | `true` | Open Chat after optimization where applicable. |
+| `promptProxy.dbPath` | global storage | SQLite cache path. |
 
-Open it from the Chat sidebar or press the status bar item.
+## Onboarding
 
-```
-+----------------------------------+
-�  Prompt Optimizer       Local cache  �
-�  Mode  [ Agent ? ]               �
-� +------------------------------+ �
-� � Type your prompt here�      ?� �  ? send button (icon, like Copilot)
-� +------------------------------+ �
-�  ? Alerts (secrets, errors)      �
-�  [ Open @promptoptimizer ]           �
-�  [ Use optimized ] [Copy] [Docs] �
-�                                  �
-�  +-- Analysis table ----------+  �
-�  � Cost � $x  � Saved � n tok �  �
-�  � Tok  � n?m � Est.  � n out �  �
-�  � Cache� semantic 82%        �  �
-�  � Price� in $x + out $y      �  �
-�  +-----------------------------+ �
-�  Refinements � Optimized prompt  �
-�  � use nouns � [compressed text] �
-�                                  �
-�  +-- Copilot response --------+  �
-�  � streaming�                  �  �
-�  +-----------------------------+ �
-+----------------------------------+
-```
+The interactive guide ships as a webview because Markdown strips scripts and styles.
 
-### Send button
-
-The circular **?** button inside the textarea behaves like the Copilot send button — hover shows the current mode action ("Run Agent — optimize + send to Copilot Chat").
-
----
-
-## Chat participant � `@promptoptimizer`
-
-Type in the VS Code Chat panel:
+Open it with:
 
 ```text
-@promptoptimizer refactor the auth middleware to use async/await
+Prompt Optimizer: Open Prompt Optimizer Guide
 ```
 
-Every message is automatically optimized. Copilot's answer streams back in chat.
-
-### Commands
-
-| Command | Effect |
-|---|---|
-| `@promptoptimizer /mode agent` | Switch to Agent mode |
-| `@promptoptimizer /mode optimize` | Switch to Optimize mode |
-| `@promptoptimizer /mode direct` | Switch to Direct send mode |
-| `@promptoptimizer /memory` | Show stored conversation turns for this workspace |
-| `@promptoptimizer /clear` | Clear conversation memory for this workspace |
-| `@promptoptimizer /context` | Show what local context (files, logs, cache) is available |
-
-### Conversation memory
-
-Up to **12 turns per workspace** are remembered. Back-references resolve automatically:
-
-```
-Turn 1: "refactor the auth middleware to async/await"
-Turn 2: "now add unit tests for it"
-         ? proxy injects "[Continuing from: 'refactor�']" before sending
-```
-
----
-
-## Analysis table (Optimize mode)
-
-After analyzing a prompt, the result card shows a compact table:
-
-| Row | Values |
-|---|---|
-| Cost / Saved | Total estimated USD cost � tokens saved |
-| Tokens | Raw ? optimized token count � estimated output |
-| Cache | exact hit / semantic match (%) / miss |
-| Pricing | Input + output cost breakdown |
-
-Below the table, **Refinements** and the **Optimized prompt** sit side by side.
-
----
-
-## Secret detection
-
-If your prompt contains what looks like an API key, token, or private key header, a ?? alert appears in the panel before anything is sent. Patterns detected:
-
-- OpenAI keys (`sk-�`)
-- Anthropic keys (`sk-ant-�`)
-- GitHub tokens (`ghp_�`, `ghs_�`)
-- AWS access keys (`AKIA�`)
-- PEM private key headers
-- Generic `password=`, `token=`, `api_key=` assignments
-
----
-
-## Semantic cache
-
-The local SQLite cache stores every prompt you send and builds embeddings for semantic similarity. On future prompts it checks for:
-
-- **Exact match** � returns the cached optimized version instantly
-- **Semantic match** (= 68% cosine similarity) � returns and boosts confidence score
-- **Miss** � optimizes fresh, writes to cache
-
-The cache is seeded on activation from your git log, Copilot chat history, README, package.json, and AI instruction files (`.github/copilot-instructions.md`, `AGENTS.md`, etc.).
-
-Manage via command palette:
-- `Prompt Optimizer: Show Cache Statistics`
-- `Prompt Optimizer: Clear Semantic Cache`
-
----
-
-## Privacy & Security
-
-| What | Detail |
-|---|---|
-| **Data processing** | 100% on your machine � no cloud backend, no remote API except the Copilot request you approve |
-| **Prompt storage** | Cached locally in a SQLite file on your own disk (`promptProxy.dbPath`). Never uploaded. |
-| **Secret scanning** | API keys and tokens are detected **before** any network call and blocked with a warning |
-| **Telemetry** | None. The extension collects zero usage or diagnostic data. |
-| **Network calls** | Only the GitHub Copilot inference request you explicitly send via the VS Code Chat API |
-| **Open source** | Full source available at [github.com/PawanDBalapure/prompt-optimizer](https://github.com/PawanDBalapure/prompt-optimizer) � audit it yourself |
-
-> To verify: open the extension source (`out/extension.js`) or the engine source (`engine/dist/`). Search for `http`, `fetch`, `axios`, `request` � you will find zero outbound calls outside of the Copilot API.
-
----
-
-## Command palette
-
-| Command | Description |
-|---|---|
-| `Prompt Optimizer: Select Mode (Agent / Optimize / Direct)` | Open mode QuickPick |
-| `Prompt Optimizer: Open Chat Participant` | Jump to `@promptoptimizer` in Chat |
-| `Prompt Optimizer: Focus Control Panel` | Focus the sidebar panel |
-| `Prompt Optimizer: Optimize Clipboard & Cost Forecast` | Optimize whatever is on the clipboard |
-| `Prompt Optimizer: Copy Last Optimized Prompt` | Copy the last result to clipboard |
-| `Prompt Optimizer: Send Last Optimized Prompt To Chat` | Open Chat with last result |
-| `Prompt Optimizer: Show Cache Statistics` | Show entry count, avg confidence, total hits |
-| `Prompt Optimizer: Clear Semantic Cache` | Wipe the local SQLite cache |
-| `Prompt Optimizer: Clear Conversation Memory` | Clear this workspace's conversation history |
-| `Prompt Optimizer: List Agent Skills (Modes)` | Show every registered built-in and custom mode |
-| `Prompt Optimizer: Create / Edit Agent Skill` | Create a workspace skill file or override an existing mode |
-| `Prompt Optimizer: Diagnose Skill Loading Errors` | Open the files that failed skill parsing/loading |
-| `Prompt Optimizer: Manage SDLC Agent Skills` | Enable, disable, edit, or reset the bundled SDLC agent library |
-
----
-
-## Configuration
-
-| Setting | Default | Description |
-|---|---|---|
-| `promptProxy.dbPath` | *(global storage)* | Custom path for the SQLite cache file |
-| `promptProxy.processingMode` | `blocking` | `blocking` or `non-blocking` cache lookup |
-| `promptProxy.enableSessionContext` | `true` | Feed recent turns back as session history |
-| `promptProxy.pricingInput` | `0.0015` | Input cost per 1K tokens (USD) |
-| `promptProxy.pricingOutput` | `0.002` | Output cost per 1K tokens (USD) |
+It covers the pipeline, modes, sidebar controls, memory, cache, secrets, commands, and reset behavior.

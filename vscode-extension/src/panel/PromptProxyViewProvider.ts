@@ -1,5 +1,8 @@
 import * as vscode from 'vscode';
 
+import * as fs from 'fs';
+import * as path from 'path';
+
 import { MODE_KEY } from '../constants';
 import { openChatWithPrompt, openExtensionReadme } from '../commands/open';
 import { analyzePrompt } from '../chat/analyzer';
@@ -20,7 +23,7 @@ import {
   resolveReferences,
 } from '../state/conversation';
 import { getCurrentMode } from '../state/mode';
-import { getTargetModel, setTargetModel, getDbPath } from '../state/config';
+import { getTargetModel, setTargetModel, getDbPath, getCreditForecastConfig } from '../state/config';
 import { getLastAnalysis } from '../state/session';
 import type {
   CustomSecretPatternConfig,
@@ -33,6 +36,7 @@ import { renderWebviewHtml } from '../webview/loader';
 import { validateMessage } from '../webview/validator';
 import { PROMPT_PROXY_VIEW_TYPE } from './view-type';
 import { runEngineRaw } from '../engine/runner';
+import { seedCacheFromWorkspace } from '../engine/seeder';
 import { ocrImage as runOcrOnBuffer } from '../chat/ocr';
 
 // `scanForSecrets` is re-exported for callers that share the secrets module
@@ -177,11 +181,20 @@ export class PromptProxyViewProvider implements vscode.WebviewViewProvider {
       case 'reportIssue':
         await vscode.commands.executeCommand('prompt-proxy.reportIssue');
         return;
+      case 'resetToDefaults':
+        await vscode.commands.executeCommand('prompt-proxy.resetToDefaults');
+        return;
       case 'requestStatusOverview':
         return this._sendStatusOverview(webviewView);
       case 'openSecretSettings': return this._sendSecretSettings(webviewView);
       case 'saveSecretSettings': return this._saveSecretSettings(webviewView, data);
       case 'ocrImage': return this._handleOcrImage(webviewView, data);
+      case 'createAgent':
+        return this._handleCreateAgent(webviewView, data.agentName ?? '', data.agentContent ?? '');
+      case 'deleteAgent':
+        return this._handleDeleteAgent(webviewView, data.agentId ?? '');
+      case 'refreshOverview':
+        return this._handleRefreshOverview(webviewView);
     }
   }
 
@@ -190,6 +203,7 @@ export class PromptProxyViewProvider implements vscode.WebviewViewProvider {
     if (state) { this.publishAnalysis(state); }
     webviewView.webview.postMessage({ type: 'modeState', mode: getCurrentMode(this._context) });
     webviewView.webview.postMessage({ type: 'targetModelPattern', model: getTargetModel(this._context) });
+    webviewView.webview.postMessage({ type: 'creditForecastConfig', config: getCreditForecastConfig() });
     // Render immediately, then let activation/bootstrap push fresher counts
     // once the background seeding pass finishes.
     this.refreshStatusOverview();
@@ -318,6 +332,158 @@ export class PromptProxyViewProvider implements vscode.WebviewViewProvider {
         ok: false,
         error: err instanceof Error ? err.message : 'OCR failed',
       });
+    }
+  }
+
+  private async _handleCreateAgent(
+    webviewView: vscode.WebviewView,
+    agentName: string,
+    agentContent: string,
+  ): Promise<void> {
+    const reply = (ok: boolean, extra: Record<string, unknown> = {}): void => {
+      webviewView.webview.postMessage({ type: 'agentCreated', ok, ...extra });
+    };
+
+    const label = agentName.trim();
+    if (label === '') {
+      reply(false, { error: 'Enter a name for the agent.' });
+      return;
+    }
+
+    const id = label
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 41);
+    if (!/^[a-z0-9][a-z0-9-]{1,40}$/.test(id)) {
+      reply(false, { error: 'Use a name with at least 2 letters or digits.' });
+      return;
+    }
+
+    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!wsRoot) {
+      reply(false, { error: 'Open a workspace folder first to save agents.' });
+      return;
+    }
+
+    const targetDir = path.join(wsRoot, '.promptoptimizer', 'skills');
+    const targetPath = path.join(targetDir, `${id}.md`);
+
+    try {
+      fs.mkdirSync(targetDir, { recursive: true });
+    } catch (err) {
+      reply(false, { error: err instanceof Error ? err.message : 'Could not create skills folder.' });
+      return;
+    }
+
+    if (fs.existsSync(targetPath)) {
+      reply(false, { error: `An agent with id "${id}" already exists.` });
+      return;
+    }
+
+    const body = agentContent.trim();
+    const hasFrontmatter = /^---\s*\n[\s\S]*?\n---/.test(body);
+    let fileText: string;
+    if (hasFrontmatter) {
+      fileText = body.endsWith('\n') ? body : `${body}\n`;
+    } else {
+      const inner = body === ''
+        ? `## Role\nDescribe what this agent does in one or two sentences.\n\n## Instructions\n- Step 1: …\n- Step 2: …\n\n## Output format\nExplain the structure of the response you want this agent to produce.`
+        : body;
+      fileText =
+`---
+id: ${id}
+label: ${label}
+readOnly: false
+tags: [custom]
+---
+
+# ${label}
+
+${inner}
+`;
+    }
+
+    try {
+      fs.writeFileSync(targetPath, fileText, { encoding: 'utf8', flag: 'wx' });
+    } catch (err) {
+      reply(false, { error: err instanceof Error ? err.message : 'Could not write agent file.' });
+      return;
+    }
+
+    try {
+      const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(targetPath));
+      await vscode.window.showTextDocument(doc, { preview: false });
+    } catch {
+      // Opening the file is best-effort; the agent is already saved.
+    }
+
+    reply(true, { id, label });
+  }
+
+  private async _handleDeleteAgent(
+    webviewView: vscode.WebviewView,
+    agentId: string,
+  ): Promise<void> {
+    const reply = (ok: boolean, extra: Record<string, unknown> = {}): void => {
+      webviewView.webview.postMessage({ type: 'agentDeleted', ok, ...extra });
+    };
+
+    const id = agentId.trim();
+    if (!/^[a-z0-9][a-z0-9-]{1,40}$/.test(id)) {
+      reply(false, { error: 'Invalid agent id.' });
+      return;
+    }
+
+    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!wsRoot) {
+      reply(false, { error: 'No workspace folder is open.' });
+      return;
+    }
+
+    const targetPath = path.join(wsRoot, '.promptoptimizer', 'skills', `${id}.md`);
+    if (!fs.existsSync(targetPath)) {
+      reply(false, { error: `Agent "${id}" no longer exists.` });
+      return;
+    }
+
+    try {
+      fs.unlinkSync(targetPath);
+    } catch (err) {
+      reply(false, { error: err instanceof Error ? err.message : 'Could not delete the agent file.' });
+      return;
+    }
+
+    // Close the editor tab if the freshly-created file is still open.
+    try {
+      const uri = vscode.Uri.file(targetPath);
+      for (const editor of vscode.window.visibleTextEditors) {
+        if (editor.document.uri.fsPath === uri.fsPath) {
+          await vscode.window.showTextDocument(editor.document, editor.viewColumn);
+          await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+        }
+      }
+    } catch {
+      // Best-effort; the file is already deleted.
+    }
+
+    reply(true, { id });
+  }
+
+  private async _handleRefreshOverview(webviewView: vscode.WebviewView): Promise<void> {
+    try {
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Window,
+          title: 'Prompt Optimizer: refreshing index…',
+        },
+        async () => { await seedCacheFromWorkspace(this._context, { force: true }); },
+      );
+    } catch {
+      // Non-fatal: still re-read whatever the engine can report.
+    } finally {
+      await this._sendStatusOverview(webviewView);
+      webviewView.webview.postMessage({ type: 'overviewRefreshed' });
     }
   }
 

@@ -66,11 +66,14 @@ function compileGemini(ir: PromptIR, lines: string[]): string {
 
 function compileLocal(ir: PromptIR, lines: string[]): string {
   // Tuned for smaller local models (Qwen / DeepSeek): radical instruction
-  // compression, explicit delineators, no deep nesting.
+  // compression, explicit delineators, no deep nesting.  We keep every
+  // distinct rule the user supplied — silently dropping rules truncated the
+  // optimized prompt and lost intent; brevity is achieved by compression
+  // upstream (textOptimizer) and de-duplication, not by clipping content.
   lines.push(`[ROLE]: ${ir.role}`);
   lines.push(`[TASK]: ${ir.inferred_task_type}`);
   lines.push('[RULES]:');
-  for (const rule of ir.constraints.slice(0, 4)) { lines.push(`- ${rule}`); }
+  for (const rule of ir.constraints) { lines.push(`- ${rule}`); }
   if (ir.output_schema) {
     lines.push(`[FORMAT]: Return ONLY output complying with: ${ir.output_schema.replace(/\s+/g, ' ')}`);
   }

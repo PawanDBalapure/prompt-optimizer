@@ -16,6 +16,7 @@ var optimizedPrompt = document.getElementById('optimizedPrompt');
 var targetModelSelect = document.getElementById('targetModelSelect');
 var btnSettingsMenu = document.getElementById('btnSettingsMenu');
 var settingsMenu    = document.getElementById('settingsMenu');
+var btnRefreshOverview = document.getElementById('btnRefreshOverview');
 
 // ── Mode state (currentMode declared in panel.helpers.js as var) ─────────────
 var currentMode = 'optimize';
@@ -44,8 +45,19 @@ modeSelect.addEventListener('change', function() {
   vscode.postMessage({ type: 'setMode', mode: modeSelect.value });
 });
 
+if (btnRefreshOverview) {
+  btnRefreshOverview.addEventListener('click', function() {
+    if (btnRefreshOverview.classList.contains('is-refreshing')) { return; }
+    btnRefreshOverview.classList.add('is-refreshing');
+    btnRefreshOverview.disabled = true;
+    btnRefreshOverview.setAttribute('aria-busy', 'true');
+    vscode.postMessage({ type: 'refreshOverview' });
+  });
+}
+
 targetModelSelect.addEventListener('change', function() {
   vscode.postMessage({ type: 'setTargetModel', model: targetModelSelect.value });
+  if (typeof renderCostForecast === 'function') { renderCostForecast(); }
 });
 
 btnPrimary.addEventListener('click', function() {
@@ -101,6 +113,14 @@ document.getElementById('btnSecretSettings').addEventListener('click', function(
   setSettingsMenuOpen(false);
   vscode.postMessage({ type: 'openSecretSettings' });
 });
+
+var btnResetDefaults = document.getElementById('btnResetDefaults');
+if (btnResetDefaults) {
+  btnResetDefaults.addEventListener('click', function() {
+    setSettingsMenuOpen(false);
+    vscode.postMessage({ type: 'resetToDefaults' });
+  });
+}
 
 document.getElementById('btnReadme').addEventListener('click', function() {
   setSettingsMenuOpen(false);
@@ -284,7 +304,11 @@ if (chipPeers) {
 }
 if (chipAgents) {
   chipAgents.addEventListener('click', function() {
-    vscode.postMessage({ type: 'manageAgentSkills' });
+    if (typeof openAgentOverlay === 'function') {
+      openAgentOverlay();
+    } else {
+      vscode.postMessage({ type: 'manageAgentSkills' });
+    }
   });
 }
 var chipReport = document.getElementById('chipReport');
@@ -306,6 +330,10 @@ window.addEventListener('message', function(event) {
       break;
     case 'targetModelPattern':
       targetModelSelect.value = msg.model;
+      if (typeof renderCostForecast === 'function') { renderCostForecast(); }
+      break;
+    case 'creditForecastConfig':
+      if (typeof setCreditForecastConfig === 'function') { setCreditForecastConfig(msg.config); }
       break;
     case 'analysisState':
       renderState(msg.payload);
@@ -362,12 +390,29 @@ window.addEventListener('message', function(event) {
       break;
     case 'statusOverview':
       renderStatusOverview(msg.payload);
+      resetRefreshButton();
+      break;
+    case 'overviewRefreshed':
+      resetRefreshButton();
       break;
     case 'ocrImageResult':
       handleOcrImageResult(msg);
       break;
+    case 'agentCreated':
+      if (typeof handleAgentCreated === 'function') { handleAgentCreated(msg); }
+      break;
+    case 'agentDeleted':
+      if (typeof handleAgentDeleted === 'function') { handleAgentDeleted(msg); }
+      break;
   }
 });
+
+function resetRefreshButton() {
+  if (!btnRefreshOverview) { return; }
+  btnRefreshOverview.classList.remove('is-refreshing');
+  btnRefreshOverview.disabled = false;
+  btnRefreshOverview.removeAttribute('aria-busy');
+}
 
 function renderStatusOverview(overview) {
   if (!overview) { return; }

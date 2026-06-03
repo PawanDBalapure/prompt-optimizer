@@ -7,7 +7,7 @@ plugins {
 }
 
 group   = "com.promptproxy"
-version = "2.7.2"
+version = "2.9.6"
 
 repositories {
     mavenCentral()
@@ -25,8 +25,24 @@ dependencies {
     }
 }
 
+intellijPlatform {
+    pluginVerification {
+        ides {
+            ide("IC", "2024.1")
+        }
+    }
+}
+
 kotlin {
     jvmToolchain(17)
+}
+
+val generatedEngineResources = layout.buildDirectory.dir("generated-resources/promptOptimizer")
+
+sourceSets {
+    named("main") {
+        resources.srcDir(generatedEngineResources)
+    }
 }
 
 tasks {
@@ -56,16 +72,20 @@ tasks {
 // ── Copy the compiled Node.js engine dist into plugin resources ───────────────
 tasks.register<Copy>("copyEngine") {
     group = "build"
-    description = "Copies the compiled prompt-proxy-engine dist into plugin resources."
+    description = "Copies the packaged prompt-optimizer engine runtime into plugin resources."
+    val packagedEngine = rootProject.file("../vscode-extension/engine")
     val engineDist = rootProject.file("../dist")
-    if (engineDist.exists()) {
+    if (packagedEngine.exists()) {
+        from(packagedEngine)
+        into(generatedEngineResources.map { it.dir("engine") })
+    } else if (engineDist.exists()) {
         from(engineDist)
-        into(layout.projectDirectory.dir("src/main/resources/engine/dist"))
+        into(generatedEngineResources.map { it.dir("engine/dist") })
     } else {
         doFirst {
             logger.warn(
-                "[PromptProxy] Engine dist not found at ${engineDist.absolutePath}. " +
-                "Run 'npm run build' in the repo root first."
+                "[PromptProxy] Engine runtime not found at ${packagedEngine.absolutePath}. " +
+                "Run 'npm --prefix vscode-extension run compile' or 'npm run build' first."
             )
         }
     }

@@ -4,6 +4,7 @@ import { PromptIR } from '../contracts.js';
 export function parseToPromptIR(rawPrompt: string): PromptIR {
   const lines = rawPrompt.split(/\r?\n/);
   const constraints: string[] = [];
+  const seenConstraints = new Set<string>();
   const examples: string[] = [];
   let role = '';
   let outputSchema = '';
@@ -11,6 +12,19 @@ export function parseToPromptIR(rawPrompt: string): PromptIR {
 
   let currentBlock: 'none' | 'example' | 'schema' | 'reasoning' = 'none';
   let exampleLines: string[] = [];
+
+  // Keep only meaning-bearing, non-duplicate directives so the optimized
+  // prompt carries relevant signal instead of repeated or filler lines.
+  const pushConstraint = (value: string): void => {
+    const cleaned = value.trim();
+    if (cleaned === '') { return; }
+    const key = cleaned.toLowerCase().replace(/\s+/g, ' ').replace(/[.!?,;:]+$/, '');
+    // Drop low-signal fragments (a couple of stop-words with no verb/noun).
+    if (key.length < 3) { return; }
+    if (seenConstraints.has(key)) { return; }
+    seenConstraints.add(key);
+    constraints.push(cleaned);
+  };
 
   const lowerPrompt = rawPrompt.toLowerCase();
   let inferred_task_type: PromptIR['inferred_task_type'] = 'general';
@@ -72,9 +86,9 @@ export function parseToPromptIR(rawPrompt: string): PromptIR {
     } else {
       if (/^(?:must|should|never|only|ensure|limit|do not|don't|require|always|make sure)\b/i.test(trimmed)
         || trimmed.startsWith('-') || trimmed.startsWith('*') || /^\d+\./.test(trimmed)) {
-        constraints.push(trimmed.replace(/^[-*\d.\s]+/, '').trim());
+        pushConstraint(trimmed.replace(/^[-*\d.\s]+/, '').trim());
       } else if (trimmed.length > 10) {
-        constraints.push(trimmed);
+        pushConstraint(trimmed);
       }
     }
   }

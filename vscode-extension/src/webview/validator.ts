@@ -20,6 +20,10 @@ const ALLOWED_TYPES = new Set([
   'commitPrompt', 'showPromptLog', 'switchPromptBranch',
   'reportIssue',
   'ocrImage',
+  'createAgent',
+  'deleteAgent',
+  'refreshOverview',
+  'resetToDefaults',
 ]);
 
 const ALLOWED_MODES = new Set(['agent', 'optimize', 'direct']);
@@ -37,6 +41,7 @@ const MAX_CUSTOM_PATTERNS = 200;
 const MAX_IMAGE_BASE64_CHARS = 12 * 1024 * 1024;
 const MAX_FILENAME_CHARS = 256;
 const MAX_MIME_CHARS = 64;
+const MAX_AGENT_NAME_CHARS = 200;
 const BASE64_RE = /^[A-Za-z0-9+/=\s]+$/;
 
 function isString(v: unknown): v is string {
@@ -64,6 +69,12 @@ export interface ValidWebviewMessage {
   mime?: string;
   /** OCR image bytes, base64-encoded. */
   dataBase64?: string;
+  /** Display name for a new custom agent. */
+  agentName?: string;
+  /** Markdown body for a new custom agent. */
+  agentContent?: string;
+  /** Id (slug) of an agent to delete. */
+  agentId?: string;
 }
 
 /**
@@ -149,6 +160,22 @@ export function validateMessage(raw: unknown): ValidWebviewMessage | null {
     }
     if (!BASE64_RE.test(data.dataBase64)) { return null; }
     out.dataBase64 = data.dataBase64;
+  }
+
+  if (data.agentName !== undefined) {
+    const agentName = clampString(data.agentName, MAX_AGENT_NAME_CHARS);
+    if (agentName === undefined) { return null; }
+    out.agentName = agentName;
+  }
+  if (data.agentContent !== undefined) {
+    const agentContent = clampString(data.agentContent, MAX_PROMPT_CHARS);
+    if (agentContent === undefined) { return null; }
+    out.agentContent = agentContent;
+  }
+  if (data.agentId !== undefined) {
+    const agentId = clampString(data.agentId, MAX_AGENT_NAME_CHARS);
+    if (agentId === undefined) { return null; }
+    out.agentId = agentId;
   }
 
   return out;

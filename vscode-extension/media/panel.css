@@ -263,6 +263,20 @@
       background: var(--vscode-button-secondaryBackground, rgba(128,128,128,0.2));
       color: var(--vscode-textLink-foreground);
     }
+    .readme-icon-btn:disabled {
+      cursor: default;
+      opacity: 0.7;
+    }
+    #btnRefreshOverview {
+      font-size: 14px;
+    }
+    #btnRefreshOverview.is-refreshing {
+      animation: po-spin 0.8s linear infinite;
+    }
+    @keyframes po-spin {
+      from { transform: rotate(0deg); }
+      to   { transform: rotate(360deg); }
+    }
     .hero-actions {
       position: relative;
       display: flex;

@@ -130,15 +130,17 @@ function harvestReadme(workspaceRoot: string): string[] {
  */
 export async function seedCacheFromWorkspace(
   context: vscode.ExtensionContext,
+  options?: { force?: boolean },
 ): Promise<void> {
   try {
+    const force = options?.force === true;
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const workspaceId = computeWorkspaceId(workspaceRoot);
     const seededKey = `${SEEDING_DONE_KEY}.${workspaceId}`;
     const bootstrapKey = `${BOOTSTRAP_DONE_KEY}.${workspaceId}`;
     const hasBootstrapped = context.globalState.get<boolean>(bootstrapKey) === true;
     const lastSeeded = context.globalState.get<number>(seededKey) ?? 0;
-    if (hasBootstrapped && Date.now() - lastSeeded < SEEDING_INTERVAL_MS) { return; }
+    if (!force && hasBootstrapped && Date.now() - lastSeeded < SEEDING_INTERVAL_MS) { return; }
 
     const seeds: string[] = [];
     seeds.push(...harvestChatHistory(context));

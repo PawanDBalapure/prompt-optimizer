@@ -22,10 +22,36 @@ class PromptProxyAppSettings : PersistentStateComponent<PromptProxyAppSettings.S
         var engineCliPath: String = "",
         /** Absolute path for the SQLite cache database */
         var dbPath: String = "",
+        /** Default run mode: optimize | agent | direct */
+        var defaultMode: String = "optimize",
+        /** Model-family compiler target: claude | gpt | gemini | local */
+        var targetModel: String = "gpt",
+        /** Cache lookup mode: blocking | non-blocking */
+        var processingMode: String = "blocking",
+        /** Controls editor action source picking: ask | auto | selection-first | clipboard-first */
+        var sourcePicker: String = "ask",
+        /** Automatically copy agent/direct output for the external AI chat surface */
+        var autoCopyForChat: Boolean = true,
         /** Whether secret / API-key detection is enabled */
         var enableSecretDetection: Boolean = true,
+        /** Additional custom secret-detection regex rules, one per line */
+        var customSecretPatterns: String = "",
         /** Whether to pack the active editor file as context */
         var includeActiveFile: Boolean = true,
+        /** Whether to pack other open editor files as context */
+        var includeOpenFiles: Boolean = true,
+        /** Whether to include prior local turns where supported by the engine */
+        var enableSessionContext: Boolean = true,
+        /** Input cost per 1K tokens in USD */
+        var pricingInput: Double = 0.0015,
+        /** Output cost per 1K tokens in USD */
+        var pricingOutput: Double = 0.002,
+        /** Copilot plan name used for monthly premium-request forecast */
+        var subscriptionPlan: String = "pro",
+        /** Forecasted optimized requests per working day */
+        var forecastRequestsPerDay: Int = 20,
+        /** Premium-request overage price in USD */
+        var creditOveragePrice: Double = 0.04,
     )
 
     private var myState = State()
