@@ -1,6 +1,6 @@
 {
   "name": "prompt-proxy-engine",
-  "version": "2.9.7",
+  "version": "2.9.8",
   "description": "Production-grade local prompt proxy engine designed for IDE extensions.",
   "repository": {
     "type": "git",

@@ -8,6 +8,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2.9.8] - 2026-06-04
+
+### Changed
+
+- Memory augmentations (workspace memory, knowledge graph, file recall, peer
+  workspaces) are now relevance-ranked with curated durable memory pinned
+  first, combating "lost-in-the-middle" context drift.
+- Augmentations that duplicate a file already inlined in the IDE context are
+  removed before the prompt is built.
+- The combined augmentation context is bounded by a precise token budget
+  (tunable via `POMEMORY_MAX_AUGMENTED_TOKENS`) instead of a byte cap only,
+  reducing token bloat.
+
+### Added
+
+- Stale file-digest summaries are tagged as possibly outdated
+  (threshold tunable via `POMEMORY_DIGEST_STALE_DAYS`).
+
+---
+
 ## [2.9.6] - 2026-06-03
 
 ### Added

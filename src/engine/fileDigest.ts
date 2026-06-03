@@ -37,6 +37,22 @@ const MAX_SUMMARY_CHARS  = 320;
 const MAX_RECORDED_FILES = 12;   // per single optimization call
 const MAX_PRIOR_SECTIONS = 4;    // sections injected per request
 
+const MS_PER_DAY = 24 * 60 * 60 * 1_000;
+
+/**
+ * A recalled summary describes the file as it was when last analyzed.  If the
+ * file has not been re-studied for a while it may no longer match the current
+ * code, so we tag it as possibly outdated rather than presenting it as fact —
+ * a cheap honesty signal against context rot.  Tunable (in days) via
+ * `POMEMORY_DIGEST_STALE_DAYS`; default 14.
+ */
+function digestStaleAfterMs(): number {
+  const raw = process.env.POMEMORY_DIGEST_STALE_DAYS;
+  if (!raw) { return 14 * MS_PER_DAY; }
+  const n = Number.parseFloat(raw);
+  return Number.isFinite(n) && n >= 0 ? n * MS_PER_DAY : 14 * MS_PER_DAY;
+}
+
 export class FileDigestStore {
   constructor(private readonly db: Database.Database) {}
 
@@ -128,13 +144,19 @@ export class FileDigestStore {
     }
 
     const sections: string[] = [];
+    const now = Date.now();
+    const staleAfter = digestStaleAfterMs();
     for (const row of rows) {
       if (exclude.has(normalisePath(row.path))) { continue; }
       const lang = row.language ? ` (${row.language})` : '';
       const visits = row.visitCount > 1 ? ` — seen ${row.visitCount} times` : '';
       const summary = row.summary?.trim() ? row.summary.trim() : '(no summary captured)';
+      const ageMs = now - row.updatedAt;
+      const stale = ageMs >= staleAfter
+        ? `\n(Summary may be outdated — last analyzed ${Math.max(1, Math.round(ageMs / MS_PER_DAY))} day(s) ago; re-open the file to refresh.)`
+        : '';
       sections.push(
-        `# Workspace memory — previously analyzed file: ${row.path}${lang}${visits}\n${summary}`,
+        `# Workspace memory — previously analyzed file: ${row.path}${lang}${visits}\n${summary}${stale}`,
       );
       if (sections.length >= limit) { break; }
     }

@@ -3,7 +3,7 @@
 
     <id>com.promptproxy.optimizer</id>
     <name>Local Prompt Optimizer</name>
-    <version>2.9.7</version>
+    <version>2.9.8</version>
 
     <vendor url="https://github.com/PawanDBalapure/prompt-optimizer">
         Pawan Balapure
@@ -23,6 +23,13 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <b>2.9.8</b><br/>
+        Smarter memory context: workspace memory, knowledge-graph,
+        file-recall, and peer suggestions are now relevance-ranked (durable
+        memory pinned first), de-duplicated against files already shown, and
+        capped by a precise token budget — reducing token bloat and
+        “lost-in-the-middle” context drift. Stale file summaries are flagged.
+        <br/><br/>
         <b>2.9.7</b><br/>
         Brings the IntelliJ plugin closer to the VS Code experience: modes,
         target-model tuning, workspace memory, peer workspace controls,

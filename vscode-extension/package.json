@@ -2,7 +2,7 @@
   "name": "vc-prompt-optimizer--local",
   "displayName": "Prompt Optimizer - Local",
   "description": "Fully local prompt optimization, semantic cache, and token cost forecasting for VS Code. Your prompts and code never leave your machine — no telemetry, no cloud processing. Works with GitHub Copilot.",
-  "version": "2.9.7",
+  "version": "2.9.8",
   "publisher": "PawanBalapure",
   "license": "MIT",
   "icon": "images/icon.png",

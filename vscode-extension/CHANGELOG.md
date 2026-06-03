@@ -3,6 +3,20 @@
 All notable changes to Prompt Optimizer are summarized here. Entries are kept
 brief and high-level on purpose.
 
+## 2.9.8
+
+- Smarter memory context: workspace memory, knowledge-graph hints, file-recall
+  summaries, and peer-workspace suggestions are now **relevance-ranked** so the
+  most useful context appears first (your curated durable memory stays pinned
+  at the top).
+- **De-duplication**: hints that merely point at a file already shown in full
+  are dropped, so the same context is no longer sent twice.
+- **Token-aware budget**: the combined memory context is now capped by tokens
+  (not just bytes), keeping prompts lean and leaving more room for your actual
+  request. Tunable via `POMEMORY_MAX_AUGMENTED_TOKENS`.
+- Recalled file summaries that haven't been refreshed in a while are now
+  flagged as possibly outdated.
+
 ## 2.9.6
 
 - Your settings, cache, conversation memory, and custom agents are now always

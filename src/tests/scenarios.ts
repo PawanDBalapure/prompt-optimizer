@@ -946,6 +946,95 @@ async function runPropertyTestScenario(): Promise<void> {
   assert.equal(irRoundTrips, 200, 'all 200 IR round-trips should succeed');
 
   console.log('  property-based fuzz: PASSED');
+
+  console.log('\n20. Validating augmentation ranking + dedup + token budget + digest staleness...');
+  const { selectAndRankAugmentedSections } = await import('../engine/augmentBudget.js');
+
+  // Simple term-overlap scorer so ordering is deterministic in the test.
+  const queryTerms = new Set(['auth', 'jwt', 'token', 'verification']);
+  const scorer = (text: string, terms: Set<string>): number => {
+    const lower = text.toLowerCase();
+    let hits = 0;
+    for (const t of terms) { if (lower.includes(t)) { hits++; } }
+    return terms.size === 0 ? 0 : hits / terms.size;
+  };
+
+  const curated = '# Workspace memory — AGENTS.md\n- Always validate input with zod.';
+  const highRel = '# Knowledge graph — auth\nThe auth middleware verifies jwt tokens on each request.';
+  const medRel = '# Peer workspace (y)\nToken verification helper utilities.';
+  const lowRel = '# Peer workspace (x)\nUnrelated notes about css styling and layout grids.';
+  const dupSection = '# Knowledge graph — file\nSee src/api/auth.ts (active file) for details here.';
+  const lowValue = '# Workspace memory — previously analyzed file: x.ts\n(no summary captured)';
+
+  const ranked = selectAndRankAugmentedSections(
+    [lowValue, lowRel, medRel, dupSection, highRel, curated],
+    queryTerms,
+    scorer,
+    { contextPaths: ['src/api/auth.ts'] },
+  );
+
+  assert.equal(ranked[0], curated, 'curated durable memory must be pinned first');
+  assert.ok(ranked.includes(highRel) && ranked.includes(medRel), 'relevant sections must survive');
+  assert.ok(
+    ranked.indexOf(highRel) < ranked.indexOf(medRel),
+    'more-relevant section must rank above less-relevant one',
+  );
+  assert.ok(!ranked.includes(dupSection), 'section pointing at an inlined context file must be deduped');
+  assert.ok(!ranked.includes(lowValue), 'low-value boilerplate must be dropped');
+  assert.ok(!ranked.includes(lowRel), 'below-threshold section must be dropped');
+
+  // Token budget binds: a tiny budget yields fewer sections than the default.
+  const prevTokenBudget = process.env.POMEMORY_MAX_AUGMENTED_TOKENS;
+  process.env.POMEMORY_MAX_AUGMENTED_TOKENS = '20';
+  const tightlyBudgeted = selectAndRankAugmentedSections(
+    [curated, highRel, medRel],
+    queryTerms,
+    scorer,
+  );
+  if (prevTokenBudget === undefined) { delete process.env.POMEMORY_MAX_AUGMENTED_TOKENS; }
+  else { process.env.POMEMORY_MAX_AUGMENTED_TOKENS = prevTokenBudget; }
+  assert.ok(tightlyBudgeted.length < 3, 'a tight token budget must drop lower-priority sections');
+  console.log('  augmentation ranking + dedup + token budget: PASSED');
+
+  // Digest staleness: forcing the stale threshold to 0 days tags recalls.
+  const staleDbFile = 'prompt_semantic_cache_stale_test.db';
+  resetDatabase(staleDbFile);
+  const staleSess1 = new PromptProxyEngine({ db_path: staleDbFile });
+  await staleSess1.initialize();
+  await staleSess1.processRequest({
+    raw_prompt: 'Explain the token verification helper',
+    workspace_id: 'stale-test',
+    ide_context: {
+      workspace_root: '/virtual/stale-test',
+      active_file: {
+        path: 'src/api/verify.ts',
+        content: 'export function verifyToken(t: string): boolean {\n  return t.length > 0;\n}\n',
+        language: 'ts',
+      },
+    },
+  });
+  staleSess1.close();
+
+  const prevStaleDays = process.env.POMEMORY_DIGEST_STALE_DAYS;
+  process.env.POMEMORY_DIGEST_STALE_DAYS = '0';
+  const staleSess2 = new PromptProxyEngine({ db_path: staleDbFile });
+  await staleSess2.initialize();
+  const staleResp = await staleSess2.processRequest({
+    raw_prompt: 'What did we change in the token verification flow?',
+    workspace_id: 'stale-test',
+    ide_context: { workspace_root: '/virtual/stale-test' },
+  });
+  staleSess2.close();
+  if (prevStaleDays === undefined) { delete process.env.POMEMORY_DIGEST_STALE_DAYS; }
+  else { process.env.POMEMORY_DIGEST_STALE_DAYS = prevStaleDays; }
+  assertSchema(staleResp);
+  assert.ok(
+    staleResp.optimized_prompt.includes('Summary may be outdated'),
+    `Expected staleness tag on aged digest recall. Got:\n${staleResp.optimized_prompt}`,
+  );
+  resetDatabase(staleDbFile);
+  console.log('  digest staleness guard: PASSED');
 }
+
 
 

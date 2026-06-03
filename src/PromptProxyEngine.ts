@@ -19,6 +19,7 @@ import { inferRepoStack } from './RepoAwareness.js';
 
 import { CACHE_TIMEOUT_MS, MAX_CACHE_CANDIDATES, MAX_IMPROVEMENTS } from './engine/constants.js';
 import { ContextPacker } from './engine/contextPacker.js';
+import { selectAndRankAugmentedSections } from './engine/augmentBudget.js';
 import { buildCacheInsight, createEmptyResponse } from './engine/insights.js';
 import {
   calculateCostBreakdown,
@@ -194,6 +195,7 @@ export class PromptProxyEngine {
       request.ide_context,
       stackInfo,
       requestId,
+      contextPack.files.map((file) => file.path),
     );
 
     const cacheStatus = cacheResult?.matchType ?? 'miss';
@@ -304,6 +306,7 @@ export class PromptProxyEngine {
     ide: PromptIDEContext | undefined,
     stackInfo: ReturnType<typeof inferRepoStack>,
     requestId: string,
+    contextPaths: string[],
   ): string[] {
     const sections: string[] = [];
     const db = this.cacheManager.rawDatabase();
@@ -389,13 +392,18 @@ export class PromptProxyEngine {
       }
     }
 
-    // Relevance gate: drop empty boilerplate outright and score discretionary
-    // augmentations against the current prompt so only on-topic context is
-    // appended.  Without this, memory/graph/digest/peer blocks leak in on
-    // every turn purely by byte budget, causing context rot.
+    // Relevance gate + ranking + token budget: drop empty boilerplate, remove
+    // blocks that merely point at files already inlined in the IDE context,
+    // rank survivors (curated durable memory pinned first, the rest by
+    // descending relevance), and admit them under a precise token budget.
+    // This combats both token bloat and lost-in-the-middle context rot.
     const queryTerms = this.contextPacker.buildQueryTerms(rawPrompt);
-    const relevant = selectRelevantAugmentedSections(sections, queryTerms, this.contextPacker);
-    return enforceAugmentedBudget(relevant);
+    return selectAndRankAugmentedSections(
+      sections,
+      queryTerms,
+      (text, terms) => this.contextPacker.scoreTextRelevance(text, terms),
+      { contextPaths },
+    );
   }
 
   private async lookupCache(
@@ -447,96 +455,7 @@ export class PromptProxyEngine {
   }
 }
 
-/**
- * Top-level byte ceiling for the combined augmented context (memory + KG +
- * digests + peer matches) that the engine prepends to every optimized
- * prompt.  Without this cap the per-turn cost would scale linearly with
- * the number of memory files, KG nodes, and federated peers.
- *
- * 18 KB \u2248 4.5 K tokens \u2014 generous for serious projects, well below the
- * point where it starts pushing the user's actual prompt out of context.
- * Overridable via `POMEMORY_MAX_AUGMENTED_BYTES` env var.
- */
-const MAX_AUGMENTED_BYTES = (() => {
-  const raw = process.env.POMEMORY_MAX_AUGMENTED_BYTES;
-  if (!raw) { return 18_000; }
-  const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) && n >= 1_024 ? n : 18_000;
-})();
 
-function enforceAugmentedBudget(sections: string[]): string[] {
-  const out: string[] = [];
-  let used = 0;
-  for (const section of sections) {
-    const cost = Buffer.byteLength(section, 'utf8') + 2;
-    if (used + cost > MAX_AUGMENTED_BYTES) { break; }
-    out.push(section);
-    used += cost;
-  }
-  return out;
-}
-
-/**
- * Minimum relevance score a discretionary augmentation must reach to be kept.
- * Tunable via env so the budget/precision trade-off can be adjusted without a
- * rebuild.  User-curated durable memory (see CURATED_MEMORY_HEADER) bypasses
- * this gate, and empty/boilerplate sections are dropped regardless of score.
- */
-const AUGMENT_RELEVANCE_THRESHOLD = (() => {
-  const raw = process.env.POMEMORY_AUGMENT_RELEVANCE_MIN;
-  if (!raw) { return 0.04; }
-  const n = Number.parseFloat(raw);
-  return Number.isFinite(n) && n >= 0 && n <= 1 ? n : 0.04;
-})();
-
-/**
- * Sections sourced from user-curated durable instruction files are always
- * kept (when non-empty): they encode standing conventions that should apply
- * to every request, not just topically matching ones.
- */
-const CURATED_MEMORY_HEADER =
-  /^#\s+Workspace memory — (?:project memory|project knowledge|AGENTS\.md|CLAUDE)/i;
-
-function augmentedSectionBody(section: string): string {
-  const newlineIndex = section.indexOf('\n');
-  return newlineIndex === -1 ? '' : section.slice(newlineIndex + 1);
-}
-
-/**
- * True when a section carries no usable signal: an empty body, a placeholder
- * marker such as "(no summary captured)", or a template skeleton whose lines
- * are only unfilled "Label:" headings (e.g. a generated memory.md stub with
- * bare "Stack:" / "Conventions:" lines).  These add tokens but no information.
- */
-function isLowValueAugmentedSection(section: string): boolean {
-  const meaningful = augmentedSectionBody(section)
-    .split(/\r?\n/)
-    .map((line) => line.replace(/^[#>\-*\s]+/, '').trim())
-    .filter((line) => line !== '')
-    .filter((line) => !/^[A-Za-z][\w ./-]{0,40}:\s*$/.test(line)) // unfilled "Label:"
-    .filter((line) => !/^\(.*\)$/.test(line))                     // "(no summary captured)"
-    .filter((line) => !/^todo\b/i.test(line));
-  const compact = meaningful.join(' ').replace(/[^a-z0-9]/gi, '');
-  return compact.length < 12;
-}
-
-/**
- * Keep only augmentation sections that earn their place in the prompt: drop
- * low-value boilerplate, always retain curated durable memory, and otherwise
- * require a minimum relevance to the current prompt's terms.
- */
-function selectRelevantAugmentedSections(
-  sections: string[],
-  queryTerms: Set<string>,
-  packer: ContextPacker,
-): string[] {
-  return sections.filter((section) => {
-    if (isLowValueAugmentedSection(section)) { return false; }
-    if (CURATED_MEMORY_HEADER.test(section)) { return true; }
-    if (queryTerms.size === 0) { return true; }
-    return packer.scoreTextRelevance(section, queryTerms) >= AUGMENT_RELEVANCE_THRESHOLD;
-  });
-}
 
 /**
  * Frame the optimized prompt with the detected SDLC role + quality checklist.
