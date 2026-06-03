@@ -389,7 +389,13 @@ export class PromptProxyEngine {
       }
     }
 
-    return enforceAugmentedBudget(sections);
+    // Relevance gate: drop empty boilerplate outright and score discretionary
+    // augmentations against the current prompt so only on-topic context is
+    // appended.  Without this, memory/graph/digest/peer blocks leak in on
+    // every turn purely by byte budget, causing context rot.
+    const queryTerms = this.contextPacker.buildQueryTerms(rawPrompt);
+    const relevant = selectRelevantAugmentedSections(sections, queryTerms, this.contextPacker);
+    return enforceAugmentedBudget(relevant);
   }
 
   private async lookupCache(
@@ -468,6 +474,68 @@ function enforceAugmentedBudget(sections: string[]): string[] {
     used += cost;
   }
   return out;
+}
+
+/**
+ * Minimum relevance score a discretionary augmentation must reach to be kept.
+ * Tunable via env so the budget/precision trade-off can be adjusted without a
+ * rebuild.  User-curated durable memory (see CURATED_MEMORY_HEADER) bypasses
+ * this gate, and empty/boilerplate sections are dropped regardless of score.
+ */
+const AUGMENT_RELEVANCE_THRESHOLD = (() => {
+  const raw = process.env.POMEMORY_AUGMENT_RELEVANCE_MIN;
+  if (!raw) { return 0.04; }
+  const n = Number.parseFloat(raw);
+  return Number.isFinite(n) && n >= 0 && n <= 1 ? n : 0.04;
+})();
+
+/**
+ * Sections sourced from user-curated durable instruction files are always
+ * kept (when non-empty): they encode standing conventions that should apply
+ * to every request, not just topically matching ones.
+ */
+const CURATED_MEMORY_HEADER =
+  /^#\s+Workspace memory — (?:project memory|project knowledge|AGENTS\.md|CLAUDE)/i;
+
+function augmentedSectionBody(section: string): string {
+  const newlineIndex = section.indexOf('\n');
+  return newlineIndex === -1 ? '' : section.slice(newlineIndex + 1);
+}
+
+/**
+ * True when a section carries no usable signal: an empty body, a placeholder
+ * marker such as "(no summary captured)", or a template skeleton whose lines
+ * are only unfilled "Label:" headings (e.g. a generated memory.md stub with
+ * bare "Stack:" / "Conventions:" lines).  These add tokens but no information.
+ */
+function isLowValueAugmentedSection(section: string): boolean {
+  const meaningful = augmentedSectionBody(section)
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^[#>\-*\s]+/, '').trim())
+    .filter((line) => line !== '')
+    .filter((line) => !/^[A-Za-z][\w ./-]{0,40}:\s*$/.test(line)) // unfilled "Label:"
+    .filter((line) => !/^\(.*\)$/.test(line))                     // "(no summary captured)"
+    .filter((line) => !/^todo\b/i.test(line));
+  const compact = meaningful.join(' ').replace(/[^a-z0-9]/gi, '');
+  return compact.length < 12;
+}
+
+/**
+ * Keep only augmentation sections that earn their place in the prompt: drop
+ * low-value boilerplate, always retain curated durable memory, and otherwise
+ * require a minimum relevance to the current prompt's terms.
+ */
+function selectRelevantAugmentedSections(
+  sections: string[],
+  queryTerms: Set<string>,
+  packer: ContextPacker,
+): string[] {
+  return sections.filter((section) => {
+    if (isLowValueAugmentedSection(section)) { return false; }
+    if (CURATED_MEMORY_HEADER.test(section)) { return true; }
+    if (queryTerms.size === 0) { return true; }
+    return packer.scoreTextRelevance(section, queryTerms) >= AUGMENT_RELEVANCE_THRESHOLD;
+  });
 }
 
 /**
