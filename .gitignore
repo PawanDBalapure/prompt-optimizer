@@ -45,3 +45,6 @@ desktop.ini
 # ── Temp files ────────────────────────────────────────────────────────────────
 tmp-*/
 *.tmp
+
+# ── Engine runtime (contains built artifacts, ~100 MB) ───────────────────────
+vscode-extension/engine-runtime/*
