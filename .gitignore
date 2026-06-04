@@ -48,3 +48,4 @@ tmp-*/
 
 # ── Engine runtime (contains built artifacts, ~100 MB) ───────────────────────
 vscode-extension/engine-runtime/*
+.node-runtime-cache/*
