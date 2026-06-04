@@ -47,5 +47,7 @@ tmp-*/
 *.tmp
 
 # ── Engine runtime (contains built artifacts, ~100 MB) ───────────────────────
+vscode-extension/*.exe
+vscode-extension/*.zip
 vscode-extension/engine-runtime/*
 .node-runtime-cache/*
