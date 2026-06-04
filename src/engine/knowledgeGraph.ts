@@ -84,10 +84,17 @@ export class KnowledgeGraph {
     rawPrompt: string,
     ide: PromptIDEContext | undefined,
     stack: RepoStackInfo,
+    seeding = false,
   ): void {
     try {
-      const promptName = shortPromptId(rawPrompt);
-      const promptId = this.upsertNode(workspaceId, 'prompt', promptName, summarizePrompt(rawPrompt));
+      // During bulk harvest passes (workspace refresh) we collapse every seed
+      // prompt onto one stable node and skip concept nodes, so structural
+      // nodes stay bounded by the workspace and the graph count is idempotent
+      // across repeated refreshes. Real user prompts (seeding === false) keep
+      // their own prompt + concept nodes as a record of work done.
+      const promptName = seeding ? '__workspace_seed__' : shortPromptId(rawPrompt);
+      const promptSummary = seeding ? 'Aggregated workspace harvest' : summarizePrompt(rawPrompt);
+      const promptId = this.upsertNode(workspaceId, 'prompt', promptName, promptSummary);
 
       for (const framework of stack.frameworks) {
         const id = this.upsertNode(workspaceId, 'framework', framework, `Framework: ${framework}`);
@@ -112,11 +119,37 @@ export class KnowledgeGraph {
         this.upsertEdge(promptId, id, 'mentions-file', 2.0);
       }
 
-      for (const term of extractConceptTerms(rawPrompt)) {
-        const id = this.upsertNode(workspaceId, 'concept', term, '');
-        this.upsertEdge(promptId, id, 'mentions-concept', 0.5);
+      if (!seeding) {
+        for (const term of extractConceptTerms(rawPrompt)) {
+          const id = this.upsertNode(workspaceId, 'concept', term, '');
+          this.upsertEdge(promptId, id, 'mentions-concept', 0.5);
+        }
       }
     } catch { /* graph harvest must never break optimization */ }
+  }
+
+  /**
+   * Remove every node + edge for a workspace.  Backs the "reset graph" action
+   * so users can zero a graph that has accumulated stale prompt/concept nodes.
+   * Returns the number of nodes deleted.
+   */
+  clearGraph(workspaceId: string): number {
+    try {
+      const before = this.db
+        .prepare('SELECT COUNT(*) AS c FROM kg_nodes WHERE workspace_id = ?')
+        .get(workspaceId) as { c: number } | undefined;
+      const txn = this.db.transaction((ws: string) => {
+        this.db.prepare(`
+          DELETE FROM kg_edges WHERE src_id IN (SELECT id FROM kg_nodes WHERE workspace_id = ?)
+             OR dst_id IN (SELECT id FROM kg_nodes WHERE workspace_id = ?)
+        `).run(ws, ws);
+        this.db.prepare('DELETE FROM kg_nodes WHERE workspace_id = ?').run(ws);
+      });
+      txn(workspaceId);
+      return before?.c ?? 0;
+    } catch {
+      return 0;
+    }
   }
 
   /** Walk the graph from prompt terms and return text suggestions to merge in. */
@@ -155,7 +188,14 @@ export class KnowledgeGraph {
     const nodesRow = workspaceId
       ? this.db.prepare('SELECT COUNT(*) AS c FROM kg_nodes WHERE workspace_id = ?').get(workspaceId)
       : this.db.prepare('SELECT COUNT(*) AS c FROM kg_nodes').get();
-    const edgesRow = this.db.prepare('SELECT COUNT(*) AS c FROM kg_edges').get();
+    const edgesRow = workspaceId
+      ? this.db.prepare(`
+          SELECT COUNT(*) AS c
+          FROM kg_edges e
+          JOIN kg_nodes n ON n.id = e.src_id
+          WHERE n.workspace_id = ?
+        `).get(workspaceId)
+      : this.db.prepare('SELECT COUNT(*) AS c FROM kg_edges').get();
     return {
       nodes: (nodesRow as { c: number }).c,
       edges: (edgesRow as { c: number }).c,

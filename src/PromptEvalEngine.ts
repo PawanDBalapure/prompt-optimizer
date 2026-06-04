@@ -47,6 +47,8 @@ export class PromptEvalEngine {
       { name: 'Claude Optimal', target_model: 'claude' as const },
       { name: 'GPT Optimal', target_model: 'gpt' as const },
       { name: 'Gemini Optimal', target_model: 'gemini' as const },
+      { name: 'DeepSeek Optimal', target_model: 'deepseek' as const },
+      { name: 'Grok Optimal', target_model: 'grok' as const },
       { name: 'Local Standard', target_model: 'local' as const },
     ];
 
@@ -117,18 +119,32 @@ export class PromptEvalEngine {
         reasons.push('Missing Claude XML tags (-20pts)');
       }
     } else if (targetModel === 'gpt') {
-      if (compiled.includes('### ROLE') || compiled.includes('### CONSTRAINTS')) {
+      if (compiled.includes('# SYSTEM PRESET') || compiled.includes('# CORE OBJECTIVE')) {
         score += 5;
       } else {
         score -= 15;
         reasons.push('Missing GPT markdown headers (-15pts)');
       }
     } else if (targetModel === 'gemini') {
-      if (compiled.includes('**MUST**') || compiled.includes('**ROLE & OBJECTIVE**')) {
+      if (compiled.includes('Core Goal:') || compiled.includes('[EXAMPLE]')) {
         score += 5;
       } else {
         score -= 15;
         reasons.push('Missing Gemini highlights (-15pts)');
+      }
+    } else if (targetModel === 'deepseek') {
+      if (compiled.includes('Logical Constraints:') || compiled.includes('Persona:')) {
+        score += 5;
+      } else {
+        score -= 15;
+        reasons.push('Missing DeepSeek logical-constraint blocks (-15pts)');
+      }
+    } else if (targetModel === 'grok') {
+      if (compiled.includes('Output Requirements:') || compiled.includes('Be brutally direct and concise.')) {
+        score += 5;
+      } else {
+        score -= 15;
+        reasons.push('Missing Grok direct-output requirements (-15pts)');
       }
     } else if (targetModel === 'local') {
       if (compiled.includes('[ROLE]') || compiled.includes('[RULES]')) {

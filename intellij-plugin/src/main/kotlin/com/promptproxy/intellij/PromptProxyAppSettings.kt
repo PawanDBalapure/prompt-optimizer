@@ -52,6 +52,16 @@ class PromptProxyAppSettings : PersistentStateComponent<PromptProxyAppSettings.S
         var forecastRequestsPerDay: Int = 20,
         /** Premium-request overage price in USD */
         var creditOveragePrice: Double = 0.04,
+        /** Base credit rate per input token (Rin) */
+        var creditBaseInputRate: Double = 0.001,
+        /** Base credit rate per output token (Rout) */
+        var creditBaseOutputRate: Double = 0.002,
+        /** Fixed execution factor (Fe) charged per request */
+        var creditFixedExecutionOverhead: Double = 1.0,
+        /** Fallback Tin when no live analysis tokens are available */
+        var forecastInputTokens: Int = 800,
+        /** Fallback Tout when no live analysis tokens are available */
+        var forecastOutputTokens: Int = 400,
     )
 
     private var myState = State()

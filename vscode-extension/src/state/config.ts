@@ -49,6 +49,12 @@ export function getCreditForecastConfig(): {
   monthlyAllowance: number;
   requestsPerDay: number;
   overagePrice: number;
+  baseInputRate: number;
+  baseOutputRate: number;
+  fixedExecutionOverhead: number;
+  defaultInputTokens: number;
+  defaultOutputTokens: number;
+  modelWeights: Record<string, number>;
 } {
   const config = getConfig();
   const planRaw = config.get<string>('subscriptionPlan') ?? 'pro';
@@ -56,17 +62,41 @@ export function getCreditForecastConfig(): {
   const entry = PLAN_ALLOWANCES[plan];
   const requestsPerDay = Math.max(0, config.get<number>('forecastRequestsPerDay') ?? 20);
   const overagePrice = Math.max(0, config.get<number>('creditOveragePrice') ?? 0.04);
+  const baseInputRate = Math.max(0, config.get<number>('creditBaseInputRate') ?? 0.001);
+  const baseOutputRate = Math.max(0, config.get<number>('creditBaseOutputRate') ?? 0.002);
+  const fixedExecutionOverhead = Math.max(0, config.get<number>('creditFixedExecutionOverhead') ?? 1);
+  const defaultInputTokens = Math.max(0, Math.round(config.get<number>('forecastInputTokens') ?? 800));
+  const defaultOutputTokens = Math.max(0, Math.round(config.get<number>('forecastOutputTokens') ?? 400));
+  const modelWeights: Record<string, number> = {
+    gpt: Math.max(0, config.get<number>('creditWeight.gpt') ?? 2),
+    claude: Math.max(0, config.get<number>('creditWeight.claude') ?? 2.5),
+    gemini: Math.max(0, config.get<number>('creditWeight.gemini') ?? 2),
+    deepseek: Math.max(0, config.get<number>('creditWeight.deepseek') ?? 3),
+    grok: Math.max(0, config.get<number>('creditWeight.grok') ?? 3),
+    local: Math.max(0, config.get<number>('creditWeight.local') ?? 0),
+  };
   return {
     plan,
     planLabel: entry.label,
     monthlyAllowance: entry.allowance,
     requestsPerDay,
     overagePrice,
+    baseInputRate,
+    baseOutputRate,
+    fixedExecutionOverhead,
+    defaultInputTokens,
+    defaultOutputTokens,
+    modelWeights,
   };
 }
 
 function isTargetModel(value: unknown): value is TargetModel {
-  return value === 'claude' || value === 'gpt' || value === 'gemini' || value === 'local';
+  return value === 'claude'
+    || value === 'gpt'
+    || value === 'gemini'
+    || value === 'deepseek'
+    || value === 'grok'
+    || value === 'local';
 }
 
 export function getTargetModel(context: vscode.ExtensionContext): TargetModel {

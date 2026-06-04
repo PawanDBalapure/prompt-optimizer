@@ -2,7 +2,7 @@
 
 export type ProxyMode = 'agent' | 'optimize' | 'direct';
 export type PromptSource = 'panel' | 'chat' | 'clipboard';
-export type TargetModel = 'claude' | 'gpt' | 'gemini' | 'local';
+export type TargetModel = 'claude' | 'gpt' | 'gemini' | 'deepseek' | 'grok' | 'local';
 
 export type SecretPatternMatchMode =
   | 'regex'

@@ -404,6 +404,15 @@ window.addEventListener('message', function(event) {
     case 'agentDeleted':
       if (typeof handleAgentDeleted === 'function') { handleAgentDeleted(msg); }
       break;
+    case 'instructionsOverview':
+      if (typeof handleInstructionsOverview === 'function') { handleInstructionsOverview(msg); }
+      break;
+    case 'instructionsHistory':
+      if (typeof handleInstructionsHistory === 'function') { handleInstructionsHistory(msg); }
+      break;
+    case 'instructionsActionDone':
+      if (typeof handleInstructionsActionDone === 'function') { handleInstructionsActionDone(msg); }
+      break;
   }
 });
 

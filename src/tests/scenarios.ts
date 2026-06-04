@@ -119,7 +119,9 @@ export async function runCoreScenarios(dbFile: string): Promise<void> {
     'second turn should reuse the recurring context block from cache',
   );
   assert.ok((secondTurn.analysis.cache.reused_tokens_saved ?? 0) > 0);
-  assert.ok(secondTurn.optimized_prompt.includes('[reused-from-cache]'));
+  // Reused blocks are dropped entirely — no marker/reference is emitted, since the
+  // model cannot read our local cache and any leftover line is pure token bloat.
+  assert.ok(!secondTurn.optimized_prompt.includes('[reused-from-cache]'));
   assert.ok(!secondTurn.optimized_prompt.includes('escalateAfter'));
 
   const reuseDisabled = await engine.processRequest({
@@ -330,6 +332,58 @@ export async function runRegressionScenarios(): Promise<void> {
   assert.ok(kg, 'KG should be available');
   const kgStats = kg!.stats('main-ws');
   assert.ok(kgStats.nodes > 0, 'KG should have harvested nodes after a prompt');
+
+  await mainEngine.processRequest({
+    raw_prompt: 'Build an Express middleware for JWT verification.',
+    workspace_id: 'main-ws',
+  });
+  assert.deepEqual(
+    kg!.stats('main-ws'),
+    kgStats,
+    're-indexing the same prompt should not change visible graph node/edge counts',
+  );
+
+  await mainEngine.processRequest({
+    raw_prompt: 'Document the React route conventions for the admin dashboard.',
+    workspace_id: 'other-ws',
+  });
+  assert.deepEqual(
+    kg!.stats('main-ws'),
+    kgStats,
+    'workspace KG stats must not include edges harvested for another workspace',
+  );
+
+  // Seeding/refresh idempotence: bulk-harvest passes (seeding: true) feed many
+  // distinct prompts but must NOT grow the node count, otherwise the panel's
+  // graph pill climbs on every Refresh click. Warm up once so the single
+  // stable seed node exists, then assert further passes don't move the counts.
+  await mainEngine.processRequest({
+    raw_prompt: 'Seed harvest warm-up: configure the deployment pipeline.',
+    workspace_id: 'main-ws',
+    seeding: true,
+  });
+  const seedStatsBefore = kg!.stats('main-ws');
+  for (let i = 0; i < 5; i++) {
+    await mainEngine.processRequest({
+      raw_prompt: `Seed harvest line number ${i}: configure the deployment pipeline and rollout.`,
+      workspace_id: 'main-ws',
+      seeding: true,
+    });
+  }
+  assert.deepEqual(
+    kg!.stats('main-ws'),
+    seedStatsBefore,
+    'repeated seeding passes with distinct prompts must not grow graph node/edge counts',
+  );
+
+  // Reset must zero the workspace graph.
+  const removedGraphNodes = kg!.clearGraph('main-ws');
+  assert.ok(removedGraphNodes > 0, 'clearGraph should report the nodes it removed');
+  assert.deepEqual(
+    kg!.stats('main-ws'),
+    { nodes: 0, edges: 0 },
+    'clearGraph must reset the workspace graph counts to zero',
+  );
   mainEngine.close();
   resetDatabase(peerDbFile);
   resetDatabase(mainDbFile);
@@ -419,6 +473,22 @@ export async function runRegressionScenarios(): Promise<void> {
     '- No `any` type, no `console.log`, no unused imports.',
     ''].join('\n'));
 
+  // 3) Custom skill used to prove deselection/removal does not leave its
+  // role definition stuck inside an exact cache hit.
+  const staleAgentPath = path.join(skillsDir, 'stale-agent.md');
+  fs.writeFileSync(staleAgentPath, [
+    '---',
+    'id: stale-agent',
+    'label: Deselect Sentinel',
+    'readOnly: true',
+    'keywords: [quasar]',
+    '---',
+    'You are the Deselect Sentinel. This role definition must not survive deselection.',
+    '',
+    '## Checklist',
+    '- No stale sentinel checklist remains.',
+    ''].join('\n'));
+
   const { _resetSkillCacheForTests, listRegisteredModes } = await import('../engine/promptModes.js');
   _resetSkillCacheForTests();
 
@@ -469,6 +539,29 @@ export async function runRegressionScenarios(): Promise<void> {
   assert.ok(a11yEntry!.slashAliases.includes('accessibility'));
   assert.ok(codeEntry, 'code mode should be listed');
   assert.equal(codeEntry!.source, 'workspace', 'workspace override should win');
+
+  const stalePrompt = 'Please assess quasar behavior around keyboard focus.';
+  const staleFirst = await skillEngine.processRequest({
+    raw_prompt: stalePrompt,
+    workspace_id: 'skill-test',
+    ide_context: { workspace_root: skillRoot },
+  });
+  assertSchema(staleFirst);
+  assert.equal(staleFirst.sdlc_mode?.id, 'stale-agent');
+  assert.ok(staleFirst.optimized_prompt.includes('Deselect Sentinel'));
+
+  fs.unlinkSync(staleAgentPath);
+  const staleAfterDeselect = await skillEngine.processRequest({
+    raw_prompt: stalePrompt,
+    workspace_id: 'skill-test',
+    ide_context: { workspace_root: skillRoot },
+  });
+  assertSchema(staleAfterDeselect);
+  assert.equal(staleAfterDeselect.sdlc_mode, undefined);
+  assert.equal(staleAfterDeselect.analysis.cache.status, 'exact');
+  assert.ok(!staleAfterDeselect.optimized_prompt.startsWith('# Role'));
+  assert.ok(!staleAfterDeselect.optimized_prompt.includes('Deselect Sentinel'));
+  assert.ok(!staleAfterDeselect.optimized_prompt.includes('No stale sentinel checklist'));
 
   skillEngine.close();
   fs.rmSync(skillRoot, { recursive: true, force: true });
@@ -1034,7 +1127,296 @@ async function runPropertyTestScenario(): Promise<void> {
   );
   resetDatabase(staleDbFile);
   console.log('  digest staleness guard: PASSED');
+
+  console.log('\n21. Validating recall digest tier + copilot-instructions knowledge highlights...');
+  const { recallMemory: recallMem } = await import('../engine/memoryRecall.js');
+  const { syncCopilotInstructions: syncCopilot, MANAGED_BEGIN: BEGIN } =
+    await import('../engine/copilotInstructions.js');
+
+  const recallDbFile = 'prompt_semantic_cache_recall_digest_test.db';
+  resetDatabase(recallDbFile);
+  const recallRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-opt-recall-'));
+  fs.writeFileSync(
+    path.join(recallRoot, 'AGENTS.md'),
+    '# Project rules\n\nUse JWT verification for all protected routes.\n',
+  );
+
+  const recallEngine = new PromptProxyEngine({ db_path: recallDbFile });
+  await recallEngine.initialize();
+  // Study a file so the digest tier + studied-file highlights have data, and
+  // harvest KG nodes from a descriptive prompt.
+  await recallEngine.processRequest({
+    raw_prompt: 'Explain the jwt verification helper in the auth module',
+    workspace_id: 'recall-test',
+    ide_context: {
+      workspace_root: recallRoot,
+      active_file: {
+        path: 'src/api/jwtVerify.ts',
+        content: 'export function verifyJwt(token: string): boolean {\n  return token.split(".").length === 3;\n}\n',
+        language: 'ts',
+      },
+    },
+  });
+
+  const recallDb = (recallEngine as unknown as { cacheManager: { rawDatabase(): Database.Database } })
+    .cacheManager.rawDatabase();
+  const recallFed = recallEngine.getFederation() ?? undefined;
+
+  // (a) Digest tier: a studied file is now recallable by query.
+  const digestRecall = recallMem(recallDb, recallFed, {
+    query: 'jwtVerify',
+    workspaceId: 'recall-test',
+    workspaceRoot: recallRoot,
+    scope: 'workspace',
+  });
+  assert.ok(
+    digestRecall.entries.some((e) => e.tier === 'digest' && /jwtVerify\.ts/.test(e.source)),
+    `Expected a digest-tier entry for the studied file. Got:\n${digestRecall.formatted}`,
+  );
+
+  // (b) Copilot instructions: with a DB, the studied-file highlight appears
+  // inside the managed block alongside the AGENTS.md content.
+  const hlReport = syncCopilot({ workspaceRoot: recallRoot, workspaceId: 'recall-test', db: recallDb });
+  assert.equal(hlReport.ok, true, 'highlight sync should succeed');
+  const hlContent = fs.readFileSync(hlReport.path, 'utf8');
+  assert.ok(hlContent.includes(BEGIN), 'managed block marker missing');
+  assert.ok(hlContent.includes('JWT verification'), 'AGENTS.md content should still be inlined');
+  assert.ok(
+    hlContent.includes('Recently studied files (auto)') && hlContent.includes('jwtVerify.ts'),
+    `Expected studied-file highlight in copilot-instructions. Got:\n${hlContent}`,
+  );
+
+  recallEngine.close();
+  fs.rmSync(recallRoot, { recursive: true, force: true });
+  resetDatabase(recallDbFile);
+  console.log('  recall digest tier + knowledge highlights: PASSED');
+
+  console.log('\n22. Validating semantic relevance + MMR diversity + tier fairness + telemetry...');
+  const { selectAndRankAugmentedSections: selectRanked } = await import('../engine/augmentBudget.js');
+  const { createRelevanceContext: makeCtx } = await import('../engine/relevanceScoring.js');
+
+  // Prompt is about fixing a failing JWT auth token check (troubleshooting).
+  const relPrompt = 'Fix the bug where JWT auth token verification fails on expired tokens';
+  const ctx22 = makeCtx(relPrompt);
+
+  const curatedSec = '# Workspace memory — AGENTS.md\n- Always validate input with zod.';
+  // Two near-duplicate KG blocks about the same thing — MMR must keep one.
+  const kgA = '# Knowledge graph — auth\nThe auth middleware verifies JWT tokens and rejects expired tokens.';
+  const kgB = '# Knowledge graph — auth (dup)\nAuth middleware verifies JWT tokens, rejecting tokens that expired.';
+  const digestSec = '# Previously studied: src/auth/jwt.ts\nVerifies JWT signatures and checks token expiry on each request.';
+  const peerSec = '# Peer workspace (z)\nNotes on CSS grid layout and button styling.';
+
+  const lexScorer = (text: string, terms: Set<string>): number => {
+    const lower = text.toLowerCase();
+    let hits = 0;
+    for (const t of terms) { if (lower.includes(t)) { hits++; } }
+    return terms.size === 0 ? 0 : hits / terms.size;
+  };
+
+  const stats22 = { admittedCount: 0, droppedCount: 0, admittedTokens: 0, droppedTokens: 0 };
+  const ranked22 = selectRanked(
+    [peerSec, kgA, curatedSec, kgB, digestSec],
+    ctx22.queryTerms,
+    lexScorer,
+    { relevance: ctx22, stats: stats22 },
+  );
+
+  assert.equal(ranked22[0], curatedSec, 'curated durable memory must stay pinned first');
+  assert.ok(
+    ranked22.includes(kgA) || ranked22.includes(kgB),
+    'at least one of the near-duplicate KG blocks must survive',
+  );
+  const peerIdx22 = ranked22.indexOf(peerSec);
+  const digestIdx22 = ranked22.indexOf(digestSec);
+  // The irrelevant peer block (CSS notes vs a JWT prompt) must never outrank the
+  // on-topic studied-file digest: it is either dropped by the relevance gate
+  // (the ideal, token-saving outcome) or, if admitted, ranked strictly below it.
+  assert.ok(
+    peerIdx22 === -1 || digestIdx22 < peerIdx22,
+    'tier fairness must surface the studied-file (digest) block above (or exclude) the unrelated peer block',
+  );
+  assert.ok(stats22.admittedCount > 0, 'telemetry must record admitted sections');
+  assert.ok(stats22.admittedTokens > 0, 'telemetry must record admitted tokens');
+
+  // MMR diversity: with both KG dups admitted under a generous budget, they
+  // must not be adjacent ahead of the equally-relevant digest block.
+  assert.ok(ranked22.includes(digestSec), 'studied-file digest must be admitted');
+  console.log('  semantic relevance + MMR + tier fairness + telemetry: PASSED');
+
+  console.log('\n23. Validating instructions overview + conflict detection...');
+  const instrRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'po-instr-'));
+  try {
+    fs.mkdirSync(path.join(instrRoot, '.github'), { recursive: true });
+    fs.writeFileSync(
+      path.join(instrRoot, '.github', 'copilot-instructions.md'),
+      [
+        '# Project notes',
+        '',
+        '- Always be concise in responses.',
+        '- Use single quotes in TypeScript.',
+        '',
+        '<!-- prompt-optimizer:memory:begin -->',
+        '- managed echo that must be ignored: always be verbose.',
+        '<!-- prompt-optimizer:memory:end -->',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+    fs.mkdirSync(path.join(instrRoot, '.promptoptimizer', 'skills'), { recursive: true });
+    fs.writeFileSync(
+      path.join(instrRoot, '.promptoptimizer', 'skills', 'writer.md'),
+      [
+        '---',
+        'id: writer',
+        'label: Writer',
+        '---',
+        '# Writer',
+        '',
+        '## Role',
+        '- Always provide detailed, comprehensive explanations.',
+        '- Use double quotes in TypeScript.',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const { buildInstructionsOverview } = await import('../engine/instructionsManager.js');
+    const overview = buildInstructionsOverview({ workspaceRoot: instrRoot });
+
+    // Sources: copilot + 6 fixed memory files + 1 agent = both present ones detected.
+    const copilotSrc = overview.sources.find((s) => s.kind === 'copilot');
+    const agentSrc = overview.sources.find((s) => s.kind === 'agent');
+    assert.ok(copilotSrc && copilotSrc.exists && copilotSrc.unitCount >= 2, 'copilot source parsed');
+    assert.ok(agentSrc && agentSrc.exists && agentSrc.unitCount >= 2, 'agent source parsed');
+
+    // Priority: copilot (1) ranks ahead of the agent (2).
+    assert.ok(
+      overview.priorityOrder.indexOf(copilotSrc!.id) < overview.priorityOrder.indexOf(agentSrc!.id),
+      'copilot-instructions must outrank project agents in the priority hierarchy',
+    );
+
+    // Managed (echoed) units must never be parsed as conflict candidates.
+    assert.ok(
+      !overview.units.some((u) => !u.managed && /managed echo/.test(u.text)),
+      'managed-block units must be tagged managed',
+    );
+
+    // Conflicts: concise↔detailed (verbosity) and single↔double quotes (style).
+    const verbosity = overview.conflicts.find((c) => c.kind === 'verbosity');
+    const styleQuotes = overview.conflicts.find((c) => c.kind === 'style');
+    assert.ok(verbosity, 'must flag concise vs detailed verbosity conflict');
+    assert.ok(styleQuotes, 'must flag single vs double quote style conflict');
+    // Higher-priority source wins the resolution.
+    assert.ok(
+      /copilot-instructions\.md/.test(verbosity!.resolution),
+      'verbosity conflict resolution should favor the higher-priority copilot file',
+    );
+
+    // A clean workspace must report zero conflicts.
+    const cleanRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'po-instr-clean-'));
+    fs.mkdirSync(path.join(cleanRoot, '.github'), { recursive: true });
+    fs.writeFileSync(
+      path.join(cleanRoot, '.github', 'copilot-instructions.md'),
+      '# Notes\n\n- Always be concise in responses.\n- Use single quotes.\n',
+      'utf8',
+    );
+    const cleanOverview = buildInstructionsOverview({ workspaceRoot: cleanRoot });
+    assert.equal(cleanOverview.conflicts.length, 0, 'a consistent instruction set must report no conflicts');
+    fs.rmSync(cleanRoot, { recursive: true, force: true });
+  } finally {
+    fs.rmSync(instrRoot, { recursive: true, force: true });
+  }
+  console.log('  instructions overview + conflict detection: PASSED');
+
+  console.log('\n24. Validating disabled-rule parsing + personas...');
+  const toggleRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'po-toggle-'));
+  const personaDir = fs.mkdtempSync(path.join(os.tmpdir(), 'po-personas-'));
+  try {
+    fs.mkdirSync(path.join(toggleRoot, '.github'), { recursive: true });
+    fs.writeFileSync(
+      path.join(toggleRoot, '.github', 'copilot-instructions.md'),
+      [
+        '# Project notes',
+        '',
+        '- Use single quotes in TypeScript.',
+        '<!-- po-off: - Use double quotes in TypeScript. -->',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    // A bundled persona library: two SDLC personas, one installed in workspace.
+    fs.writeFileSync(
+      path.join(personaDir, 'sdlc-architect.md'),
+      [
+        '---',
+        'id: sdlc-architect',
+        'label: SDLC Architect',
+        'readOnly: true',
+        'tags: [design, planning]',
+        '---',
+        '# SDLC Architect',
+        '',
+        'Designs the system architecture before implementation begins.',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(personaDir, 'sdlc-qa.md'),
+      [
+        '---',
+        'id: sdlc-qa',
+        'label: SDLC QA Engineer',
+        'tags: [testing]',
+        '---',
+        '# SDLC QA Engineer',
+        '',
+        'Writes tests and validates the implementation.',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+    // Install only the architect persona into the workspace.
+    fs.mkdirSync(path.join(toggleRoot, '.promptoptimizer', 'skills'), { recursive: true });
+    fs.writeFileSync(
+      path.join(toggleRoot, '.promptoptimizer', 'skills', 'sdlc-architect.md'),
+      'installed copy',
+      'utf8',
+    );
+
+    const { buildInstructionsOverview } = await import('../engine/instructionsManager.js');
+    const overview = buildInstructionsOverview({ workspaceRoot: toggleRoot, personaDir });
+
+    // Disabled rule is surfaced but flagged, and excluded from conflicts.
+    const offUnit = overview.units.find((u) => /double quotes/i.test(u.text));
+    assert.ok(offUnit && offUnit.disabled === true, 'po-off rule must parse as a disabled unit');
+    const onUnit = overview.units.find((u) => /single quotes/i.test(u.text));
+    assert.ok(onUnit && onUnit.disabled === false, 'normal rule must parse as enabled');
+    assert.equal(
+      overview.conflicts.length,
+      0,
+      'a disabled rule must not create a conflict with its enabled counterpart',
+    );
+
+    // Personas: both detected, enabled state mirrors the workspace skills dir.
+    assert.equal(overview.personas.length, 2, 'both bundled personas must be detected');
+    const architect = overview.personas.find((p) => p.id === 'sdlc-architect');
+    const qa = overview.personas.find((p) => p.id === 'sdlc-qa');
+    assert.ok(architect && architect.enabled === true, 'installed persona must report enabled');
+    assert.ok(qa && qa.enabled === false, 'uninstalled persona must report disabled');
+    assert.equal(architect!.label, 'SDLC Architect', 'persona label parsed from frontmatter');
+    assert.equal(architect!.readOnly, true, 'persona readOnly parsed from frontmatter');
+    assert.ok(architect!.tags.includes('design'), 'persona tags parsed from frontmatter');
+    assert.ok(/architecture/i.test(architect!.description), 'persona description from first paragraph');
+    assert.equal(architect!.sourceFile, 'sdlc-architect.md', 'persona keeps its bundled file name');
+  } finally {
+    fs.rmSync(toggleRoot, { recursive: true, force: true });
+    fs.rmSync(personaDir, { recursive: true, force: true });
+  }
+  console.log('  disabled-rule parsing + personas: PASSED');
 }
+
 
 
 

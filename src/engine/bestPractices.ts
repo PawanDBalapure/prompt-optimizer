@@ -35,7 +35,7 @@ export interface BestPracticeFinding {
 export function evaluateBestPractices(
   rawPrompt: string,
   ir: PromptIR,
-  targetModel: 'claude' | 'gpt' | 'gemini' | 'local',
+  targetModel: 'claude' | 'gpt' | 'gemini' | 'deepseek' | 'grok' | 'local',
 ): BestPracticeFinding[] {
   const lower = rawPrompt.toLowerCase();
   const wordCount = rawPrompt.trim().split(/\s+/).length;
@@ -62,7 +62,8 @@ export function evaluateBestPractices(
     });
   }
 
-  if ((targetModel === 'gpt' || targetModel === 'gemini') && !hasMarkdownDelimiters(rawPrompt)) {
+  if ((targetModel === 'gpt' || targetModel === 'gemini' || targetModel === 'deepseek' || targetModel === 'grok')
+    && !hasMarkdownDelimiters(rawPrompt)) {
     findings.push({
       code: 'BP_MISSING_DELIMITERS',
       origin: 'OpenAI',

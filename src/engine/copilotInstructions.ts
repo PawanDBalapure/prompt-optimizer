@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+import type Database from 'better-sqlite3';
 import { readWorkspaceMemory, type WorkspaceMemorySnapshot } from './workspaceMemory.js';
 
 /**
@@ -52,6 +53,13 @@ export interface SyncOptions {
   workspaceId?: string;
   /** Inject a snapshot instead of re-reading from disk (used in tests). */
   snapshotOverride?: WorkspaceMemorySnapshot;
+  /**
+   * Optional cache DB.  When supplied, a compact "Project knowledge
+   * highlights" block (top knowledge-graph facts + recently studied files)
+   * is appended so the always-on Copilot channel sees more than just the
+   * raw memory files.  Omitted in tests that only exercise file memory.
+   */
+  db?: Database.Database;
 }
 
 export function syncCopilotInstructions(options: SyncOptions): CopilotInstructionsReport {
@@ -60,13 +68,20 @@ export function syncCopilotInstructions(options: SyncOptions): CopilotInstructio
     ?? readWorkspaceMemory(options.workspaceRoot, workspaceId);
   const usableEntries = snapshot.entries.filter((e) => e.source !== 'Copilot instructions');
 
+  // Append DB-derived highlights (best-effort) after the authoritative memory
+  // files so the user's own AGENTS.md / memory.md keeps byte priority.
+  const entries: Array<{ source: string; content: string }> = [...usableEntries];
+  if (options.db) {
+    entries.push(...collectKnowledgeHighlights(options.db, workspaceId));
+  }
+
   const targetDir  = path.join(options.workspaceRoot, '.github');
   const targetPath = path.join(targetDir, 'copilot-instructions.md');
 
   const created = !fs.existsSync(targetPath);
   const existing = created ? '' : safeRead(targetPath);
   const preserved = stripManagedBlock(existing);
-  const managedSection = buildManagedSection(usableEntries);
+  const managedSection = buildManagedSection(entries);
   const finalContent = composeFinal(preserved, managedSection);
 
   const changed = finalContent !== existing;
@@ -83,8 +98,55 @@ export function syncCopilotInstructions(options: SyncOptions): CopilotInstructio
     bytes_total: Buffer.byteLength(finalContent, 'utf8'),
     bytes_managed: Buffer.byteLength(managedSection, 'utf8'),
     bytes_preserved: Buffer.byteLength(preserved, 'utf8'),
-    entries_written: usableEntries.length,
+    entries_written: entries.length,
   };
+}
+
+/**
+ * Best-effort compact highlights drawn from the cache DB: the most recent
+ * knowledge-graph facts and the most-studied files.  Returns at most two
+ * synthetic entries; any DB error degrades to no highlights.
+ */
+function collectKnowledgeHighlights(
+  db: Database.Database,
+  workspaceId: string,
+): Array<{ source: string; content: string }> {
+  const out: Array<{ source: string; content: string }> = [];
+
+  try {
+    const kgRows = db.prepare(
+      `SELECT name, summary FROM kg_nodes
+       WHERE workspace_id = ? AND summary IS NOT NULL AND TRIM(summary) <> ''
+       ORDER BY updated_at DESC LIMIT 8`,
+    ).all(workspaceId) as Array<{ name: string; summary: string }>;
+    if (kgRows.length > 0) {
+      const body = kgRows
+        .map((r) => `- **${r.name}**: ${oneLine(r.summary, 160)}`)
+        .join('\n');
+      out.push({ source: 'Project knowledge graph (auto)', content: body });
+    }
+  } catch { /* no KG highlights */ }
+
+  try {
+    const fileRows = db.prepare(
+      `SELECT path, summary FROM file_digest
+       WHERE workspace_id = ? AND summary IS NOT NULL AND TRIM(summary) <> ''
+       ORDER BY visit_count DESC, updated_at DESC LIMIT 8`,
+    ).all(workspaceId) as Array<{ path: string; summary: string }>;
+    if (fileRows.length > 0) {
+      const body = fileRows
+        .map((r) => `- \`${r.path}\` — ${oneLine(r.summary, 140)}`)
+        .join('\n');
+      out.push({ source: 'Recently studied files (auto)', content: body });
+    }
+  } catch { /* no studied-file highlights */ }
+
+  return out;
+}
+
+function oneLine(text: string, max: number): string {
+  const collapsed = text.replace(/\s+/g, ' ').trim();
+  return collapsed.length <= max ? collapsed : `${collapsed.slice(0, max)}…`;
 }
 
 function buildManagedSection(entries: Array<{ source: string; content: string }>): string {

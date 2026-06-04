@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 
 import * as fs from 'fs';
 import * as path from 'path';
+import * as childProcess from 'child_process';
 
 import { MODE_KEY } from '../constants';
 import { openChatWithPrompt, openExtensionReadme } from '../commands/open';
@@ -195,6 +196,20 @@ export class PromptProxyViewProvider implements vscode.WebviewViewProvider {
         return this._handleDeleteAgent(webviewView, data.agentId ?? '');
       case 'refreshOverview':
         return this._handleRefreshOverview(webviewView);
+      case 'requestInstructionsOverview':
+        return this._handleInstructionsOverview(webviewView);
+      case 'instructionsHistory':
+        return this._handleInstructionsHistory(webviewView, data.relPath ?? '');
+      case 'openInstructionFile':
+        return this._handleOpenInstructionFile(webviewView, data.relPath ?? '');
+      case 'exportInstructions':
+        return this._handleExportInstructions(webviewView);
+      case 'importInstructions':
+        return this._handleImportInstructions(webviewView);
+      case 'toggleInstructionRule':
+        return this._handleToggleInstructionRule(webviewView, data);
+      case 'togglePersona':
+        return this._handleTogglePersona(webviewView, data);
     }
   }
 
@@ -477,13 +492,359 @@ ${inner}
           location: vscode.ProgressLocation.Window,
           title: 'Prompt Optimizer: refreshing index…',
         },
-        async () => { await seedCacheFromWorkspace(this._context, { force: true }); },
+        async () => { await seedCacheFromWorkspace(this._context, { force: true, skipChatHistory: true }); },
       );
     } catch {
       // Non-fatal: still re-read whatever the engine can report.
     } finally {
       await this._sendStatusOverview(webviewView);
       webviewView.webview.postMessage({ type: 'overviewRefreshed' });
+    }
+  }
+
+  // ── Instructions Manager ──────────────────────────────────────────────────
+
+  /** Compute the overview JSON via the engine sidecar and push it to the panel. */
+  private async _handleInstructionsOverview(webviewView: vscode.WebviewView): Promise<void> {
+    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!wsRoot) {
+      webviewView.webview.postMessage({
+        type: 'instructionsOverview',
+        ok: false,
+        error: 'Open a workspace folder to manage instructions.',
+      });
+      return;
+    }
+    try {
+      const personaDir = path.join(this._extensionUri.fsPath, 'media', 'skill-library');
+      const raw = runEngineRaw(['--instructions-overview', '--workspace-root', wsRoot, '--persona-dir', personaDir]);
+      const overview = JSON.parse(raw);
+      webviewView.webview.postMessage({ type: 'instructionsOverview', ok: true, payload: overview });
+    } catch (err) {
+      webviewView.webview.postMessage({
+        type: 'instructionsOverview',
+        ok: false,
+        error: err instanceof Error ? err.message : 'Could not read instructions.',
+      });
+    }
+  }
+
+  /** Resolve and validate a workspace-relative instruction path. */
+  private _resolveInstructionPath(relPath: string): { wsRoot: string; abs: string } | null {
+    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!wsRoot) { return null; }
+    const normalized = relPath.replace(/\\/g, '/');
+    if (normalized.includes('..') || path.isAbsolute(normalized)) { return null; }
+    const abs = path.resolve(wsRoot, normalized);
+    // Containment check: the resolved path must stay inside the workspace.
+    const rel = path.relative(wsRoot, abs);
+    if (rel.startsWith('..') || path.isAbsolute(rel)) { return null; }
+    return { wsRoot, abs };
+  }
+
+  /** Read git history (authorship + timestamps) for one instruction file. */
+  private async _handleInstructionsHistory(
+    webviewView: vscode.WebviewView,
+    relPath: string,
+  ): Promise<void> {
+    const reply = (ok: boolean, extra: Record<string, unknown> = {}): void => {
+      webviewView.webview.postMessage({ type: 'instructionsHistory', ok, relPath, ...extra });
+    };
+    const resolved = this._resolveInstructionPath(relPath);
+    if (!resolved) { reply(false, { error: 'Invalid instruction path.' }); return; }
+
+    try {
+      // %h sha, %an author, %ad ISO-ish date, %ar relative date, %s subject.
+      const out = childProcess.execFileSync(
+        'git',
+        [
+          '-C', resolved.wsRoot,
+          'log',
+          '--max-count=25',
+          '--follow',
+          '--pretty=format:%h\u001f%an\u001f%ad\u001f%ar\u001f%s',
+          '--date=short',
+          '--', relPath,
+        ],
+        { encoding: 'utf8', timeout: 8000 },
+      );
+      const commits = out
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => {
+          const [sha, author, date, relative, subject] = line.split('\u001f');
+          return { sha, author, date, relative, subject };
+        });
+      reply(true, { commits });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const notGit = /not a git repository|command not found|ENOENT/i.test(msg);
+      reply(false, {
+        error: notGit
+          ? 'No git history available (workspace is not a git repository or git is not installed).'
+          : 'Could not read git history for this file.',
+      });
+    }
+  }
+
+  /** Open an instruction source in the editor (creating it if missing). */
+  private async _handleOpenInstructionFile(
+    webviewView: vscode.WebviewView,
+    relPath: string,
+  ): Promise<void> {
+    const resolved = this._resolveInstructionPath(relPath);
+    if (!resolved) {
+      webviewView.webview.postMessage({ type: 'error', message: 'Invalid instruction path.' });
+      return;
+    }
+    try {
+      if (!fs.existsSync(resolved.abs)) {
+        fs.mkdirSync(path.dirname(resolved.abs), { recursive: true });
+        fs.writeFileSync(resolved.abs, '', { encoding: 'utf8', flag: 'wx' });
+      }
+      const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(resolved.abs));
+      await vscode.window.showTextDocument(doc, { preview: false });
+    } catch (err) {
+      webviewView.webview.postMessage({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Could not open the instruction file.',
+      });
+    }
+  }
+
+  /** Export all instruction sources into a single JSON bundle the user picks. */
+  private async _handleExportInstructions(webviewView: vscode.WebviewView): Promise<void> {
+    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!wsRoot) {
+      webviewView.webview.postMessage({ type: 'error', message: 'Open a workspace folder first.' });
+      return;
+    }
+    try {
+      const raw = runEngineRaw(['--instructions-overview', '--workspace-root', wsRoot]);
+      const overview = JSON.parse(raw) as {
+        sources: Array<{ id: string; label: string; relPath: string; exists: boolean }>;
+      };
+      const files: Array<{ relPath: string; label: string; content: string }> = [];
+      for (const src of overview.sources) {
+        if (!src.exists) { continue; }
+        const abs = path.resolve(wsRoot, src.relPath);
+        try {
+          files.push({ relPath: src.relPath, label: src.label, content: fs.readFileSync(abs, 'utf8') });
+        } catch { /* skip unreadable */ }
+      }
+      const bundle = {
+        kind: 'prompt-optimizer.instructions-bundle',
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        files,
+      };
+      const target = await vscode.window.showSaveDialog({
+        title: 'Export instruction sources',
+        defaultUri: vscode.Uri.file(path.join(wsRoot, 'instructions-bundle.json')),
+        filters: { JSON: ['json'] },
+      });
+      if (!target) {
+        webviewView.webview.postMessage({ type: 'instructionsActionDone', ok: false, error: 'Export cancelled.' });
+        return;
+      }
+      fs.writeFileSync(target.fsPath, JSON.stringify(bundle, null, 2), 'utf8');
+      webviewView.webview.postMessage({
+        type: 'instructionsActionDone',
+        ok: true,
+        message: `Exported ${files.length} instruction file${files.length === 1 ? '' : 's'}.`,
+      });
+    } catch (err) {
+      webviewView.webview.postMessage({
+        type: 'instructionsActionDone',
+        ok: false,
+        error: err instanceof Error ? err.message : 'Export failed.',
+      });
+    }
+  }
+
+  /** Import an instruction bundle, writing each file back after confirmation. */
+  private async _handleImportInstructions(webviewView: vscode.WebviewView): Promise<void> {
+    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!wsRoot) {
+      webviewView.webview.postMessage({ type: 'error', message: 'Open a workspace folder first.' });
+      return;
+    }
+    const done = (ok: boolean, extra: Record<string, unknown> = {}): void => {
+      webviewView.webview.postMessage({ type: 'instructionsActionDone', ok, ...extra });
+    };
+    try {
+      const picked = await vscode.window.showOpenDialog({
+        title: 'Import instruction bundle',
+        canSelectMany: false,
+        filters: { JSON: ['json'] },
+      });
+      if (!picked || picked.length === 0) { done(false, { error: 'Import cancelled.' }); return; }
+
+      const bundle = JSON.parse(fs.readFileSync(picked[0].fsPath, 'utf8')) as {
+        kind?: string;
+        files?: Array<{ relPath?: string; content?: string }>;
+      };
+      if (bundle.kind !== 'prompt-optimizer.instructions-bundle' || !Array.isArray(bundle.files)) {
+        done(false, { error: 'Not a valid instructions bundle file.' });
+        return;
+      }
+
+      const confirm = await vscode.window.showWarningMessage(
+        `Import ${bundle.files.length} instruction file(s)? Existing files with the same path will be overwritten.`,
+        { modal: true },
+        'Import',
+      );
+      if (confirm !== 'Import') { done(false, { error: 'Import cancelled.' }); return; }
+
+      let written = 0;
+      for (const file of bundle.files) {
+        const rel = typeof file.relPath === 'string' ? file.relPath.replace(/\\/g, '/') : '';
+        const content = typeof file.content === 'string' ? file.content : '';
+        if (!rel || rel.includes('..') || path.isAbsolute(rel)) { continue; }
+        const abs = path.resolve(wsRoot, rel);
+        const containment = path.relative(wsRoot, abs);
+        if (containment.startsWith('..') || path.isAbsolute(containment)) { continue; }
+        fs.mkdirSync(path.dirname(abs), { recursive: true });
+        fs.writeFileSync(abs, content, 'utf8');
+        written++;
+      }
+      done(true, { message: `Imported ${written} instruction file${written === 1 ? '' : 's'}.` });
+      await this._handleInstructionsOverview(webviewView);
+    } catch (err) {
+      done(false, { error: err instanceof Error ? err.message : 'Import failed.' });
+    }
+  }
+
+  /** Select / deselect a single rule by rewriting its line in the source file. */
+  private async _handleToggleInstructionRule(
+    webviewView: vscode.WebviewView,
+    data: { relPath?: string; line?: number; ruleText?: string; enabled?: boolean },
+  ): Promise<void> {
+    const done = (ok: boolean, extra: Record<string, unknown> = {}): void => {
+      webviewView.webview.postMessage({ type: 'instructionsActionDone', ok, ...extra });
+    };
+    const relPath = data.relPath;
+    const ruleText = (data.ruleText ?? '').trim();
+    const targetEnabled = data.enabled === true;
+    if (!relPath || !ruleText) { done(false, { error: 'Missing rule details.' }); return; }
+    // The marker close sequence inside rule text would corrupt the comment.
+    if (ruleText.includes('-->')) {
+      done(false, { error: 'Rule cannot be toggled because it contains "-->".' });
+      return;
+    }
+
+    const resolved = this._resolveInstructionPath(relPath);
+    if (!resolved) { done(false, { error: 'Invalid instruction path.' }); return; }
+
+    try {
+      const original = fs.readFileSync(resolved.abs, 'utf8');
+      const eol = original.includes('\r\n') ? '\r\n' : '\n';
+      const lines = original.split(/\r?\n/);
+
+      const offRe = /^(\s*)<!--\s*po-off:\s?([\s\S]*?)\s*-->\s*$/;
+      const stripped = (s: string): string =>
+        s
+          .replace(/^\s*<!--\s*po-off:\s?/, '')
+          .replace(/\s*-->\s*$/, '')
+          .replace(/^>\s?/, '')
+          .replace(/^[-*+]\s+/, '')
+          .replace(/^\d+[.)]\s+/, '')
+          .replace(/^\[[ xX]\]\s+/, '')
+          .trim();
+
+      // Locate the target line: prefer the reported index, fall back to a
+      // unique content match (line numbers can drift after edits).
+      let idx = (typeof data.line === 'number' ? data.line : 0) - 1;
+      if (idx < 0 || idx >= lines.length || stripped(lines[idx]) !== ruleText) {
+        const matches: number[] = [];
+        for (let i = 0; i < lines.length; i++) {
+          if (stripped(lines[i]) === ruleText) { matches.push(i); }
+        }
+        if (matches.length !== 1) {
+          done(false, { error: 'Could not locate that rule in the file.' });
+          return;
+        }
+        idx = matches[0];
+      }
+
+      // Refuse edits inside an auto-managed block.
+      let managed = false;
+      for (let i = 0; i <= idx; i++) {
+        const t = lines[i].trim();
+        if (t.includes('prompt-optimizer:memory:begin')) { managed = true; }
+        else if (t.includes('prompt-optimizer:memory:end')) { managed = false; }
+      }
+      if (managed) {
+        done(false, { error: 'This rule is in an auto-managed block and cannot be toggled.' });
+        return;
+      }
+
+      const line = lines[idx];
+      const isOff = offRe.test(line);
+      if (targetEnabled) {
+        if (isOff) {
+          const m = offRe.exec(line)!;
+          lines[idx] = m[1] + m[2];
+        }
+      } else if (!isOff) {
+        const indentMatch = /^(\s*)/.exec(line);
+        const indent = indentMatch ? indentMatch[1] : '';
+        lines[idx] = `${indent}<!-- po-off: ${line.slice(indent.length)} -->`;
+      }
+
+      fs.writeFileSync(resolved.abs, lines.join(eol), 'utf8');
+      done(true, { message: targetEnabled ? 'Rule enabled.' : 'Rule disabled.' });
+      await this._handleInstructionsOverview(webviewView);
+    } catch (err) {
+      done(false, { error: err instanceof Error ? err.message : 'Could not update the rule.' });
+    }
+  }
+
+  /** Enable / disable a bundled persona by installing or removing its skill copy. */
+  private async _handleTogglePersona(
+    webviewView: vscode.WebviewView,
+    data: { personaId?: string; sourceFile?: string; enabled?: boolean },
+  ): Promise<void> {
+    const done = (ok: boolean, extra: Record<string, unknown> = {}): void => {
+      webviewView.webview.postMessage({ type: 'instructionsActionDone', ok, ...extra });
+    };
+    const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!wsRoot) { done(false, { error: 'Open a workspace folder first.' }); return; }
+
+    const personaId = data.personaId;
+    const sourceFile = data.sourceFile;
+    if (!personaId || !/^[a-z0-9][a-z0-9-]*$/.test(personaId)) {
+      done(false, { error: 'Invalid persona id.' });
+      return;
+    }
+
+    const targetDir = path.join(wsRoot, '.promptoptimizer', 'skills');
+    const targetPath = path.join(targetDir, `${personaId}.md`);
+    try {
+      if (data.enabled === true) {
+        if (!sourceFile || !/^[A-Za-z0-9._-]+\.md$/.test(sourceFile)) {
+          done(false, { error: 'Invalid persona source file.' });
+          return;
+        }
+        const libDir = path.join(this._extensionUri.fsPath, 'media', 'skill-library');
+        const srcPath = path.join(libDir, sourceFile);
+        // Containment: the source must stay inside the bundled library.
+        const srcRel = path.relative(libDir, srcPath);
+        if (srcRel.startsWith('..') || path.isAbsolute(srcRel) || !fs.existsSync(srcPath)) {
+          done(false, { error: 'Bundled persona not found.' });
+          return;
+        }
+        fs.mkdirSync(targetDir, { recursive: true });
+        fs.copyFileSync(srcPath, targetPath);
+        done(true, { message: 'Persona enabled.' });
+      } else {
+        if (fs.existsSync(targetPath)) { fs.rmSync(targetPath); }
+        done(true, { message: 'Persona disabled.' });
+      }
+      await this._handleInstructionsOverview(webviewView);
+    } catch (err) {
+      done(false, { error: err instanceof Error ? err.message : 'Could not update the persona.' });
     }
   }
 

@@ -3,7 +3,7 @@
 
     <id>com.promptproxy.optimizer</id>
     <name>Local Prompt Optimizer</name>
-    <version>2.9.8</version>
+    <version>2.10.0</version>
 
     <vendor url="https://github.com/PawanDBalapure/prompt-optimizer">
         Pawan Balapure
@@ -23,6 +23,18 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <b>2.10.0</b><br/>
+        Smarter, token-efficient context: memory/cache/graph blocks are now
+        ranked by meaning (embedding + lexical blend), de-duplicated with MMR,
+        and balanced across tiers with intent weighting, plus an adaptive
+        token budget and admission telemetry.
+        <br/><br/>
+        <b>2.9.9</b><br/>
+        Copilot/agent context is richer: memory recall now includes a
+        studied-files tier, and the auto-maintained
+        copilot-instructions.md gains compact knowledge-graph and
+        most-studied-file highlights (within the existing size cap).
+        <br/><br/>
         <b>2.9.8</b><br/>
         Smarter memory context: workspace memory, knowledge-graph,
         file-recall, and peer suggestions are now relevance-ranked (durable

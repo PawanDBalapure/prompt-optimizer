@@ -141,6 +141,25 @@ export async function handleSyncCopilotInstructions(args: string[]): Promise<voi
   const reader = makeReader(args);
   const workspaceRoot = reader.resolveArg('--workspace-root') ?? process.cwd();
   const workspaceId   = reader.resolveArg('--workspace');
-  const report = syncCopilotInstructions({ workspaceRoot, workspaceId });
-  process.stdout.write(JSON.stringify(report, null, 2) + '\n');
+  const dbPath        = reader.resolveDbPath();
+
+  // Open the engine (when a DB path is available) so the writer can append
+  // compact knowledge-graph + studied-file highlights to the always-on
+  // Copilot channel. Falls back to memory-files-only when no DB is given.
+  if (!dbPath) {
+    const report = syncCopilotInstructions({ workspaceRoot, workspaceId });
+    process.stdout.write(JSON.stringify(report, null, 2) + '\n');
+    return;
+  }
+
+  const engine = new PromptProxyEngine({ db_path: dbPath });
+  try {
+    await engine.initialize();
+    const db = (engine as unknown as { cacheManager: { rawDatabase(): unknown } })
+      .cacheManager.rawDatabase() as Parameters<typeof syncCopilotInstructions>[0]['db'];
+    const report = syncCopilotInstructions({ workspaceRoot, workspaceId, db });
+    process.stdout.write(JSON.stringify(report, null, 2) + '\n');
+  } finally {
+    engine.close();
+  }
 }

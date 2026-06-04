@@ -19,7 +19,8 @@ import { inferRepoStack } from './RepoAwareness.js';
 
 import { CACHE_TIMEOUT_MS, MAX_CACHE_CANDIDATES, MAX_IMPROVEMENTS } from './engine/constants.js';
 import { ContextPacker } from './engine/contextPacker.js';
-import { selectAndRankAugmentedSections } from './engine/augmentBudget.js';
+import { selectAndRankAugmentedSections, type AugmentSelectionStats } from './engine/augmentBudget.js';
+import { createRelevanceContext } from './engine/relevanceScoring.js';
 import { buildCacheInsight, createEmptyResponse } from './engine/insights.js';
 import {
   calculateCostBreakdown,
@@ -175,14 +176,15 @@ export class PromptProxyEngine {
 
     const mode = request.mode ?? 'blocking';
     const workspaceId = request.workspace_id ?? request.ide_context?.workspace_root ?? 'global';
+    const targetModel = request.target_model ?? 'local';
     const rawSnapshot = buildRawInputSnapshot(rawPrompt, request.ide_context);
+    const cacheSnapshot = buildModelScopedCacheSnapshot(rawSnapshot, targetModel);
     const rawInputTokens = countTokens(rawSnapshot);
     const contextPack = this.contextPacker.collectRelevantContext(rawPrompt, request.ide_context);
 
-    const cacheResult = await this.lookupCache(rawSnapshot, workspaceId, mode);
-    const cacheCandidates = await this.searchCacheCandidates(rawSnapshot, workspaceId, mode);
+    const cacheResult = await this.lookupCache(cacheSnapshot, workspaceId, mode);
+    const cacheCandidates = await this.searchCacheCandidates(cacheSnapshot, workspaceId, mode);
 
-    const targetModel = request.target_model ?? 'local';
     const structuredIr = parseToPromptIR(rawPrompt);
     const diagnostics = lintPrompt(rawPrompt, structuredIr, rawInputTokens, targetModel);
     const stackInfo = inferRepoStack(request.ide_context?.workspace_root);
@@ -196,6 +198,7 @@ export class PromptProxyEngine {
       stackInfo,
       requestId,
       contextPack.files.map((file) => file.path),
+      request.seeding === true,
     );
 
     const cacheStatus = cacheResult?.matchType ?? 'miss';
@@ -240,7 +243,7 @@ export class PromptProxyEngine {
     const optimizedPrompt = applySdlcMode(sanitizeOptimizedPrompt(builtPrompt), sdlcMode);
 
     if (!shouldReuseCached) {
-      this.persistCacheEntry(rawSnapshot, optimizedPrompt, workspaceId, mode);
+      this.persistCacheEntry(cacheSnapshot, optimizedPrompt, workspaceId, mode);
     }
 
     const optimizedInputTokens = countTokens(optimizedPrompt);
@@ -307,6 +310,7 @@ export class PromptProxyEngine {
     stackInfo: ReturnType<typeof inferRepoStack>,
     requestId: string,
     contextPaths: string[],
+    seeding = false,
   ): string[] {
     const sections: string[] = [];
     const db = this.cacheManager.rawDatabase();
@@ -333,7 +337,7 @@ export class PromptProxyEngine {
     if (!breaker.shouldSkip('kg')) {
       try {
         if (this.knowledgeGraph) {
-          this.knowledgeGraph.recordWorkspaceGraph(workspaceId, rawPrompt, ide, stackInfo);
+          this.knowledgeGraph.recordWorkspaceGraph(workspaceId, rawPrompt, ide, stackInfo, seeding);
           const suggestions = this.knowledgeGraph.collectGraphContext(workspaceId, rawPrompt);
           for (const suggestion of suggestions) { sections.push(suggestion.text); }
         }
@@ -395,15 +399,28 @@ export class PromptProxyEngine {
     // Relevance gate + ranking + token budget: drop empty boilerplate, remove
     // blocks that merely point at files already inlined in the IDE context,
     // rank survivors (curated durable memory pinned first, the rest by
-    // descending relevance), and admit them under a precise token budget.
-    // This combats both token bloat and lost-in-the-middle context rot.
+    // semantic relevance + MMR diversity + tier fairness + intent weighting),
+    // and admit them under a precise token budget.  This combats both token
+    // bloat and lost-in-the-middle context rot while keeping context enriched.
     const queryTerms = this.contextPacker.buildQueryTerms(rawPrompt);
-    return selectAndRankAugmentedSections(
+    const relevance = createRelevanceContext(rawPrompt);
+    const stats: AugmentSelectionStats = {
+      admittedCount: 0, droppedCount: 0, admittedTokens: 0, droppedTokens: 0,
+    };
+    const selected = selectAndRankAugmentedSections(
       sections,
       queryTerms,
       (text, terms) => this.contextPacker.scoreTextRelevance(text, terms),
-      { contextPaths },
+      { contextPaths, relevance, stats },
     );
+    const metrics = this.cacheManager.metrics();
+    if (metrics) {
+      metrics.increment('augment.sections_admitted', stats.admittedCount);
+      metrics.increment('augment.sections_dropped', stats.droppedCount);
+      metrics.increment('augment.tokens_admitted', stats.admittedTokens);
+      metrics.increment('augment.tokens_dropped', stats.droppedTokens);
+    }
+    return selected;
   }
 
   private async lookupCache(
@@ -469,18 +486,41 @@ function applySdlcMode(
   prompt: string,
   mode: SdlcModeDescriptor | null,
 ): string {
-  if (!mode) { return prompt; }
-  const withoutOldRole = prompt.replace(
-    /^# Role[^\n]*\n[\s\S]*?(?=\n\n#|\s*$)/,
-    '',
-  ).trimStart();
-  const withoutOldChecklist = withoutOldRole.replace(
-    /(?:\n\n)?# Quality checklist\n[\s\S]*?(?=\n\n#|\s*$)/,
-    '',
-  ).trimEnd();
+  const withoutOldMode = stripSdlcModeSections(prompt, mode !== null);
+  if (!mode) { return withoutOldMode; }
   return [
     renderRoleSection(mode),
-    withoutOldChecklist,
+    withoutOldMode,
     renderChecklistSection(mode),
   ].filter((s) => s.trim() !== '').join('\n\n');
+}
+
+function stripSdlcModeSections(prompt: string, forceChecklist = false): string {
+  // The optimized prompt always has the shape:
+  //   # Role — <label>\n<role body>\n\n# Request\n…\n\n# Quality checklist\n…
+  // A custom agent's role body can itself contain markdown sub-headings, so a
+  // strip that merely stops at the first "\n\n#" left the rest of the agent
+  // text behind — leaking the previous attempt's agent into a later prompt.
+  // Anchor the role strip to the canonical "# Request" section instead, which
+  // buildOptimizedPrompt always emits first, so the whole stale role block is
+  // removed regardless of its internal headings.
+  const roleToRequest = /^# Role\s+[—-][\s\S]*?(?=\n#+[ \t]*Request\b)/;
+  const roleToEnd = /^# Role\s+[—-][^\n]*\n[\s\S]*?(?=\n\n#|\s*$)/;
+  let result = prompt;
+  let hadRole = false;
+  if (roleToRequest.test(result)) {
+    hadRole = true;
+    result = result.replace(roleToRequest, '').trimStart();
+  } else if (roleToEnd.test(result)) {
+    hadRole = true;
+    result = result.replace(roleToEnd, '').trimStart();
+  }
+  if (!hadRole && !forceChecklist) { return result.trim(); }
+  // The quality checklist is always appended last, so remove it through the
+  // end of the string rather than up to the next heading.
+  return result.replace(/(?:\n\n)?# Quality checklist\n[\s\S]*$/, '').trimEnd();
+}
+
+function buildModelScopedCacheSnapshot(rawSnapshot: string, targetModel: string): string {
+  return [`# Target Model`, targetModel, '', rawSnapshot].join('\n');
 }

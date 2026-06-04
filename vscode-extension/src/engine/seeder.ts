@@ -130,10 +130,11 @@ function harvestReadme(workspaceRoot: string): string[] {
  */
 export async function seedCacheFromWorkspace(
   context: vscode.ExtensionContext,
-  options?: { force?: boolean },
+  options?: { force?: boolean; skipChatHistory?: boolean },
 ): Promise<void> {
   try {
     const force = options?.force === true;
+    const skipChatHistory = options?.skipChatHistory === true;
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const workspaceId = computeWorkspaceId(workspaceRoot);
     const seededKey = `${SEEDING_DONE_KEY}.${workspaceId}`;
@@ -143,7 +144,14 @@ export async function seedCacheFromWorkspace(
     if (!force && hasBootstrapped && Date.now() - lastSeeded < SEEDING_INTERVAL_MS) { return; }
 
     const seeds: string[] = [];
-    seeds.push(...harvestChatHistory(context));
+    // Chat history is volatile and grows as the user keeps chatting, so a
+    // manual refresh that re-harvested it would inflate the knowledge-graph
+    // node count on every click. Callers that want a deterministic re-index
+    // (e.g. the panel's Refresh button) pass skipChatHistory; the background
+    // enrich timer + activation bootstrap still ingest chat history.
+    if (!skipChatHistory) {
+      seeds.push(...harvestChatHistory(context));
+    }
     if (workspaceRoot) {
       seeds.push(...harvestGitLog(workspaceRoot));
       seeds.push(...harvestInstructionFiles(workspaceRoot));

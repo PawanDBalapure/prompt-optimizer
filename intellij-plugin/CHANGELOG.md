@@ -8,6 +8,33 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2.10.0] - 2026-06-03
+
+### Added
+
+- Semantic, diversified context selection for prompt augmentation and recall:
+  a local embedding cosine is blended with lexical overlap, near-duplicates
+  are removed via MMR, and each memory tier gets a fair, intent-weighted slice
+  so the optimized prompt stays enriched without wasting tokens.
+- Adaptive augmentation token budget (can scale to the model window) plus
+  admission telemetry. All knobs are env-tunable and degrade gracefully to the
+  previous lexical-only ranking when embeddings are unavailable.
+
+---
+
+## [2.9.9] - 2026-06-03
+
+### Added
+
+- Memory recall now includes a **studied-files (digest) tier**, so prior
+  per-file summaries are surfaced alongside workspace memory, knowledge
+  graph, cache, and user-global tiers.
+- The auto-maintained `.github/copilot-instructions.md` now appends compact
+  knowledge-graph and most-studied-file highlights (within the existing size
+  cap) so the always-on Copilot context is richer.
+
+---
+
 ## [2.9.8] - 2026-06-04
 
 ### Changed

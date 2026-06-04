@@ -69,6 +69,12 @@ const DIRECTIVE_REWRITES: ReadonlyArray<readonly [RegExp, string]> = [
   // swaps so multi-word patterns are not partially rewritten).
   [/\bwalk me through\b/gi, 'explain'],
   [/\bmake sure\b/gi, 'ensure'],
+  // Relative-clause tightening: "the tests that are failing" → "failing tests",
+  // "the file that is missing" → "missing file". Grammar-preserving reorder.
+  [/\bthe (\w+) that are (\w+)\b/gi, '$2 $1'],
+  [/\bthe (\w+) that is (\w+)\b/gi, '$2 $1'],
+  // "a list of integers" → "integer list", "an array of strings" → "string array".
+  [/\b(?:a |an )?(?:list|array|set|collection) of (\w+?)s\b/gi, '$1 list'],
   [/\bin order to\b/gi, 'to'],
   [/\bin order for\b/gi, 'for'],
   [/\bfor the purpose of\b/gi, 'for'],
@@ -114,6 +120,11 @@ const DIRECTIVE_REWRITES: ReadonlyArray<readonly [RegExp, string]> = [
   [/\bin the absence of\b/gi, 'without'],
   [/\bsurrounding IDE context\b/gi, 'IDE context'],
 
+  // Hedge adjectives add no instruction value in a directive: drop them
+  // (with a leading article if present). "write a quick function" →
+  // "write function"; "a simple REST API" → "REST API".
+  [/\b(?:a |an )?(?:quick|simple|basic|trivial|small|short)\s+(?=\w)/gi, ''],
+
   // Single-word substitutions (kept last to avoid breaking phrase rewrites).
   [/\butili[sz]e(s|d)?\b/gi, 'use$1'],
   [/\bdemonstrate(s|d)?\b/gi, 'show$1'],
@@ -129,6 +140,20 @@ const DIRECTIVE_REWRITES: ReadonlyArray<readonly [RegExp, string]> = [
 ];
 
 /**
+ * Single combined alternation of every DIRECTIVE_REWRITES left-hand side.
+ * A line that matches none of these phrases cannot be rewritten, so we can
+ * skip the full ~120-pattern loop entirely after one O(n) scan. This is a
+ * pure performance gate — it does not change output, since the rewrite loop
+ * over a non-matching line is a no-op anyway. All source patterns are
+ * `\b`-anchored word phrases with no `^`/`$` anchors, so unioning them with
+ * `|` is a safe membership test.
+ */
+const DIRECTIVE_GATE = new RegExp(
+  DIRECTIVE_REWRITES.map(([pattern]) => `(?:${pattern.source})`).join('|'),
+  'i',
+);
+
+/**
  * Recapitalise the first alphabetical character after sentence-ending
  * punctuation (".", "!", "?").  Removed phrases mid-sentence frequently
  * leave a lowercase word stranded after a period, e.g.
@@ -140,8 +165,10 @@ function recapitaliseSentences(text: string): string {
 
 function compressDirectiveLine(line: string): string {
   let normalized = line;
-  for (const [pattern, replacement] of DIRECTIVE_REWRITES) {
-    normalized = normalized.replace(pattern, replacement);
+  if (DIRECTIVE_GATE.test(line)) {
+    for (const [pattern, replacement] of DIRECTIVE_REWRITES) {
+      normalized = normalized.replace(pattern, replacement);
+    }
   }
 
   normalized = normalized

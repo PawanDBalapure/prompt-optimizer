@@ -11,7 +11,7 @@ export function lintPrompt(
   rawPrompt: string,
   ir: PromptIR,
   totalContextTokens: number,
-  targetModel: 'claude' | 'gpt' | 'gemini' | 'local' = 'local',
+  targetModel: 'claude' | 'gpt' | 'gemini' | 'deepseek' | 'grok' | 'local' = 'local',
 ): PromptDiagnostic[] {
   const diagnostics: PromptDiagnostic[] = [];
   const lowerPrompt = rawPrompt.toLowerCase();

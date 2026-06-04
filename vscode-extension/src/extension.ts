@@ -586,6 +586,11 @@ function registerCommands(
         value: 'conversation',
       },
       {
+        label: '$(circuit-board) Knowledge graph',
+        description: 'Reset the workspace knowledge-graph node/edge counts to zero',
+        value: 'graph',
+      },
+      {
         label: '$(robot) Custom agents',
         description: 'Delete user-created agents in .promptoptimizer/skills',
         value: 'agents',
@@ -625,6 +630,14 @@ function registerCommands(
         done.push('conversation memory');
       } catch (err) {
         vscode.window.showWarningMessage(`Conversation reset failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    if (chosen.has('graph')) {
+      try {
+        runEngineRaw(['--reset-graph', '--workspace', computeWorkspaceId(wsRoot), '--db', getDbPath(context)]);
+        done.push('knowledge graph');
+      } catch (err) {
+        vscode.window.showWarningMessage(`Graph reset failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
     if (chosen.has('agents')) {

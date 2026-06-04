@@ -17,7 +17,7 @@ class PromptProxyConfigurable : Configurable {
     private val engineCliPathField = JBTextField()
     private val dbPathField = JBTextField()
     private val modeCombo = JComboBox(arrayOf("optimize", "agent", "direct"))
-    private val targetModelCombo = JComboBox(arrayOf("gpt", "claude", "gemini", "local"))
+    private val targetModelCombo = JComboBox(arrayOf("gpt", "claude", "gemini", "deepseek", "grok", "local"))
     private val processingModeCombo = JComboBox(arrayOf("blocking", "non-blocking"))
     private val sourcePickerCombo = JComboBox(arrayOf("ask", "auto", "selection-first", "clipboard-first"))
     private val autoCopyForChatBox = JBCheckBox("Copy agent/direct output for the external AI chat surface")
@@ -30,6 +30,11 @@ class PromptProxyConfigurable : Configurable {
     private val subscriptionPlanCombo = JComboBox(arrayOf("free", "pro", "pro-plus", "business", "enterprise"))
     private val requestsPerDayField = JBTextField()
     private val overagePriceField = JBTextField()
+    private val creditBaseInputRateField = JBTextField()
+    private val creditBaseOutputRateField = JBTextField()
+    private val creditFixedExecutionField = JBTextField()
+    private val forecastInputTokensField = JBTextField()
+    private val forecastOutputTokensField = JBTextField()
     private val customSecretPatternsArea = JBTextArea(5, 48).apply {
         lineWrap = true
         wrapStyleWord = true
@@ -62,6 +67,11 @@ class PromptProxyConfigurable : Configurable {
             .addLabeledComponent(JBLabel("Copilot subscription plan:"), subscriptionPlanCombo, 1, false)
             .addLabeledComponent(JBLabel("Forecast requests per day:"), requestsPerDayField, 1, false)
             .addLabeledComponent(JBLabel("Credit overage price:"), overagePriceField, 1, false)
+            .addLabeledComponent(JBLabel("Base input credit rate (Rin):"), creditBaseInputRateField, 1, false)
+            .addLabeledComponent(JBLabel("Base output credit rate (Rout):"), creditBaseOutputRateField, 1, false)
+            .addLabeledComponent(JBLabel("Fixed execution overhead (Fe):"), creditFixedExecutionField, 1, false)
+            .addLabeledComponent(JBLabel("Fallback input tokens (Tin):"), forecastInputTokensField, 1, false)
+            .addLabeledComponent(JBLabel("Fallback output tokens (Tout):"), forecastOutputTokensField, 1, false)
             .addComponent(JBLabel("Secrets"))
             .addComponent(secretDetectionBox)
             .addLabeledComponent(JBLabel("Custom secret patterns:"), JBScrollPane(customSecretPatternsArea), 1, false)
@@ -90,7 +100,12 @@ class PromptProxyConfigurable : Configurable {
             doubleValue(pricingOutputField, s.pricingOutput) != s.pricingOutput ||
             subscriptionPlanCombo.selectedItem as String != s.subscriptionPlan ||
             intValue(requestsPerDayField, s.forecastRequestsPerDay) != s.forecastRequestsPerDay ||
-            doubleValue(overagePriceField, s.creditOveragePrice) != s.creditOveragePrice
+            doubleValue(overagePriceField, s.creditOveragePrice) != s.creditOveragePrice ||
+            doubleValue(creditBaseInputRateField, s.creditBaseInputRate) != s.creditBaseInputRate ||
+            doubleValue(creditBaseOutputRateField, s.creditBaseOutputRate) != s.creditBaseOutputRate ||
+            doubleValue(creditFixedExecutionField, s.creditFixedExecutionOverhead) != s.creditFixedExecutionOverhead ||
+            intValue(forecastInputTokensField, s.forecastInputTokens) != s.forecastInputTokens ||
+            intValue(forecastOutputTokensField, s.forecastOutputTokens) != s.forecastOutputTokens
     }
 
     override fun apply() {
@@ -113,6 +128,11 @@ class PromptProxyConfigurable : Configurable {
         s.subscriptionPlan = subscriptionPlanCombo.selectedItem as String
         s.forecastRequestsPerDay = intValue(requestsPerDayField, 20).coerceAtLeast(0)
         s.creditOveragePrice = doubleValue(overagePriceField, 0.04).coerceAtLeast(0.0)
+        s.creditBaseInputRate = doubleValue(creditBaseInputRateField, 0.001).coerceAtLeast(0.0)
+        s.creditBaseOutputRate = doubleValue(creditBaseOutputRateField, 0.002).coerceAtLeast(0.0)
+        s.creditFixedExecutionOverhead = doubleValue(creditFixedExecutionField, 1.0).coerceAtLeast(0.0)
+        s.forecastInputTokens = intValue(forecastInputTokensField, 800).coerceAtLeast(0)
+        s.forecastOutputTokens = intValue(forecastOutputTokensField, 400).coerceAtLeast(0)
     }
 
     override fun reset() {
@@ -135,6 +155,11 @@ class PromptProxyConfigurable : Configurable {
         subscriptionPlanCombo.selectedItem = s.subscriptionPlan
         requestsPerDayField.text = s.forecastRequestsPerDay.toString()
         overagePriceField.text = s.creditOveragePrice.toString()
+        creditBaseInputRateField.text = s.creditBaseInputRate.toString()
+        creditBaseOutputRateField.text = s.creditBaseOutputRate.toString()
+        creditFixedExecutionField.text = s.creditFixedExecutionOverhead.toString()
+        forecastInputTokensField.text = s.forecastInputTokens.toString()
+        forecastOutputTokensField.text = s.forecastOutputTokens.toString()
     }
 
     private fun doubleValue(field: JBTextField, fallback: Double): Double =

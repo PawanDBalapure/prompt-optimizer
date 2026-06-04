@@ -2,7 +2,7 @@
   "name": "vc-prompt-optimizer--local",
   "displayName": "Prompt Optimizer - Local",
   "description": "Fully local prompt optimization, semantic cache, and token cost forecasting for VS Code. Your prompts and code never leave your machine — no telemetry, no cloud processing. Works with GitHub Copilot.",
-  "version": "2.9.8",
+  "version": "2.10.0",
   "publisher": "PawanBalapure",
   "license": "MIT",
   "icon": "images/icon.png",
@@ -144,6 +144,8 @@
             "claude",
             "gpt",
             "gemini",
+            "deepseek",
+            "grok",
             "local"
           ],
           "default": "gpt",
@@ -209,6 +211,74 @@
           "default": 0.04,
           "minimum": 0,
           "description": "Price in USD charged per additional premium request once your monthly included allowance is exhausted (GitHub default $0.04 per request)."
+        },
+        "promptProxy.creditBaseInputRate": {
+          "type": "number",
+          "default": 0.001,
+          "minimum": 0,
+          "description": "Base credit rate per input token (Rin) used by the forecast formula."
+        },
+        "promptProxy.creditBaseOutputRate": {
+          "type": "number",
+          "default": 0.002,
+          "minimum": 0,
+          "description": "Base credit rate per output token (Rout) used by the forecast formula."
+        },
+        "promptProxy.creditFixedExecutionOverhead": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0,
+          "description": "Fixed execution overhead (Fe) added per request in the forecast formula."
+        },
+        "promptProxy.forecastInputTokens": {
+          "type": "number",
+          "default": 800,
+          "minimum": 0,
+          "maximum": 500000,
+          "description": "Fallback input-token count (Tin) used when no recent analysis is available."
+        },
+        "promptProxy.forecastOutputTokens": {
+          "type": "number",
+          "default": 400,
+          "minimum": 0,
+          "maximum": 500000,
+          "description": "Fallback output-token count (Tout) used when no recent analysis is available."
+        },
+        "promptProxy.creditWeight.gpt": {
+          "type": "number",
+          "default": 2,
+          "minimum": 0,
+          "description": "Model complexity weight (Wm) for GPT in the credit forecast formula."
+        },
+        "promptProxy.creditWeight.claude": {
+          "type": "number",
+          "default": 2.5,
+          "minimum": 0,
+          "description": "Model complexity weight (Wm) for Claude in the credit forecast formula."
+        },
+        "promptProxy.creditWeight.gemini": {
+          "type": "number",
+          "default": 2,
+          "minimum": 0,
+          "description": "Model complexity weight (Wm) for Gemini in the credit forecast formula."
+        },
+        "promptProxy.creditWeight.deepseek": {
+          "type": "number",
+          "default": 3,
+          "minimum": 0,
+          "description": "Model complexity weight (Wm) for DeepSeek in the credit forecast formula."
+        },
+        "promptProxy.creditWeight.grok": {
+          "type": "number",
+          "default": 3,
+          "minimum": 0,
+          "description": "Model complexity weight (Wm) for Grok in the credit forecast formula."
+        },
+        "promptProxy.creditWeight.local": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Model complexity weight (Wm) for Local in the credit forecast formula (default 0 keeps local included)."
         },
         "promptProxy.enableSecretDetection": {
           "type": "boolean",

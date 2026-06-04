@@ -8,6 +8,7 @@ import { PromptProxyEngine } from './PromptProxyEngine.js';
 import { SemanticCacheManager } from './SemanticCacheManager.js';
 import { PromptEvalEngine } from './PromptEvalEngine.js';
 import { listRegisteredModes, listSkillErrors } from './engine/promptModes.js';
+import { buildInstructionsOverview } from './engine/instructionsManager.js';
 import { runHealthCheck } from './engine/health.js';
 import { exportDatabase } from './engine/backup.js';
 import { redactForPersistence } from './engine/redactor.js';
@@ -42,6 +43,7 @@ function printHelp(): void {
       '   or: prompt-proxy-engine --peer-remove --peer-db <path> [--db <path>]\n' +
       '   or: prompt-proxy-engine --peer-toggle --peer-db <path> [--enabled true|false] [--db <path>]\n' +
       '   or: prompt-proxy-engine --kg-stats [--workspace <id>] [--db <path>]\n' +
+      '   or: prompt-proxy-engine --reset-graph [--workspace <id>] [--db <path>]\n' +
       '   or: prompt-proxy-engine --digest-stats [--workspace <id>] [--db <path>]\n' +
       '   or: prompt-proxy-engine --digest-list --workspace <id> [--limit <n>] [--db <path>]\n' +
       '   or: prompt-proxy-engine --digest-clear [--workspace <id>] [--db <path>]\n' +
@@ -55,6 +57,7 @@ function printHelp(): void {
       '   or: prompt-proxy-engine --recall-memory [--query "..."] [--workspace <id>] [--scope workspace|user|all] [--limit N] [--format json|markdown] [--db <path>]\n' +
       '   or: prompt-proxy-engine --export-memory [--tier workspace|user|all] [--workspace <id>] [--out <file.json|.md>] [--db <path>]\n' +
       '   or: prompt-proxy-engine --sync-copilot-instructions --workspace-root <path> [--workspace <id>]\n' +
+      '   or: prompt-proxy-engine --instructions-overview --workspace-root <path> [--persona-dir <path>]\n' +
       '   or: prompt-proxy-engine --redact-test (reads stdin, prints redacted output)\n'
   );
 }
@@ -159,6 +162,7 @@ async function handleSeedBatch(args: string[]): Promise<void> {
         mode: 'blocking',
         workspace_id: wsId,
         ide_context: ideContext,
+        seeding: true,
       });
       count++;
     } catch { /* skip bad seeds */ }
@@ -240,6 +244,23 @@ async function handleKgStats(args: string[]): Promise<void> {
     }
     const workspace = resolveArg(args, '--workspace');
     process.stdout.write(`${JSON.stringify(kg.stats(workspace))}\n`);
+  } finally {
+    engine.close();
+  }
+}
+
+async function handleResetGraph(args: string[]): Promise<void> {
+  const engine = new PromptProxyEngine(resolveDbPath(args) ? { db_path: resolveDbPath(args) } : {});
+  await engine.initialize();
+  try {
+    const kg = engine.getKnowledgeGraph();
+    if (!kg) {
+      process.stdout.write(`${JSON.stringify({ ok: false, error: 'knowledge graph unavailable' })}\n`);
+      return;
+    }
+    const workspace = resolveArg(args, '--workspace') ?? 'global';
+    const removed = kg.clearGraph(workspace);
+    process.stdout.write(`${JSON.stringify({ ok: true, workspace, removed_nodes: removed })}\n`);
   } finally {
     engine.close();
   }
@@ -494,6 +515,13 @@ async function handleStatusOverview(args: string[]): Promise<void> {
   }
 }
 
+function handleInstructionsOverview(args: string[]): void {
+  const workspaceRoot = resolveArg(args, '--workspace-root') ?? process.cwd();
+  const personaDir = resolveArg(args, '--persona-dir');
+  const overview = buildInstructionsOverview({ workspaceRoot, personaDir });
+  process.stdout.write(`${JSON.stringify(overview)}\n`);
+}
+
 async function handleBenchmark(benchmarkPath: string, dbPath?: string): Promise<void> {
   const absolutePath = path.resolve(benchmarkPath);
   if (!fs.existsSync(absolutePath)) {
@@ -604,6 +632,11 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (args.includes('--reset-graph')) {
+    await handleResetGraph(args);
+    return;
+  }
+
   if (args.includes('--digest-stats')) {
     await handleDigestStats(args);
     return;
@@ -676,6 +709,11 @@ async function main(): Promise<void> {
 
   if (args.includes('--status-overview')) {
     await handleStatusOverview(args);
+    return;
+  }
+
+  if (args.includes('--instructions-overview')) {
+    handleInstructionsOverview(args);
     return;
   }
 

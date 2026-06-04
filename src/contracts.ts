@@ -53,7 +53,7 @@ export interface PromptOptimizationRequest {
   ide_context?: PromptIDEContext;
   pricing?: PromptPricingConfig;
   workspace_id?: string;
-  target_model?: 'claude' | 'gpt' | 'gemini' | 'local';
+  target_model?: 'claude' | 'gpt' | 'gemini' | 'deepseek' | 'grok' | 'local';
   /**
    * Optional caller-supplied correlation ID that the engine will echo back
    * on the response.  Must be 32 hex characters; if omitted (or invalid)
@@ -66,6 +66,14 @@ export interface PromptOptimizationRequest {
    * reference instead of being resent.  Defaults to enabled.
    */
   reuse_cached_segments?: boolean;
+  /**
+   * Set by bulk workspace-harvest passes (e.g. the panel's Refresh button).
+   * When true the knowledge graph records only bounded structural nodes
+   * (frameworks/languages/files) under a single stable seed node and skips
+   * the per-prompt + per-concept nodes, so repeated refreshes do not grow the
+   * graph node count unboundedly.
+   */
+  seeding?: boolean;
 }
 
 export interface PromptCacheCandidate {

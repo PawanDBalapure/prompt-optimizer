@@ -49,7 +49,7 @@ class PromptProxyPanel(private val project: Project) {
     private val statusLabel = JBLabel("Ready").apply { font = font.deriveFont(Font.ITALIC, 11f) }
     private val overviewLabel = JBLabel("Cache 0 | Memory 0 | KG 0/0 | Peers 0/0 | Files 0")
     private val modeCombo = JComboBox(arrayOf("optimize", "agent", "direct"))
-    private val targetModelCombo = JComboBox(arrayOf("gpt", "claude", "gemini", "local"))
+    private val targetModelCombo = JComboBox(arrayOf("gpt", "claude", "gemini", "deepseek", "grok", "local"))
     private val optimizeBtn = JButton("Optimize", AllIcons.Actions.Execute)
     private val copyBtn = JButton("Copy", AllIcons.Actions.Copy).apply { isEnabled = false }
 
@@ -203,7 +203,7 @@ class PromptProxyPanel(private val project: Project) {
     private fun buildMetrics(result: OptimizationResult): String {
         val cache = if (result.cacheStatus == "miss") "miss" else "${result.cacheStatus} %.0f%%".format(result.cacheConfidence * 100)
         val reuse = if (result.reusedSegments.isNotEmpty()) " | Reused ${result.reusedSegments.size} block(s) ~${result.reusedTokensSaved} tok" else ""
-        return "Tokens ${result.originalTokens} -> ${result.optimizedTokens} (${result.tokensSaved} saved) | Output est ${result.estimatedOutputTokens} | Cost $%.4f | Cache $cache$reuse | ${creditForecast()}"
+        return "Tokens ${result.originalTokens} -> ${result.optimizedTokens} (${result.tokensSaved} saved) | Output est ${result.estimatedOutputTokens} | Cost $%.4f | Cache $cache$reuse | ${creditForecast(result)}"
             .format(result.estimatedCostUsd)
     }
 
@@ -408,14 +408,28 @@ class PromptProxyPanel(private val project: Project) {
         statusLabel.text = message
     }
 
-    private fun creditForecast(): String {
+    private fun creditForecast(result: OptimizationResult? = null): String {
         val allowances = mapOf("free" to 50, "pro" to 300, "pro-plus" to 1500, "business" to 300, "enterprise" to 1000)
         val allowance = allowances[settings.subscriptionPlan] ?: 300
-        val modelMultiplier = if (settings.targetModel == "local") 0 else 1
-        val monthly = settings.forecastRequestsPerDay.coerceAtLeast(0) * 22 * modelMultiplier
-        val over = (monthly - allowance).coerceAtLeast(0)
+        val modelWeight = when (settings.targetModel) {
+            "claude" -> 2.5
+            "deepseek", "grok" -> 3.0
+            "gpt", "gemini" -> 2.0
+            else -> 0.0 // local included by default
+        }
+        val tin = (result?.optimizedTokens ?: settings.forecastInputTokens).coerceAtLeast(0)
+        val tout = (result?.estimatedOutputTokens ?: settings.forecastOutputTokens).coerceAtLeast(0)
+        val rin = settings.creditBaseInputRate.coerceAtLeast(0.0)
+        val rout = settings.creditBaseOutputRate.coerceAtLeast(0.0)
+        val fe = if (settings.targetModel == "local") 0.0 else settings.creditFixedExecutionOverhead.coerceAtLeast(0.0)
+
+        // C = ceil((Tin*Rin*Wm) + (Tout*Rout*Wm) + Fe)
+        val creditsPerRequest = kotlin.math.ceil((tin * rin * modelWeight) + (tout * rout * modelWeight) + fe).toInt()
+        val monthlyRequests = settings.forecastRequestsPerDay.coerceAtLeast(0) * 22
+        val monthlyCredits = monthlyRequests * creditsPerRequest
+        val over = (monthlyCredits - allowance).coerceAtLeast(0)
         val overCost = over * settings.creditOveragePrice
-        return "Credits $monthly/$allowance mo, overage $%.2f".format(overCost)
+        return "Credits $monthlyCredits/$allowance mo (C=$creditsPerRequest), overage $%.2f".format(overCost)
     }
 
     private fun readOnlyArea(rows: Int, columns: Int): JBTextArea = JBTextArea(rows, columns).apply {

@@ -3,6 +3,36 @@
 All notable changes to Prompt Optimizer are summarized here. Entries are kept
 brief and high-level on purpose.
 
+## 2.10.0
+
+- **Smarter context selection.** The memory/cache/knowledge that gets pulled
+  into each optimized prompt is now ranked by *meaning*, not just literal word
+  matches: a local embedding cosine is blended with lexical overlap, so the
+  right notes win a place in context even when they use different wording.
+- **No wasted tokens on duplicates.** Near-duplicate blocks (the same fact in
+  different words across the graph, digests, and peers) are now diversified
+  with MMR, so every admitted token carries new information.
+- **Tier fairness + intent weighting.** Each memory tier gets a fair slice and
+  the prompt's intent nudges the most useful tiers (troubleshooting → studied
+  files, refactor → knowledge graph, setup → conventions), keeping context
+  enriched instead of dominated by one noisy source.
+- **Adaptive budget + telemetry.** The augmentation token budget can scale to
+  the model window, and admission counts/tokens are recorded for tuning.
+  All behaviour is env-tunable and falls back to the previous lexical-only
+  ranking when embeddings are unavailable.
+
+## 2.9.9
+
+- Copilot can now recall **studied files**: the `#pomemory` tool (and the
+  underlying memory recall) now includes the per-file summaries Prompt
+  Optimizer captured for files you've worked on before — not just AGENTS.md,
+  the knowledge graph, and past prompts.
+- `.github/copilot-instructions.md` (read automatically by Copilot on every
+  turn) now also carries a compact **Project knowledge highlights** block
+  — top knowledge-graph facts and your most-studied files — so a plain Copilot
+  session sees richer project context with no extra action. Stays within the
+  existing size cap and your own notes are always preserved.
+
 ## 2.9.8
 
 - Smarter memory context: workspace memory, knowledge-graph hints, file-recall

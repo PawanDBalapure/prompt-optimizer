@@ -42,6 +42,7 @@
         <button class="chip-btn" id="chipMemory" type="button" title="Open the workspace memory file (AGENTS.md / CLAUDE.md / .promptoptimizer/memory.md). Its contents are auto-injected into every optimized prompt.">📓 Memory</button>
         <button class="chip-btn" id="chipPeers" type="button" title="Manage peer workspaces — federate this workspace's local cache with peers so similar prompts hit the cache across repos.">🔗 Peers</button>
         <button class="chip-btn" id="chipAgents" type="button" title="Enable or disable bundled SDLC agent skills (planner, reviewer, security-auditor, …) for this workspace.">🤖 Agents</button>
+        <button class="chip-btn" id="chipInstructions" type="button" title="Open the Instructions Manager — view active instructions, priority hierarchy, conflicts, version history, a test playground, and import/export.">📋 Instructions</button>
         <button class="chip-btn" id="chipReport" type="button" title="Report an issue or send feedback — opens your email client with extension/VS Code/OS diagnostics pre-filled.">📧 Report issue</button>
       </div>
     </section>
@@ -86,6 +87,8 @@
         <option value="gpt">GPT Optimal (markdown headers)</option>
         <option value="claude">Claude Optimal (XML instruction schemas)</option>
         <option value="gemini">Gemini Optimal (bold highlights)</option>
+        <option value="deepseek">DeepSeek Optimal (logic constraints)</option>
+        <option value="grok">Grok Optimal (direct response framing)</option>
         <option value="local">Local Standard (brief tags)</option>
       </select>
     </div>
@@ -309,6 +312,71 @@
         <span id="agentSavedText">✓ Agent created</span>
         <button class="secondary compact" id="btnRemoveAgent" type="button"
                 title="Delete the agent that was just created" style="margin-left:8px">✕ Remove</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="secret-mgr-overlay instr-mgr-overlay" id="instrMgrOverlay" role="dialog" aria-modal="true"
+       aria-label="Instructions Manager" aria-hidden="true">
+    <div class="secret-mgr instr-mgr">
+      <div class="secret-mgr-hdr">
+        <strong>📋 Instructions Manager</strong>
+        <button class="icon-close-btn" id="btnInstrClose" title="Close" aria-label="Close instructions manager">×</button>
+      </div>
+
+      <div class="instr-tabs" role="tablist" aria-label="Instructions sections">
+        <button class="instr-tab is-active" id="instrTabActive" role="tab" aria-selected="true" data-tab="active">Active</button>
+        <button class="instr-tab" id="instrTabPriority" role="tab" aria-selected="false" data-tab="priority">Priority</button>
+        <button class="instr-tab" id="instrTabConflicts" role="tab" aria-selected="false" data-tab="conflicts">
+          Conflicts <span class="instr-badge" id="instrConflictBadge" hidden>0</span>
+        </button>
+        <button class="instr-tab" id="instrTabHistory" role="tab" aria-selected="false" data-tab="history">History</button>
+        <button class="instr-tab" id="instrTabPersonas" role="tab" aria-selected="false" data-tab="personas">Personas</button>
+        <button class="instr-tab" id="instrTabPlayground" role="tab" aria-selected="false" data-tab="playground">Playground</button>
+      </div>
+
+      <div class="instr-toolbar">
+        <button class="secondary compact" id="btnInstrRefresh" title="Re-scan instruction sources">↻ Rescan</button>
+        <button class="secondary compact" id="btnInstrExport" title="Export all instruction sources to a JSON bundle">⤓ Export</button>
+        <button class="secondary compact" id="btnInstrImport" title="Import an instruction bundle (overwrites matching files)">⤒ Import</button>
+        <span class="instr-toolbar-note" id="instrActionNote" role="status" aria-live="polite"></span>
+      </div>
+
+      <div class="instr-body">
+        <div class="instr-pane is-active" id="instrPaneActive" role="tabpanel" aria-label="Active instructions">
+          <p class="instr-hint">Every directive the AI currently sees, grouped by source. Click a source to open the file.</p>
+          <div id="instrActiveList" aria-live="polite"></div>
+        </div>
+
+        <div class="instr-pane" id="instrPanePriority" role="tabpanel" aria-label="Priority hierarchy" hidden>
+          <p class="instr-hint">When rules disagree, higher-priority sources win. Order, highest authority first:</p>
+          <ol id="instrPriorityList" class="instr-priority"></ol>
+        </div>
+
+        <div class="instr-pane" id="instrPaneConflicts" role="tabpanel" aria-label="Conflicts" hidden>
+          <p class="instr-hint">Contradictions detected between active directives, with a suggested resolution.</p>
+          <div id="instrConflictList" aria-live="polite"></div>
+        </div>
+
+        <div class="instr-pane" id="instrPaneHistory" role="tabpanel" aria-label="Version history" hidden>
+          <p class="instr-hint">Git history (author + date) for a chosen instruction file.</p>
+          <select id="instrHistorySelect" aria-label="Choose instruction file"></select>
+          <div id="instrHistoryList" aria-live="polite"></div>
+        </div>
+
+        <div class="instr-pane" id="instrPanePersonas" role="tabpanel" aria-label="Personas" hidden>
+          <p class="instr-hint">SDLC personas bundled with this build. Enable one to install it as a workspace skill the AI can adopt.</p>
+          <div id="instrPersonaList" aria-live="polite"></div>
+        </div>
+
+        <div class="instr-pane" id="instrPanePlayground" role="tabpanel" aria-label="Test playground" hidden>
+          <p class="instr-hint">Paste a task to preview which directives apply and whether any active conflicts would affect it.</p>
+          <textarea id="instrPlaygroundInput" rows="4"
+                    placeholder="e.g. Write a function that validates a JWT and add tests."
+                    aria-label="Playground task input"></textarea>
+          <button class="primary compact" id="btnInstrSimulate" title="Preview the effective instruction stack">▶ Simulate</button>
+          <div id="instrPlaygroundResult" aria-live="polite"></div>
+        </div>
       </div>
     </div>
   </div>

@@ -7,7 +7,7 @@ plugins {
 }
 
 group   = "com.promptproxy"
-version = "2.9.8"
+version = "2.10.0"
 
 repositories {
     mavenCentral()

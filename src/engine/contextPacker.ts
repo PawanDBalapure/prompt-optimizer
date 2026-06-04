@@ -10,6 +10,7 @@ import {
   MAX_CONTEXT_LOGS,
   MAX_FILE_LINES,
   MAX_LOG_LINES,
+  SMALL_FILE_LINES,
 } from './constants.js';
 import type { RelevantContextPack } from './types.js';
 
@@ -134,15 +135,20 @@ export class ContextPacker {
   }
 
   extractRelevantFileSnippet(file: IdeContextFile, queryTerms: Set<string>): string {
+    // 1. An explicit user selection is the most relevant, slimmest context.
     if ((file.selection ?? '').trim() !== '') {
       return (file.selection as string).trim();
     }
 
     const lines = file.content.split(/\r?\n/);
-    if (lines.length <= MAX_FILE_LINES) {
+
+    // 2. Tiny files carry little noise — keep them whole.
+    if (lines.length <= SMALL_FILE_LINES) {
       return file.content.trim();
     }
 
+    // 3. Larger files: extract only the query-relevant region so the optimized
+    //    prompt stays slim instead of embedding the full file text.
     const matchingLineIndexes: number[] = [];
     for (let index = 0; index < lines.length; index++) {
       if (lineMatchesQuery(lines[index].toLowerCase(), queryTerms)) {
@@ -150,12 +156,15 @@ export class ContextPacker {
       }
     }
 
-    if (matchingLineIndexes.length === 0) {
-      return file.is_active
-        ? lines.slice(0, Math.min(MAX_FILE_LINES, lines.length)).join('\n').trim()
-        : '';
+    if (matchingLineIndexes.length > 0) {
+      return buildSnippetFromLineIndexes(lines, matchingLineIndexes, MAX_FILE_LINES).trim();
     }
-    return buildSnippetFromLineIndexes(lines, matchingLineIndexes, MAX_FILE_LINES).trim();
+
+    // 4. No relevant lines: only the active file is worth a short head excerpt;
+    //    background files are dropped entirely to avoid noise.
+    return file.is_active
+      ? lines.slice(0, SMALL_FILE_LINES).join('\n').trim()
+      : '';
   }
 
   extractRelevantLogSnippet(log: IdeContextLog, queryTerms: Set<string>): string {

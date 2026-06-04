@@ -130,59 +130,44 @@ export class SegmentReuseStore {
     let tokensSaved = 0;
     const seenThisTurn = new Set<string>();
 
-    const rewritten = sections.map((section) => {
+    const rewritten: string[] = [];
+    for (const section of sections) {
       const { header, body } = splitSection(section);
       const normalized = normalizeBody(body);
-      if (normalized === '') { return section; }
+      if (normalized === '') { rewritten.push(section); continue; }
 
       const bodyTokens = countTokens(normalized);
-      if (bodyTokens < MIN_SEGMENT_TOKENS) { return section; }
+      if (bodyTokens < MIN_SEGMENT_TOKENS) { rewritten.push(section); continue; }
 
       const hash = hashSegment(normalized);
-      // Don't collapse two identical blocks within the same turn — the model
-      // needs at least one full copy present to honor the reference.
-      if (seenThisTurn.has(hash)) { return section; }
+      // Keep the first copy within a turn so the block is sent at least once.
+      if (seenThisTurn.has(hash)) { rewritten.push(section); continue; }
 
       const existing = select.get(workspaceId, hash) as SegmentRow | undefined;
       const label = deriveLabel(header, normalized);
 
       if (existing) {
+        // Already sent for this workspace — drop the block entirely.  The model
+        // has no access to our local cache, so any marker/reference line is pure
+        // token overhead in the prompt the user pastes into Copilot.  We still
+        // record it so the panel can report what was elided.
         bumpHit.run(now, workspaceId, hash);
-        const ref = `seg_${hash}`;
-        const marker = this.buildMarker(header, label, ref, existing.first_seen, bodyTokens);
-        const markerTokens = countTokens(marker);
-        const saved = Math.max(0, bodyTokens - markerTokens);
-        tokensSaved += saved;
+        tokensSaved += bodyTokens;
         reused.push({
           label,
-          ref,
-          tokens_saved: saved,
+          ref: `seg_${hash}`,
+          tokens_saved: bodyTokens,
           hit_count: existing.hit_count + 1,
           first_seen: existing.first_seen,
         });
-        return marker;
+        continue;
       }
 
       insert.run(workspaceId, hash, label, normalized.length, bodyTokens, now, now);
       seenThisTurn.add(hash);
-      return section;
-    });
+      rewritten.push(section);
+    }
 
     return { sections: rewritten, reused, tokens_saved: tokensSaved };
-  }
-
-  private buildMarker(
-    header: string | null,
-    label: string,
-    ref: string,
-    firstSeen: number,
-    savedTokens: number,
-  ): string {
-    const since = new Date(firstSeen).toISOString().slice(0, 10);
-    const headerLine = header ? `${header}  [reused-from-cache]` : `# ${label}  [reused-from-cache]`;
-    const note =
-      `(Identical block already sent in this workspace (first seen ${since}); served from ` +
-      `local cache, not resent. ~${savedTokens} tokens saved. ref: ${ref})`;
-    return `${headerLine}\n${note}`;
   }
 }

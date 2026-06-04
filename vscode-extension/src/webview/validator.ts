@@ -24,10 +24,17 @@ const ALLOWED_TYPES = new Set([
   'deleteAgent',
   'refreshOverview',
   'resetToDefaults',
+  'requestInstructionsOverview',
+  'instructionsHistory',
+  'openInstructionFile',
+  'exportInstructions',
+  'importInstructions',
+  'toggleInstructionRule',
+  'togglePersona',
 ]);
 
 const ALLOWED_MODES = new Set(['agent', 'optimize', 'direct']);
-const ALLOWED_MODELS = new Set(['claude', 'gpt', 'gemini', 'local']);
+const ALLOWED_MODELS = new Set(['claude', 'gpt', 'gemini', 'deepseek', 'grok', 'local']);
 const ALLOWED_MATCH_MODES = new Set<SecretPatternMatchMode>(
   ['regex', 'like', 'contains', 'startsWith', 'endsWith', 'exact'],
 );
@@ -75,6 +82,16 @@ export interface ValidWebviewMessage {
   agentContent?: string;
   /** Id (slug) of an agent to delete. */
   agentId?: string;
+  /** Workspace-relative path of an instruction source (Instructions Manager). */
+  relPath?: string;
+  /** 1-based line number of a rule to toggle. */
+  line?: number;
+  /** Original rule text, used to verify the toggle target. */
+  ruleText?: string;
+  /** Id (slug) of a bundled persona to enable/disable. */
+  personaId?: string;
+  /** Bundled persona source file name (basename). */
+  sourceFile?: string;
 }
 
 /**
@@ -176,6 +193,46 @@ export function validateMessage(raw: unknown): ValidWebviewMessage | null {
     const agentId = clampString(data.agentId, MAX_AGENT_NAME_CHARS);
     if (agentId === undefined) { return null; }
     out.agentId = agentId;
+  }
+
+  if (data.relPath !== undefined) {
+    const relPath = clampString(data.relPath, 512);
+    // Workspace-relative paths only: reject absolutes and parent-dir escapes.
+    if (
+      relPath === undefined
+      || relPath.length === 0
+      || relPath.includes('..')
+      || /^([a-zA-Z]:[\\/]|[\\/])/.test(relPath)
+    ) {
+      return null;
+    }
+    out.relPath = relPath;
+  }
+
+  if (data.line !== undefined) {
+    if (typeof data.line !== 'number' || !Number.isInteger(data.line) || data.line < 1 || data.line > 1_000_000) {
+      return null;
+    }
+    out.line = data.line;
+  }
+
+  if (data.ruleText !== undefined) {
+    const ruleText = clampString(data.ruleText, 4_000);
+    if (ruleText === undefined) { return null; }
+    out.ruleText = ruleText;
+  }
+
+  if (data.personaId !== undefined) {
+    const personaId = clampString(data.personaId, 64);
+    if (personaId === undefined || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(personaId)) { return null; }
+    out.personaId = personaId;
+  }
+
+  if (data.sourceFile !== undefined) {
+    const sourceFile = clampString(data.sourceFile, 128);
+    // Basename only: no path separators, must end with .md.
+    if (sourceFile === undefined || !/^[A-Za-z0-9._-]+\.md$/.test(sourceFile)) { return null; }
+    out.sourceFile = sourceFile;
   }
 
   return out;

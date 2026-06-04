@@ -1,4 +1,12 @@
 import { countTokens } from './pricing.js';
+import {
+  blendedRelevance,
+  detectSectionTier,
+  diversifiedOrder,
+  intentBoost,
+  type DiverseItem,
+  type RelevanceContext,
+} from './relevanceScoring.js';
 
 /**
  * Augmentation ranking + budgeting.
@@ -25,6 +33,14 @@ import { countTokens } from './pricing.js';
 
 export type RelevanceScorer = (text: string, queryTerms: Set<string>) => number;
 
+/** Optional out-param capturing what the budget admitted vs dropped. */
+export interface AugmentSelectionStats {
+  admittedCount: number;
+  droppedCount: number;
+  admittedTokens: number;
+  droppedTokens: number;
+}
+
 export interface AugmentSelectionOptions {
   /**
    * Normalised file paths already inlined verbatim in the IDE context pack.
@@ -32,6 +48,20 @@ export interface AugmentSelectionOptions {
    * redundant and dropped (the full content is already present).
    */
   contextPaths?: Iterable<string>;
+  /**
+   * When provided, enables semantic relevance, MMR de-duplication, tier
+   * fairness, and intent weighting.  Absent (e.g. unit tests) the selector
+   * falls back to the supplied lexical `scoreRelevance` callback.
+   */
+  relevance?: RelevanceContext;
+  /**
+   * Target model's context window in tokens, if known.  Used to scale the
+   * augmentation cap down for small-context models so memory never crowds out
+   * the user's own prompt.
+   */
+  modelContextTokens?: number;
+  /** Mutated in place with admission telemetry when supplied. */
+  stats?: AugmentSelectionStats;
 }
 
 function envInt(name: string, fallback: number, min: number): number {
@@ -62,8 +92,13 @@ function relevanceThreshold(): number {
  * for serious projects yet well below the point where it crowds out the user's
  * own prompt.  Tunable via `POMEMORY_MAX_AUGMENTED_TOKENS`.
  */
-function tokenBudget(): number {
-  return envInt('POMEMORY_MAX_AUGMENTED_TOKENS', 4_500, 16);
+function tokenBudget(modelContextTokens?: number): number {
+  const base = envInt('POMEMORY_MAX_AUGMENTED_TOKENS', 4_500, 16);
+  if (modelContextTokens && modelContextTokens > 0) {
+    const fraction = envFloat('POMEMORY_AUGMENT_CONTEXT_FRACTION', 0.25, 0.01, 0.9);
+    return Math.max(16, Math.min(base, Math.floor(modelContextTokens * fraction)));
+  }
+  return base;
 }
 
 /**
@@ -146,9 +181,18 @@ export function selectAndRankAugmentedSections(
     if (norm !== '') { contextPaths.add(norm); }
   }
 
+  const relevance = options.relevance;
   const minScore = relevanceThreshold();
   const curated: string[] = [];
-  const scored: Array<{ section: string; score: number }> = [];
+  const scored: Array<DiverseItem<string>> = [];
+
+  const scoreOf = (section: string): number => {
+    if (relevance) {
+      const base = relevance.queryTerms.size === 0 ? 1 : blendedRelevance(section, relevance);
+      return base + intentBoost(detectSectionTier(section), relevance.signals);
+    }
+    return queryTerms.size === 0 ? 1 : scoreRelevance(section, queryTerms);
+  };
 
   for (const section of sections) {
     if (isLowValueAugmentedSection(section)) { continue; }
@@ -157,26 +201,52 @@ export function selectAndRankAugmentedSections(
       continue;
     }
     if (duplicatesInlinedContext(section, contextPaths)) { continue; }
-    const score = queryTerms.size === 0 ? 1 : scoreRelevance(section, queryTerms);
-    if (queryTerms.size > 0 && score < minScore) { continue; }
-    scored.push({ section, score });
+    const hasTerms = relevance ? relevance.queryTerms.size > 0 : queryTerms.size > 0;
+    const score = scoreOf(section);
+    if (hasTerms && score < minScore) { continue; }
+    scored.push({
+      item: section,
+      score,
+      tier: detectSectionTier(section),
+      vector: relevance ? relevance.vectorizer.vectorize(section) : new Float32Array(0),
+    });
   }
 
-  scored.sort((a, b) => b.score - a.score);
-  const ranked = [...curated, ...scored.map((entry) => entry.section)];
+  // Order the non-curated survivors.  With a relevance context this applies
+  // tier fairness + MMR diversification; otherwise a plain score sort.
+  let orderedNonCurated: string[];
+  if (relevance) {
+    orderedNonCurated = diversifiedOrder(scored, relevance.vectorizer, { tierFairness: true });
+  } else {
+    orderedNonCurated = [...scored].sort((a, b) => b.score - a.score).map((entry) => entry.item);
+  }
+  const ranked = [...curated, ...orderedNonCurated];
 
-  const maxTokens = tokenBudget();
+  const maxTokens = tokenBudget(options.modelContextTokens);
   const maxBytes = byteBudget();
   const out: string[] = [];
   let usedTokens = 0;
   let usedBytes = 0;
+  let droppedCount = 0;
+  let droppedTokens = 0;
   for (const section of ranked) {
     const tokens = countTokens(section);
     const bytes = Buffer.byteLength(section, 'utf8') + 2;
-    if (usedTokens + tokens > maxTokens || usedBytes + bytes > maxBytes) { continue; }
+    if (usedTokens + tokens > maxTokens || usedBytes + bytes > maxBytes) {
+      droppedCount++;
+      droppedTokens += tokens;
+      continue;
+    }
     out.push(section);
     usedTokens += tokens;
     usedBytes += bytes;
+  }
+
+  if (options.stats) {
+    options.stats.admittedCount = out.length;
+    options.stats.admittedTokens = usedTokens;
+    options.stats.droppedCount = droppedCount;
+    options.stats.droppedTokens = droppedTokens;
   }
   return out;
 }

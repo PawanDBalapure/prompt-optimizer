@@ -7,12 +7,20 @@ import {
 } from './workspaceMemory.js';
 import type { CrossWorkspaceFederation, PeerWorkspace } from './crossWorkspace.js';
 import { USER_GLOBAL_LABEL } from './globalMemory.js';
+import {
+  createRelevanceContext,
+  diversifiedOrder,
+  intentBoost,
+  semanticComponent,
+  type DiverseItem,
+  type RelevanceTier,
+} from './relevanceScoring.js';
 
 /**
  * Shared memory recall service.  One responsibility: rank and assemble a
- * cross-tier memory slice (workspace memory + knowledge graph + cache +
- * user-global peer) into a single text payload short enough to be embedded
- * in a model prompt or returned from an LM tool.
+ * cross-tier memory slice (workspace memory + knowledge graph + studied-file
+ * digests + cache + user-global peer) into a single text payload short enough
+ * to be embedded in a model prompt or returned from an LM tool.
  *
  * Used by:
  *   - CLI flags `--recall-memory` and `--export-memory`
@@ -25,7 +33,7 @@ import { USER_GLOBAL_LABEL } from './globalMemory.js';
  */
 
 export type RecallScope = 'workspace' | 'user' | 'all';
-export type RecallTier  = 'workspace' | 'user' | 'kg' | 'cache';
+export type RecallTier  = 'workspace' | 'user' | 'kg' | 'cache' | 'digest';
 
 export interface RecallEntry {
   tier: RecallTier;
@@ -76,6 +84,7 @@ export function recallMemory(
       candidates.push(toEntry('workspace', entry, terms));
     }
     candidates.push(...recallFromKg(db, workspaceId, terms));
+    candidates.push(...recallFromDigest(db, workspaceId, terms));
     candidates.push(...recallFromCache(db, workspaceId, terms));
   }
 
@@ -88,7 +97,7 @@ export function recallMemory(
   }
 
   const deduped = dedupe(candidates);
-  const ranked = deduped.sort((a, b) => b.score - a.score).slice(0, limit);
+  const ranked = rankRecall(deduped, query, terms.length > 0, limit);
   const capped = capTotalBytes(ranked);
   const formatted = formatRecall(capped, { query, workspaceId, scope });
 
@@ -160,6 +169,50 @@ function recallFromKg(
         score: scoreContent(`${row.name} ${row.summary}`, terms) + recencyScore(row.updated_at) - 0.2,
         updated_at: row.updated_at,
       }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Per-file "studied" digests — the cross-session record of files Prompt
+ * Optimizer has analyzed before, with a short captured summary of each.
+ * With no query terms (e.g. `--export-memory`) the most recently studied
+ * files are returned; with terms, only files whose path or summary match.
+ */
+function recallFromDigest(
+  db: Database.Database,
+  workspaceId: string,
+  terms: string[],
+): RecallEntry[] {
+  try {
+    let sql =
+      `SELECT path, language, summary, visit_count AS visitCount, updated_at AS updatedAt
+       FROM file_digest WHERE workspace_id = ?`;
+    const params: unknown[] = [workspaceId];
+    if (terms.length > 0) {
+      const clauses = terms.map(() => '(path LIKE ? OR summary LIKE ?)').join(' OR ');
+      sql += ` AND (${clauses})`;
+      for (const term of terms) { params.push(`%${term}%`, `%${term}%`); }
+    }
+    sql += ' ORDER BY updated_at DESC LIMIT ?';
+    params.push(MAX_PEER_ROWS);
+    const rows = db.prepare(sql).all(...params) as Array<{
+      path: string; language: string; summary: string; visitCount: number; updatedAt: number;
+    }>;
+    return rows
+      .filter((r) => r.summary && r.summary.trim().length > 0)
+      .map((row) => {
+        const lang = row.language ? ` (${row.language})` : '';
+        return {
+          tier: 'digest' as const,
+          source: `Studied file: ${row.path}${lang}`,
+          content: clampText(row.summary, MAX_ENTRY_BYTES),
+          score: scoreContent(`${row.path} ${row.summary}`, terms)
+               + recencyScore(row.updatedAt) - 0.25,
+          updated_at: row.updatedAt,
+        };
+      });
   } catch {
     return [];
   }
@@ -246,6 +299,43 @@ function dedupe(entries: RecallEntry[]): RecallEntry[] {
     }
   }
   return [...seen.values()];
+}
+
+/** Map a recall tier onto the generic relevance tier used for weighting. */
+function toRelevanceTier(tier: RecallTier): RelevanceTier {
+  switch (tier) {
+    case 'workspace': return 'memory';
+    case 'kg':        return 'kg';
+    case 'digest':    return 'digest';
+    case 'cache':     return 'cache';
+    case 'user':      return 'user';
+    default:          return 'other';
+  }
+}
+
+/**
+ * Final ranking: with a query, re-score each candidate by adding embedding
+ * relevance + intent weighting on top of its lexical/recency score, then order
+ * by MMR + tier fairness so the limited slots are both relevant and diverse.
+ * Without a query (e.g. `--export-memory`) the recency-weighted order is kept.
+ */
+function rankRecall(
+  entries: RecallEntry[],
+  query: string,
+  hasQuery: boolean,
+  limit: number,
+): RecallEntry[] {
+  if (!hasQuery || entries.length <= 1) {
+    return entries.sort((a, b) => b.score - a.score).slice(0, limit);
+  }
+  const ctx = createRelevanceContext(query);
+  const items: Array<DiverseItem<RecallEntry>> = entries.map((entry) => {
+    const text = `${entry.source}\n${entry.content}`;
+    const relTier = toRelevanceTier(entry.tier);
+    entry.score += semanticComponent(text, ctx) + intentBoost(relTier, ctx.signals);
+    return { item: entry, score: entry.score, tier: relTier, vector: ctx.vectorizer.vectorize(text) };
+  });
+  return diversifiedOrder(items, ctx.vectorizer, { tierFairness: true }).slice(0, limit);
 }
 
 function tokenize(query: string): string[] {
