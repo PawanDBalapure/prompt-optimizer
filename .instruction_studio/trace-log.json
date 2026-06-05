@@ -63,5 +63,44 @@
     "versionIndex": 5,
     "activeRuleCount": 1,
     "inactiveRuleCount": 0
+  },
+  {
+    "sessionId": "sess-mq0rv0l0-5umxdj",
+    "timestamp": "2026-06-05T10:19:07.572Z",
+    "workflowName": "Canvas Generated Workflow",
+    "persona": "Architect",
+    "condition": "If Task=Refactor",
+    "priority": "Medium",
+    "agentScope": "Code Generation",
+    "ruleText": "Always run unit tests.",
+    "versionIndex": 7,
+    "activeRuleCount": 2,
+    "inactiveRuleCount": 0
+  },
+  {
+    "sessionId": "sess-mq0rvkfb-wtmnll",
+    "timestamp": "2026-06-05T10:19:33.287Z",
+    "workflowName": "Canvas Generated Workflow",
+    "persona": "Architect",
+    "condition": "If Task=Refactor",
+    "priority": "Medium",
+    "agentScope": "Code Generation",
+    "ruleText": "Always run unit tests.",
+    "versionIndex": 8,
+    "activeRuleCount": 3,
+    "inactiveRuleCount": 0
+  },
+  {
+    "sessionId": "sess-mq0t5gqs-dd0mfi",
+    "timestamp": "2026-06-05T10:55:14.692Z",
+    "workflowName": "Canvas Generated Workflow",
+    "persona": "Architect",
+    "condition": "If Task=Refactor",
+    "priority": "Medium",
+    "agentScope": "Code Generation",
+    "ruleText": "Always run unit tests.",
+    "versionIndex": 9,
+    "activeRuleCount": 2,
+    "inactiveRuleCount": 0
   }
 ]

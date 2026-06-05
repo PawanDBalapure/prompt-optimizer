@@ -1,0 +1,13 @@
+{
+  "workflowName": "Canvas Generated Workflow",
+  "nodes": [
+    {
+      "id": "v_1",
+      "type": "persona",
+      "label": "Architect",
+      "text": "Architect",
+      "active": true
+    }
+  ],
+  "edges": []
+}

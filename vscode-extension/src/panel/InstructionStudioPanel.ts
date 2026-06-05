@@ -16,6 +16,13 @@ type StudioMessage = {
   sessionId?: string;
   traceMode?: string;
   action?: string;
+  relPath?: string;
+  line?: number;
+  ruleText?: string;
+  enabled?: boolean;
+  personaId?: string;
+  sourceFile?: string;
+  repo?: string;
 };
 
 interface InstructionStudioPreset {
@@ -88,6 +95,13 @@ export class InstructionStudioPanel {
 
   static show(context: vscode.ExtensionContext): void {
     if (InstructionStudioPanel.current) {
+      InstructionStudioPanel.current.panel.webview.html = renderWebviewHtml(
+        InstructionStudioPanel.current.panel.webview,
+        InstructionStudioPanel.current.context.extensionUri,
+        {
+          name: 'instruction-studio',
+        },
+      );
       InstructionStudioPanel.current.panel.reveal(vscode.ViewColumn.Beside);
       return;
     }
@@ -102,6 +116,7 @@ export class InstructionStudioPanel {
         await this.postTraceRows();
         await this.postInsights();
         await this.postReplay();
+        await this.postInstructionsOverview();
         return;
       case 'openMemoryFile':
         await vscode.commands.executeCommand('prompt-proxy.openMemoryFile');
@@ -135,6 +150,27 @@ export class InstructionStudioPanel {
         return;
       case 'loadReplay':
         await this.postReplay(msg.sessionId);
+        return;
+      case 'requestInstructionsOverview':
+        await this.postInstructionsOverview();
+        return;
+      case 'instructionsHistory':
+        await this.postInstructionsHistory(msg.relPath ?? '');
+        return;
+      case 'openInstructionFile':
+        await this.openInstructionFile(msg.relPath ?? '');
+        return;
+      case 'exportInstructions':
+        await this.exportInstructions();
+        return;
+      case 'importInstructions':
+        await this.importInstructions();
+        return;
+      case 'toggleInstructionRule':
+        await this.toggleInstructionRule({ relPath: msg.relPath, line: msg.line, ruleText: msg.ruleText, enabled: msg.enabled });
+        return;
+      case 'togglePersona':
+        await this.togglePersona({ personaId: msg.personaId, sourceFile: msg.sourceFile, enabled: msg.enabled });
         return;
       case 'stageTrace':
         await this.stageTrace(msg.traceMode);
@@ -215,6 +251,269 @@ export class InstructionStudioPanel {
       await this.panel.webview.postMessage({ type: 'customPersonas', personas: payload.personas ?? [] });
     } catch {
       await this.panel.webview.postMessage({ type: 'customPersonas', personas: [] });
+    }
+  }
+
+  private async postInstructionsOverview(): Promise<void> {
+    const wsRoot = this.workspaceRoot();
+    if (!wsRoot) {
+      await this.panel.webview.postMessage({ type: 'instructionsOverview', ok: false, error: 'Open a workspace folder to manage instructions.' });
+      return;
+    }
+    try {
+      const personaDir = path.join(this.context.extensionUri.fsPath, 'media', 'skill-library');
+      const raw = runEngineRaw(['--instructions-overview', '--workspace-root', wsRoot, '--persona-dir', personaDir]);
+      const overview = JSON.parse(raw);
+      await this.panel.webview.postMessage({ type: 'instructionsOverview', ok: true, payload: overview });
+    } catch (err) {
+      await this.panel.webview.postMessage({
+        type: 'instructionsOverview',
+        ok: false,
+        error: err instanceof Error ? err.message : 'Could not read instructions.',
+      });
+    }
+  }
+
+  private resolveInstructionPath(relPath: string): { wsRoot: string; abs: string } | null {
+    const wsRoot = this.workspaceRoot();
+    if (!wsRoot) { return null; }
+    const normalized = relPath.replace(/\\/g, '/');
+    if (!normalized || normalized.includes('..') || path.isAbsolute(normalized)) { return null; }
+    const abs = path.resolve(wsRoot, normalized);
+    const rel = path.relative(wsRoot, abs);
+    if (rel.startsWith('..') || path.isAbsolute(rel)) { return null; }
+    return { wsRoot, abs };
+  }
+
+  private async postInstructionsHistory(relPath: string): Promise<void> {
+    const resolved = this.resolveInstructionPath(relPath);
+    const reply = async (ok: boolean, extra: Record<string, unknown> = {}): Promise<void> => {
+      await this.panel.webview.postMessage({ type: 'instructionsHistory', ok, relPath, ...extra });
+    };
+    if (!resolved) {
+      await reply(false, { error: 'Invalid instruction path.' });
+      return;
+    }
+    try {
+      const result = spawnSync(
+        'git',
+        ['-C', resolved.wsRoot, 'log', '--max-count=25', '--follow', '--pretty=format:%h\u001f%an\u001f%ad\u001f%ar\u001f%s', '--date=short', '--', relPath],
+        { encoding: 'utf8', timeout: 8000 },
+      );
+      if (result.status !== 0 && result.error) {
+        throw result.error;
+      }
+      const commits = String(result.stdout || '')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => {
+          const [sha, author, date, relative, subject] = line.split('\u001f');
+          return { sha, author, date, relative, subject };
+        });
+      await reply(true, { commits });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await reply(false, { error: /not a git repository|ENOENT/i.test(msg) ? 'No git history available.' : 'Could not read git history for this file.' });
+    }
+  }
+
+  private async openInstructionFile(relPath: string): Promise<void> {
+    const resolved = this.resolveInstructionPath(relPath);
+    if (!resolved) {
+      await this.panel.webview.postMessage({ type: 'instructionsActionDone', ok: false, error: 'Invalid instruction path.' });
+      return;
+    }
+    try {
+      if (!fs.existsSync(resolved.abs)) {
+        fs.mkdirSync(path.dirname(resolved.abs), { recursive: true });
+        fs.writeFileSync(resolved.abs, '', { encoding: 'utf8', flag: 'wx' });
+      }
+      const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(resolved.abs));
+      await vscode.window.showTextDocument(doc, { preview: false });
+    } catch (err) {
+      await this.panel.webview.postMessage({ type: 'instructionsActionDone', ok: false, error: err instanceof Error ? err.message : 'Could not open the instruction file.' });
+    }
+  }
+
+  private async exportInstructions(): Promise<void> {
+    const wsRoot = this.workspaceRoot();
+    if (!wsRoot) {
+      await this.panel.webview.postMessage({ type: 'instructionsActionDone', ok: false, error: 'Open a workspace folder first.' });
+      return;
+    }
+    try {
+      const raw = runEngineRaw(['--instructions-overview', '--workspace-root', wsRoot]);
+      const overview = JSON.parse(raw) as { sources: Array<{ relPath: string; label: string; exists: boolean }> };
+      const files = overview.sources
+        .filter((src) => src.exists)
+        .map((src) => {
+          const abs = path.resolve(wsRoot, src.relPath);
+          return fs.existsSync(abs) ? { relPath: src.relPath, label: src.label, content: fs.readFileSync(abs, 'utf8') } : null;
+        })
+        .filter(Boolean);
+      const target = await vscode.window.showSaveDialog({
+        title: 'Export instruction sources',
+        defaultUri: vscode.Uri.file(path.join(wsRoot, 'instructions-bundle.json')),
+        filters: { JSON: ['json'] },
+      });
+      if (!target) {
+        await this.panel.webview.postMessage({ type: 'instructionsActionDone', ok: false, error: 'Export cancelled.' });
+        return;
+      }
+      fs.writeFileSync(target.fsPath, JSON.stringify({ kind: 'prompt-optimizer.instructions-bundle', version: 1, exportedAt: new Date().toISOString(), files }, null, 2), 'utf8');
+      await this.panel.webview.postMessage({ type: 'instructionsActionDone', ok: true, message: `Exported ${files.length} instruction file${files.length === 1 ? '' : 's'}.` });
+    } catch (err) {
+      await this.panel.webview.postMessage({ type: 'instructionsActionDone', ok: false, error: err instanceof Error ? err.message : 'Export failed.' });
+    }
+  }
+
+  private async importInstructions(): Promise<void> {
+    const wsRoot = this.workspaceRoot();
+    if (!wsRoot) {
+      await this.panel.webview.postMessage({ type: 'instructionsActionDone', ok: false, error: 'Open a workspace folder first.' });
+      return;
+    }
+    try {
+      const picked = await vscode.window.showOpenDialog({ title: 'Import instruction bundle', canSelectMany: false, filters: { JSON: ['json'] } });
+      if (!picked || picked.length === 0) {
+        await this.panel.webview.postMessage({ type: 'instructionsActionDone', ok: false, error: 'Import cancelled.' });
+        return;
+      }
+      const bundle = JSON.parse(fs.readFileSync(picked[0].fsPath, 'utf8')) as { kind?: string; files?: Array<{ relPath?: string; content?: string }> };
+      if (bundle.kind !== 'prompt-optimizer.instructions-bundle' || !Array.isArray(bundle.files)) {
+        await this.panel.webview.postMessage({ type: 'instructionsActionDone', ok: false, error: 'Not a valid instructions bundle file.' });
+        return;
+      }
+      const confirm = await vscode.window.showWarningMessage(
+        `Import ${bundle.files.length} instruction file(s)? Existing files with the same path will be overwritten (copilot-instructions files are appended).`,
+        { modal: true },
+        'Import',
+      );
+      if (confirm !== 'Import') {
+        await this.panel.webview.postMessage({ type: 'instructionsActionDone', ok: false, error: 'Import cancelled.' });
+        return;
+      }
+      const shouldAppend = (relPath: string): boolean => ['.github/copilot-instructions.md', '.copilot-instructions.md', 'copilot-instructions.md'].includes(relPath.replace(/\\/g, '/').toLowerCase());
+      let written = 0;
+      for (const file of bundle.files) {
+        const rel = typeof file.relPath === 'string' ? file.relPath.replace(/\\/g, '/') : '';
+        const content = typeof file.content === 'string' ? file.content : '';
+        if (!rel || rel.includes('..') || path.isAbsolute(rel)) { continue; }
+        const abs = path.resolve(wsRoot, rel);
+        const containment = path.relative(wsRoot, abs);
+        if (containment.startsWith('..') || path.isAbsolute(containment)) { continue; }
+        fs.mkdirSync(path.dirname(abs), { recursive: true });
+        if (shouldAppend(rel) && fs.existsSync(abs)) {
+          const existing = fs.readFileSync(abs, 'utf8').replace(/\s+$/g, '');
+          const incoming = content.trim();
+          const eol = existing.includes('\r\n') ? '\r\n' : '\n';
+          fs.writeFileSync(abs, existing.includes(incoming) ? existing + eol : [existing, '', '<!-- prompt-optimizer:import:append -->', incoming, ''].join(eol), 'utf8');
+        } else {
+          fs.writeFileSync(abs, content, 'utf8');
+        }
+        written += 1;
+      }
+      await this.panel.webview.postMessage({ type: 'instructionsActionDone', ok: true, message: `Imported ${written} instruction file${written === 1 ? '' : 's'}.` });
+      await this.postInstructionsOverview();
+    } catch (err) {
+      await this.panel.webview.postMessage({ type: 'instructionsActionDone', ok: false, error: err instanceof Error ? err.message : 'Import failed.' });
+    }
+  }
+
+  private async toggleInstructionRule(data: { relPath?: string; line?: number; ruleText?: string; enabled?: boolean }): Promise<void> {
+    const relPath = data.relPath;
+    const ruleText = String(data.ruleText || '').trim();
+    const targetEnabled = data.enabled === true;
+    if (!relPath || !ruleText || ruleText.includes('-->')) {
+      await this.panel.webview.postMessage({ type: 'instructionsActionDone', ok: false, error: 'Missing or invalid rule details.' });
+      return;
+    }
+    const resolved = this.resolveInstructionPath(relPath);
+    if (!resolved) {
+      await this.panel.webview.postMessage({ type: 'instructionsActionDone', ok: false, error: 'Invalid instruction path.' });
+      return;
+    }
+    try {
+      const original = fs.readFileSync(resolved.abs, 'utf8');
+      const eol = original.includes('\r\n') ? '\r\n' : '\n';
+      const lines = original.split(/\r?\n/);
+      const offRe = /^(\s*)<!--\s*po-off:\s?([\s\S]*?)\s*-->\s*$/;
+      const stripped = (s: string): string => s.replace(/^\s*<!--\s*po-off:\s?/, '').replace(/\s*-->\s*$/, '').replace(/^>\s?/, '').replace(/^[-*+]\s+/, '').replace(/^\d+[.)]\s+/, '').replace(/^\[[ xX]\]\s+/, '').trim();
+      let idx = (typeof data.line === 'number' ? data.line : 0) - 1;
+      if (idx < 0 || idx >= lines.length || stripped(lines[idx]) !== ruleText) {
+        const matches: number[] = [];
+        for (let i = 0; i < lines.length; i += 1) {
+          if (stripped(lines[i]) === ruleText) { matches.push(i); }
+        }
+        if (matches.length !== 1) {
+          await this.panel.webview.postMessage({ type: 'instructionsActionDone', ok: false, error: 'Could not locate that rule in the file.' });
+          return;
+        }
+        idx = matches[0];
+      }
+      let managed = false;
+      for (let i = 0; i <= idx; i += 1) {
+        const t = lines[i].trim();
+        if (t.includes('prompt-optimizer:memory:begin')) { managed = true; }
+        else if (t.includes('prompt-optimizer:memory:end')) { managed = false; }
+      }
+      if (managed) {
+        await this.panel.webview.postMessage({ type: 'instructionsActionDone', ok: false, error: 'This rule is in an auto-managed block and cannot be toggled.' });
+        return;
+      }
+      const line = lines[idx];
+      const isOff = offRe.test(line);
+      if (targetEnabled) {
+        if (isOff) {
+          const match = offRe.exec(line);
+          if (match) { lines[idx] = match[1] + match[2]; }
+        }
+      } else if (!isOff) {
+        const indent = (/^(\s*)/.exec(line) || ['',''])[1];
+        lines[idx] = `${indent}<!-- po-off: ${line.slice(indent.length)} -->`;
+      }
+      fs.writeFileSync(resolved.abs, lines.join(eol), 'utf8');
+      await this.panel.webview.postMessage({ type: 'instructionsActionDone', ok: true, message: targetEnabled ? 'Rule enabled.' : 'Rule disabled.' });
+      await this.postInstructionsOverview();
+    } catch (err) {
+      await this.panel.webview.postMessage({ type: 'instructionsActionDone', ok: false, error: err instanceof Error ? err.message : 'Could not update the rule.' });
+    }
+  }
+
+  private async togglePersona(data: { personaId?: string; sourceFile?: string; enabled?: boolean }): Promise<void> {
+    const wsRoot = this.workspaceRoot();
+    const personaId = data.personaId;
+    if (!wsRoot || !personaId || !/^[a-z0-9][a-z0-9-]*$/.test(personaId)) {
+      await this.panel.webview.postMessage({ type: 'instructionsActionDone', ok: false, error: 'Invalid persona details.' });
+      return;
+    }
+    const targetDir = path.join(wsRoot, '.promptoptimizer', 'skills');
+    const targetPath = path.join(targetDir, `${personaId}.md`);
+    try {
+      if (data.enabled === true) {
+        const sourceFile = data.sourceFile;
+        if (!sourceFile || !/^[A-Za-z0-9._-]+\.md$/.test(sourceFile)) {
+          await this.panel.webview.postMessage({ type: 'instructionsActionDone', ok: false, error: 'Invalid persona source file.' });
+          return;
+        }
+        const libDir = path.join(this.context.extensionUri.fsPath, 'media', 'skill-library');
+        const srcPath = path.join(libDir, sourceFile);
+        const srcRel = path.relative(libDir, srcPath);
+        if (srcRel.startsWith('..') || path.isAbsolute(srcRel) || !fs.existsSync(srcPath)) {
+          await this.panel.webview.postMessage({ type: 'instructionsActionDone', ok: false, error: 'Bundled persona not found.' });
+          return;
+        }
+        fs.mkdirSync(targetDir, { recursive: true });
+        fs.copyFileSync(srcPath, targetPath);
+        await this.panel.webview.postMessage({ type: 'instructionsActionDone', ok: true, message: 'Persona enabled.' });
+      } else {
+        if (fs.existsSync(targetPath)) { fs.rmSync(targetPath); }
+        await this.panel.webview.postMessage({ type: 'instructionsActionDone', ok: true, message: 'Persona disabled.' });
+      }
+      await this.postInstructionsOverview();
+    } catch (err) {
+      await this.panel.webview.postMessage({ type: 'instructionsActionDone', ok: false, error: err instanceof Error ? err.message : 'Could not update the persona.' });
     }
   }
 

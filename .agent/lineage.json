@@ -48,5 +48,75 @@
     "modifiedBy": "Architect",
     "rule": "Always run unit tests before completing changes.",
     "commit": "local-uncommitted"
+  },
+  {
+    "sessionId": "sess-mq0rv0l1-f7yrju",
+    "timestamp": "2026-06-05T10:19:07.573Z",
+    "workflowName": "Canvas Generated Workflow",
+    "versionIndex": 7,
+    "file": ".instruction_studio/instructions.md",
+    "modifiedBy": "Architect",
+    "rule": "Always run unit tests.",
+    "commit": "local-uncommitted"
+  },
+  {
+    "sessionId": "sess-mq0rv0l1-f7yrju",
+    "timestamp": "2026-06-05T10:19:07.573Z",
+    "workflowName": "Canvas Generated Workflow",
+    "versionIndex": 7,
+    "file": ".instruction_studio/instructions.md",
+    "modifiedBy": "Architect",
+    "rule": "Rules of Hooks MUST be followed. No conditional hooks.",
+    "commit": "local-uncommitted"
+  },
+  {
+    "sessionId": "sess-mq0rvkfd-lecmnd",
+    "timestamp": "2026-06-05T10:19:33.289Z",
+    "workflowName": "Canvas Generated Workflow",
+    "versionIndex": 8,
+    "file": ".instruction_studio/instructions.md",
+    "modifiedBy": "Architect",
+    "rule": "Always run unit tests.",
+    "commit": "local-uncommitted"
+  },
+  {
+    "sessionId": "sess-mq0rvkfd-lecmnd",
+    "timestamp": "2026-06-05T10:19:33.289Z",
+    "workflowName": "Canvas Generated Workflow",
+    "versionIndex": 8,
+    "file": ".instruction_studio/instructions.md",
+    "modifiedBy": "Architect",
+    "rule": "Rules of Hooks MUST be followed. No conditional hooks.",
+    "commit": "local-uncommitted"
+  },
+  {
+    "sessionId": "sess-mq0rvkfd-lecmnd",
+    "timestamp": "2026-06-05T10:19:33.289Z",
+    "workflowName": "Canvas Generated Workflow",
+    "versionIndex": 8,
+    "file": ".instruction_studio/instructions.md",
+    "modifiedBy": "Architect",
+    "rule": "Summarize behavioral risks and list affected files before marking work complete.",
+    "commit": "local-uncommitted"
+  },
+  {
+    "sessionId": "sess-mq0t5gqt-9iq6yw",
+    "timestamp": "2026-06-05T10:55:14.693Z",
+    "workflowName": "Canvas Generated Workflow",
+    "versionIndex": 9,
+    "file": ".instruction_studio/instructions.md",
+    "modifiedBy": "Architect",
+    "rule": "Always run unit tests.",
+    "commit": "local-uncommitted"
+  },
+  {
+    "sessionId": "sess-mq0t5gqt-9iq6yw",
+    "timestamp": "2026-06-05T10:55:14.693Z",
+    "workflowName": "Canvas Generated Workflow",
+    "versionIndex": 9,
+    "file": ".instruction_studio/instructions.md",
+    "modifiedBy": "New Persona",
+    "rule": "Use \"use server\" by default. Only use \"use client\" when reactivity is needed.",
+    "commit": "local-uncommitted"
   }
 ]

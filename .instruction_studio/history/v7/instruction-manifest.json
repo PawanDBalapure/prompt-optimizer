@@ -1,14 +1,12 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-06-05T10:55:14.689Z",
+  "generatedAt": "2026-06-05T10:19:07.569Z",
   "workflowName": "Canvas Generated Workflow",
   "orderedNodeIds": [
     "v_1",
     "v_2",
     "v_3",
-    "v_e6l4l0",
-    "v_hbh7yi",
-    "v_uyrxro"
+    "v_5mw9ta"
   ],
   "entries": [
     {
@@ -20,16 +18,16 @@
       "agentScope": "Code Generation"
     },
     {
-      "nodeId": "v_hbh7yi",
-      "text": "Use \"use server\" by default. Only use \"use client\" when reactivity is needed.",
-      "persona": "New Persona",
-      "condition": "Always",
+      "nodeId": "v_5mw9ta",
+      "text": "Rules of Hooks MUST be followed. No conditional hooks.",
+      "persona": "Architect",
+      "condition": "If Task=Refactor",
       "priority": "Medium",
       "agentScope": "Code Generation"
     }
   ],
   "graph": {
-    "nodeCount": 6,
-    "edgeCount": 5
+    "nodeCount": 4,
+    "edgeCount": 3
   }
 }

@@ -63,5 +63,96 @@
       ".instruction_studio/instructions.md",
       ".instruction_studio/instruction-manifest.json"
     ]
+  },
+  {
+    "sessionId": "sess-mq0rv0l1-f7yrju",
+    "timestamp": "2026-06-05T10:19:07.573Z",
+    "workflowName": "Canvas Generated Workflow",
+    "versionIndex": 7,
+    "ruleId": "v_3",
+    "status": "executed",
+    "confidence": 0.96,
+    "filesAffected": [
+      ".instruction_studio/instructions.md",
+      ".instruction_studio/instruction-manifest.json"
+    ]
+  },
+  {
+    "sessionId": "sess-mq0rv0l1-f7yrju",
+    "timestamp": "2026-06-05T10:19:07.573Z",
+    "workflowName": "Canvas Generated Workflow",
+    "versionIndex": 7,
+    "ruleId": "v_5mw9ta",
+    "status": "executed",
+    "confidence": 0.96,
+    "filesAffected": [
+      ".instruction_studio/instructions.md",
+      ".instruction_studio/instruction-manifest.json"
+    ]
+  },
+  {
+    "sessionId": "sess-mq0rvkfd-lecmnd",
+    "timestamp": "2026-06-05T10:19:33.289Z",
+    "workflowName": "Canvas Generated Workflow",
+    "versionIndex": 8,
+    "ruleId": "v_3",
+    "status": "executed",
+    "confidence": 0.96,
+    "filesAffected": [
+      ".instruction_studio/instructions.md",
+      ".instruction_studio/instruction-manifest.json"
+    ]
+  },
+  {
+    "sessionId": "sess-mq0rvkfd-lecmnd",
+    "timestamp": "2026-06-05T10:19:33.289Z",
+    "workflowName": "Canvas Generated Workflow",
+    "versionIndex": 8,
+    "ruleId": "v_5mw9ta",
+    "status": "executed",
+    "confidence": 0.96,
+    "filesAffected": [
+      ".instruction_studio/instructions.md",
+      ".instruction_studio/instruction-manifest.json"
+    ]
+  },
+  {
+    "sessionId": "sess-mq0rvkfd-lecmnd",
+    "timestamp": "2026-06-05T10:19:33.289Z",
+    "workflowName": "Canvas Generated Workflow",
+    "versionIndex": 8,
+    "ruleId": "v_wyuwxg",
+    "status": "executed",
+    "confidence": 0.96,
+    "filesAffected": [
+      ".instruction_studio/instructions.md",
+      ".instruction_studio/instruction-manifest.json"
+    ]
+  },
+  {
+    "sessionId": "sess-mq0t5gqt-9iq6yw",
+    "timestamp": "2026-06-05T10:55:14.693Z",
+    "workflowName": "Canvas Generated Workflow",
+    "versionIndex": 9,
+    "ruleId": "v_3",
+    "status": "executed",
+    "confidence": 0.96,
+    "filesAffected": [
+      ".instruction_studio/instructions.md",
+      ".instruction_studio/instruction-manifest.json"
+    ]
+  },
+  {
+    "sessionId": "sess-mq0t5gqt-9iq6yw",
+    "timestamp": "2026-06-05T10:55:14.693Z",
+    "workflowName": "Canvas Generated Workflow",
+    "versionIndex": 9,
+    "ruleId": "v_hbh7yi",
+    "status": "executed",
+    "confidence": 0.96,
+    "filesAffected": [
+      ".instruction_studio/instructions.md",
+      ".instruction_studio/instruction-manifest.json"
+    ]
   }
 ]

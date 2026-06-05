@@ -78,5 +78,68 @@
     "activeRuleCount": 1,
     "inactiveRuleCount": 0,
     "ruleUsageCount": 1
+  },
+  {
+    "sessionId": "sess-mq0rtuql-itayw0",
+    "conversationRef": "instruction-studio-6",
+    "timestamp": "2026-06-05T10:18:13.341Z",
+    "workflowName": "Canvas Generated Workflow",
+    "versionIndex": 6,
+    "personasActive": [],
+    "activeRuleCount": 0,
+    "inactiveRuleCount": 0,
+    "ruleUsageCount": 0
+  },
+  {
+    "sessionId": "sess-mq0rv0l1-f7yrju",
+    "conversationRef": "instruction-studio-7",
+    "timestamp": "2026-06-05T10:19:07.573Z",
+    "workflowName": "Canvas Generated Workflow",
+    "versionIndex": 7,
+    "personasActive": [
+      {
+        "id": "architect",
+        "version": "v7"
+      }
+    ],
+    "activeRuleCount": 2,
+    "inactiveRuleCount": 0,
+    "ruleUsageCount": 2
+  },
+  {
+    "sessionId": "sess-mq0rvkfd-lecmnd",
+    "conversationRef": "instruction-studio-8",
+    "timestamp": "2026-06-05T10:19:33.289Z",
+    "workflowName": "Canvas Generated Workflow",
+    "versionIndex": 8,
+    "personasActive": [
+      {
+        "id": "architect",
+        "version": "v8"
+      }
+    ],
+    "activeRuleCount": 3,
+    "inactiveRuleCount": 0,
+    "ruleUsageCount": 3
+  },
+  {
+    "sessionId": "sess-mq0t5gqt-9iq6yw",
+    "conversationRef": "instruction-studio-9",
+    "timestamp": "2026-06-05T10:55:14.693Z",
+    "workflowName": "Canvas Generated Workflow",
+    "versionIndex": 9,
+    "personasActive": [
+      {
+        "id": "architect",
+        "version": "v9"
+      },
+      {
+        "id": "new-persona",
+        "version": "v9"
+      }
+    ],
+    "activeRuleCount": 2,
+    "inactiveRuleCount": 0,
+    "ruleUsageCount": 2
   }
 ]

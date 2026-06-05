@@ -1,0 +1,69 @@
+{
+  "workflowName": "Canvas Generated Workflow",
+  "nodes": [
+    {
+      "id": "v_1",
+      "type": "persona",
+      "label": "Architect",
+      "text": "Architect",
+      "active": true
+    },
+    {
+      "id": "v_2",
+      "type": "condition",
+      "label": "If Task=Refactor",
+      "text": "If Task=Refactor",
+      "active": true
+    },
+    {
+      "id": "v_3",
+      "type": "rule",
+      "label": "Always run unit tests.",
+      "text": "Always run unit tests.",
+      "active": true
+    },
+    {
+      "id": "v_e6l4l0",
+      "type": "persona",
+      "label": "New Persona",
+      "text": "New Persona",
+      "active": true
+    },
+    {
+      "id": "v_uyrxro",
+      "type": "persona",
+      "label": "New Persona",
+      "text": "New Persona",
+      "active": true
+    },
+    {
+      "id": "v_hbh7yi",
+      "type": "rule",
+      "label": "Use \"use server\" by default. Only use \"use client\" when reactivity is needed.",
+      "text": "Use \"use server\" by default. Only use \"use client\" when reactivity is needed.",
+      "active": true
+    }
+  ],
+  "edges": [
+    {
+      "from": "v_1",
+      "to": "v_2"
+    },
+    {
+      "from": "v_2",
+      "to": "v_3"
+    },
+    {
+      "from": "v_1",
+      "to": "v_e6l4l0"
+    },
+    {
+      "from": "v_e6l4l0",
+      "to": "v_uyrxro"
+    },
+    {
+      "from": "v_e6l4l0",
+      "to": "v_hbh7yi"
+    }
+  ]
+}

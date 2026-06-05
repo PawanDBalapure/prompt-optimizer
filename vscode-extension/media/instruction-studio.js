@@ -41,6 +41,35 @@
     });
   }
 
+  function ensureUndoRedoButtons() {
+    var canvasActions = document.querySelector('.canvas-actions.actions');
+    if (canvasActions) {
+      if (!document.getElementById('vBtnUndo')) {
+        var undoCanvas = document.createElement('button');
+        undoCanvas.id = 'vBtnUndo';
+        undoCanvas.type = 'button';
+        undoCanvas.title = 'Undo canvas change';
+        undoCanvas.textContent = 'Undo';
+        undoCanvas.disabled = true;
+        canvasActions.insertBefore(undoCanvas, canvasActions.firstChild);
+      }
+      if (!document.getElementById('vBtnRedo')) {
+        var redoCanvas = document.createElement('button');
+        redoCanvas.id = 'vBtnRedo';
+        redoCanvas.type = 'button';
+        redoCanvas.title = 'Redo canvas change';
+        redoCanvas.textContent = 'Redo';
+        redoCanvas.disabled = true;
+        var anchorCanvas = document.getElementById('vBtnUndo');
+        if (anchorCanvas && anchorCanvas.nextSibling) {
+          canvasActions.insertBefore(redoCanvas, anchorCanvas.nextSibling);
+        } else {
+          canvasActions.insertBefore(redoCanvas, canvasActions.firstChild);
+        }
+      }
+    }
+  }
+
   function ensureRuleFallback() {
     rules = normalizeRules(rules);
   }
@@ -139,10 +168,11 @@
         delete appliedPresets[preset.id];
         btn.classList.remove('selected');
         renderVCanvas();
+        recordCanvasHistory();
       } else {
         var rid = 'v_' + Math.random().toString(36).slice(2, 8);
         var baseConditionNode = vNodes.find(function(n) { return n.type === 'condition'; });
-        vNodes.push({ id: rid, type: 'rule', text: preset.ruleText || 'Rule text...', x: 450, y: 50 + (Object.keys(appliedPresets).length * 60) });
+        vNodes.push({ id: rid, type: 'rule', text: preset.ruleText || 'Rule text...', priority: 'Medium', x: 450, y: 50 + (Object.keys(appliedPresets).length * 60) });
         if (baseConditionNode) {
           vEdges.push({ from: baseConditionNode.id, to: rid });
         }
@@ -151,6 +181,7 @@
           btn.classList.add('selected');
         }
         renderVCanvas();
+        recordCanvasHistory();
       }
     } else {
       setValue('workflowName', preset.workflowName || 'Instruction Studio Starter');
@@ -215,6 +246,358 @@
         applyPreset(selected);
       }
     };
+  }
+
+  var lastInstructionsOverview = null;
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function setInstructionsNote(text, kind) {
+    var host = document.getElementById('instrActionNote');
+    if (!host) { return; }
+    host.textContent = text || '';
+    host.classList.remove('is-error', 'is-ok');
+    if (kind) {
+      host.classList.add(kind);
+    }
+  }
+
+  function requestInstructionsOverview() {
+    vscode.postMessage({ type: 'requestInstructionsOverview' });
+  }
+
+  function activateInstructionsTab(name) {
+    document.querySelectorAll('.instr-tab').forEach(function (tab) {
+      var on = tab.getAttribute('data-tab') === name;
+      tab.classList.toggle('is-active', on);
+      tab.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    document.querySelectorAll('.instr-pane').forEach(function (pane) {
+      var on = pane.id === 'instrPane' + name.charAt(0).toUpperCase() + name.slice(1);
+      pane.classList.toggle('is-active', on);
+      pane.hidden = !on;
+    });
+    if (name === 'history') {
+      requestInstructionsHistory();
+    }
+  }
+
+  function instructionKindClass(kind) {
+    return kind === 'copilot' ? 'kind-copilot' : kind === 'agent' ? 'kind-agent' : 'kind-memory';
+  }
+
+  function conflictingUnitIds(overview) {
+    var ids = {};
+    (overview.conflicts || []).forEach(function (conflict) {
+      ids[conflict.aId] = true;
+      ids[conflict.bId] = true;
+    });
+    return ids;
+  }
+
+  function renderInstructionsActive(overview) {
+    var host = document.getElementById('instrActiveList');
+    if (!host) { return; }
+    var present = (overview.sources || []).filter(function (src) { return src.exists && src.unitCount > 0; });
+    var conflicting = conflictingUnitIds(overview);
+    var unitsBySource = {};
+    (overview.units || []).forEach(function (unit) {
+      (unitsBySource[unit.sourceId] = unitsBySource[unit.sourceId] || []).push(unit);
+    });
+    var html = (overview.sources || []).map(function (src) {
+      var units = unitsBySource[src.id] || [];
+      var unitHtml = units.map(function (unit) {
+        var cls = [];
+        if (unit.managed) { cls.push('is-managed'); }
+        if (unit.disabled) { cls.push('is-disabled'); }
+        if (conflicting[unit.id]) { cls.push('is-conflicting'); }
+        var toggle = unit.managed
+          ? '<span class="instr-unit-lock" title="Auto-managed block">LOCK</span>'
+          : '<input type="checkbox" class="instr-unit-cb" ' + (unit.disabled ? '' : 'checked ')
+            + 'data-rel="' + esc(src.relPath) + '" '
+            + 'data-line="' + unit.line + '" '
+            + 'data-text="' + esc(unit.text) + '">';
+        return '<li class="' + cls.join(' ') + '"><label class="instr-unit">'
+          + toggle + '<span class="instr-unit-text">' + esc(unit.text) + '</span></label></li>';
+      }).join('');
+      var meta = src.exists ? (src.unitCount + ' rule' + (src.unitCount === 1 ? '' : 's')) : 'not created';
+      return '<div class="instr-source">'
+        + '<div class="instr-source-hdr" data-open="' + esc(src.relPath) + '">'
+        + '<span class="instr-source-kind ' + instructionKindClass(src.kind) + '">' + esc(src.kind) + '</span>'
+        + '<span class="instr-source-label">' + esc(src.label) + '</span>'
+        + '<span class="instr-source-meta">P' + src.priority + ' · ' + esc(meta) + '</span>'
+        + '<button class="instr-source-open" type="button" data-open="' + esc(src.relPath) + '">Open</button>'
+        + '</div>'
+        + (units.length ? '<ul class="instr-units">' + unitHtml + '</ul>' : '')
+        + '</div>';
+    }).join('');
+    host.innerHTML = present.length === 0
+      ? '<div class="instr-empty">No instruction files found yet.</div>' + html
+      : html;
+  }
+
+  function renderInstructionsPriority(overview) {
+    var list = document.getElementById('instrPriorityList');
+    if (!list) { return; }
+    var byId = {};
+    (overview.sources || []).forEach(function (src) { byId[src.id] = src; });
+    var order = overview.priorityOrder || [];
+    list.innerHTML = order.length === 0
+      ? '<li class="instr-empty">No active instruction sources yet.</li>'
+      : order.map(function (id) {
+          var src = byId[id];
+          if (!src) { return ''; }
+          return '<li><span class="instr-prio-num">P' + src.priority + '</span> ' + esc(src.label)
+            + '<span class="instr-prio-why">' + esc(src.authority) + '</span></li>';
+        }).join('');
+  }
+
+  function renderInstructionsConflicts(overview) {
+    var host = document.getElementById('instrConflictList');
+    var badge = document.getElementById('instrConflictBadge');
+    if (!host) { return; }
+    var conflicts = overview.conflicts || [];
+    if (badge) {
+      badge.hidden = conflicts.length === 0;
+      badge.textContent = String(conflicts.length);
+    }
+    if (conflicts.length === 0) {
+      host.innerHTML = '<div class="instr-empty">No source-level contradictions detected.</div>';
+      return;
+    }
+    host.innerHTML = conflicts.map(function (conflict) {
+      return '<div class="instr-conflict">'
+        + '<div class="instr-conflict-kind">' + esc(conflict.kind) + ' conflict</div>'
+        + '<div class="instr-conflict-rule">' + esc(conflict.aText) + '<div class="instr-conflict-src">' + esc(conflict.aSourceLabel) + '</div></div>'
+        + '<div class="instr-conflict-rule">' + esc(conflict.bText) + '<div class="instr-conflict-src">' + esc(conflict.bSourceLabel) + '</div></div>'
+        + '<div class="instr-conflict-reason">' + esc(conflict.reason) + '</div>'
+        + '<div class="instr-conflict-res">' + esc(conflict.resolution) + '</div>'
+        + '<div class="instr-conflict-fix">Fix: ' + esc(conflict.suggestion) + '</div>'
+        + '</div>';
+    }).join('');
+  }
+
+  function renderInstructionsPersonas(overview) {
+    var host = document.getElementById('instrPersonaList');
+    if (!host) { return; }
+    var personas = overview.personas || [];
+    if (personas.length === 0) {
+      host.innerHTML = '<div class="instr-empty">No bundled personas found.</div>';
+      return;
+    }
+    var onCount = personas.filter(function (persona) { return persona.enabled; }).length;
+    host.innerHTML = '<div class="instr-persona-hint">' + onCount + ' of ' + personas.length + ' bundled personas enabled.</div>'
+      + personas.map(function (persona) {
+          var tags = (persona.tags || []).map(function (tag) { return '<span class="instr-persona-tag">' + esc(tag) + '</span>'; }).join('');
+          return '<div class="instr-persona' + (persona.enabled ? ' is-on' : '') + '">'
+            + '<label class="instr-persona-row">'
+            + '<input type="checkbox" class="instr-persona-cb" ' + (persona.enabled ? 'checked ' : '')
+            + 'data-id="' + esc(persona.id) + '" data-src="' + esc(persona.sourceFile) + '">'
+            + '<span class="instr-persona-label">' + esc(persona.label) + '</span>'
+            + (persona.readOnly ? '<span class="instr-persona-ro">read-only</span>' : '')
+            + '</label>'
+            + (persona.description ? '<div class="instr-persona-desc">' + esc(persona.description) + '</div>' : '')
+            + (tags ? '<div class="instr-persona-tags">' + tags + '</div>' : '')
+            + '</div>';
+        }).join('');
+  }
+
+  function renderInstructionsHistorySelect(overview) {
+    var select = document.getElementById('instrHistorySelect');
+    var host = document.getElementById('instrHistoryList');
+    if (!select || !host) { return; }
+    var present = (overview.sources || []).filter(function (src) { return src.exists; });
+    select.innerHTML = present.map(function (src) {
+      return '<option value="' + esc(src.relPath) + '">' + esc(src.label) + '</option>';
+    }).join('');
+    host.innerHTML = present.length
+      ? '<div class="instr-empty">Select a file to load git history.</div>'
+      : '<div class="instr-empty">No instruction files to inspect.</div>';
+  }
+
+  function requestInstructionsHistory() {
+    var select = document.getElementById('instrHistorySelect');
+    var host = document.getElementById('instrHistoryList');
+    if (!select || !host || !select.value) { return; }
+    host.innerHTML = '<div class="instr-empty">Loading history…</div>';
+    vscode.postMessage({ type: 'instructionsHistory', relPath: select.value });
+  }
+
+  function tokenizeInstructionsText(text) {
+    return text.toLowerCase().match(/[a-z0-9]{4,}/g) || [];
+  }
+
+  function simulateInstructionsTask() {
+    var input = document.getElementById('instrPlaygroundInput');
+    var result = document.getElementById('instrPlaygroundResult');
+    if (!input || !result) { return; }
+    if (!lastInstructionsOverview) {
+      result.innerHTML = '<div class="instr-empty">Refresh instructions first.</div>';
+      return;
+    }
+    var task = String(input.value || '').trim();
+    if (!task) {
+      result.innerHTML = '<div class="instr-empty">Enter a task to simulate.</div>';
+      return;
+    }
+    var taskTokens = {};
+    tokenizeInstructionsText(task).forEach(function (token) { taskTokens[token] = true; });
+    var active = (lastInstructionsOverview.units || []).filter(function (unit) { return !unit.managed && !unit.disabled; });
+    var relevant = active.filter(function (unit) {
+      return tokenizeInstructionsText(unit.text).some(function (token) { return taskTokens[token]; });
+    });
+    var conflictsHit = (lastInstructionsOverview.conflicts || []).filter(function (conflict) {
+      return tokenizeInstructionsText(conflict.aText + ' ' + conflict.bText).some(function (token) { return taskTokens[token]; });
+    });
+    var html = '<div class="instr-pg-section-title">Effective instruction stack (' + active.length + ' active)</div>';
+    html += relevant.length
+      ? relevant.map(function (unit) {
+          return '<div class="instr-pg-check">' + esc(unit.text) + ' <span class="instr-conflict-src">(' + esc(unit.sourceLabel) + ')</span></div>';
+        }).join('')
+      : '<div class="instr-empty">No specific instruction source directly targets this task.</div>';
+    html += '<div class="instr-pg-section-title">Conflicts that may affect this task</div>';
+    html += conflictsHit.length
+      ? conflictsHit.map(function (conflict) {
+          return '<div class="instr-pg-warn">' + esc(conflict.reason) + ' — ' + esc(conflict.resolution) + '</div>';
+        }).join('')
+      : '<div class="instr-pg-check">No detected source conflicts apply to this task.</div>';
+    result.innerHTML = html;
+  }
+
+  function handleInstructionsOverviewMessage(msg) {
+    if (!msg || msg.ok === false) {
+      setInstructionsNote((msg && msg.error) || 'Could not load instructions.', 'is-error');
+      var activeHost = document.getElementById('instrActiveList');
+      if (activeHost) {
+        activeHost.innerHTML = '<div class="instr-empty">' + esc((msg && msg.error) || 'Unavailable.') + '</div>';
+      }
+      return;
+    }
+    lastInstructionsOverview = msg.payload || {};
+    setInstructionsNote(
+      String(lastInstructionsOverview.totalUnits || 0) + ' rules · ' + String((lastInstructionsOverview.conflicts || []).length) + ' conflict(s)',
+      (lastInstructionsOverview.conflicts || []).length ? null : 'is-ok'
+    );
+    renderInstructionsActive(lastInstructionsOverview);
+    renderInstructionsPriority(lastInstructionsOverview);
+    renderInstructionsConflicts(lastInstructionsOverview);
+    renderInstructionsPersonas(lastInstructionsOverview);
+    renderInstructionsHistorySelect(lastInstructionsOverview);
+  }
+
+  function handleInstructionsHistoryMessage(msg) {
+    var host = document.getElementById('instrHistoryList');
+    if (!host) { return; }
+    if (!msg || msg.ok === false) {
+      host.innerHTML = '<div class="instr-empty">' + esc((msg && msg.error) || 'No history available.') + '</div>';
+      return;
+    }
+    var commits = msg.commits || [];
+    host.innerHTML = commits.length === 0
+      ? '<div class="instr-empty">No commits recorded for this file yet.</div>'
+      : commits.map(function (commit) {
+          return '<div class="instr-commit">'
+            + '<span class="instr-commit-sha">' + esc(commit.sha) + '</span>'
+            + '<span class="instr-commit-subject">' + esc(commit.subject) + '</span>'
+            + '<span class="instr-commit-meta">' + esc(commit.author) + ' · ' + esc(commit.date) + '</span>'
+            + '</div>';
+        }).join('');
+  }
+
+  function handleInstructionsActionDone(msg) {
+    if (!msg) { return; }
+    if (msg.ok) {
+      setInstructionsNote(msg.message || 'Done.', 'is-ok');
+    } else {
+      setInstructionsNote(msg.error || 'Action cancelled.', msg.error ? 'is-error' : null);
+      requestInstructionsOverview();
+    }
+  }
+
+  function setupInstructionsManager() {
+    document.querySelectorAll('.instr-tab').forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        var name = tab.getAttribute('data-tab') || 'active';
+        activateInstructionsTab(name);
+      });
+    });
+    var btnRefresh = document.getElementById('btnInstrRefresh');
+    if (btnRefresh) {
+      btnRefresh.addEventListener('click', function () {
+        setInstructionsNote('Rescanning…');
+        requestInstructionsOverview();
+      });
+    }
+    var btnExport = document.getElementById('btnInstrExport');
+    if (btnExport) {
+      btnExport.addEventListener('click', function () {
+        setInstructionsNote('Exporting…');
+        vscode.postMessage({ type: 'exportInstructions' });
+      });
+    }
+    var btnImport = document.getElementById('btnInstrImport');
+    if (btnImport) {
+      btnImport.addEventListener('click', function () {
+        setInstructionsNote('Importing…');
+        vscode.postMessage({ type: 'importInstructions' });
+      });
+    }
+    var btnSimulate = document.getElementById('btnInstrSimulate');
+    if (btnSimulate) {
+      btnSimulate.addEventListener('click', simulateInstructionsTask);
+    }
+    var historySelect = document.getElementById('instrHistorySelect');
+    if (historySelect) {
+      historySelect.addEventListener('change', requestInstructionsHistory);
+    }
+    var activeList = document.getElementById('instrActiveList');
+    if (activeList) {
+      activeList.addEventListener('click', function (event) {
+        var el = event.target.closest ? event.target.closest('[data-open]') : null;
+        if (!el) { return; }
+        var rel = el.getAttribute('data-open');
+        if (rel) {
+          vscode.postMessage({ type: 'openInstructionFile', relPath: rel });
+        }
+      });
+      activeList.addEventListener('change', function (event) {
+        var cb = event.target.closest ? event.target.closest('.instr-unit-cb') : null;
+        if (!cb) { return; }
+        var rel = cb.getAttribute('data-rel');
+        var line = parseInt(cb.getAttribute('data-line'), 10);
+        var text = cb.getAttribute('data-text');
+        if (!rel || !text) { return; }
+        setInstructionsNote(cb.checked ? 'Enabling rule…' : 'Disabling rule…');
+        vscode.postMessage({
+          type: 'toggleInstructionRule',
+          relPath: rel,
+          line: isNaN(line) ? undefined : line,
+          ruleText: text,
+          enabled: cb.checked,
+        });
+      });
+    }
+    var personaList = document.getElementById('instrPersonaList');
+    if (personaList) {
+      personaList.addEventListener('change', function (event) {
+        var cb = event.target.closest ? event.target.closest('.instr-persona-cb') : null;
+        if (!cb) { return; }
+        setInstructionsNote(cb.checked ? 'Enabling persona…' : 'Disabling persona…');
+        vscode.postMessage({
+          type: 'togglePersona',
+          personaId: cb.getAttribute('data-id'),
+          sourceFile: cb.getAttribute('data-src'),
+          enabled: cb.checked,
+        });
+      });
+    }
   }
 
   function renderTrace(rows) {
@@ -329,6 +712,7 @@
         vSelectedNode.text = String(aiSuggestion.proposed || '').trim();
         updateVInspector();
         renderVCanvas();
+        recordCanvasHistory();
       } else if (rules[0]) {
         rules[0].text = String(aiSuggestion.proposed || '').trim();
         renderRules();
@@ -486,6 +870,7 @@
         if (pNode) {
           pNode.text = strongName;
           renderVCanvas();
+          recordCanvasHistory();
         }
       }
     });
@@ -495,11 +880,14 @@
     btn.addEventListener('click', function(e) {
       const action = btn.getAttribute('data-action');
       if (action === 'ribbonNew') {
-        vNodes = [{ id: 'v_1', type: 'persona', text: 'New Persona', x: 20, y: 50 }];
+        vNodes = [{ id: 'v_1', type: 'persona', text: 'New Persona', priority: 'Medium', x: 20, y: 50 }];
         vEdges = [];
         vSelectedNode = null;
+        vSelectedEdge = null;
         updateVInspector();
+        updateSelectedLinkInspector();
         renderVCanvas();
+        recordCanvasHistory();
         return;
       }
       if (action === 'ribbonClone') {
@@ -507,6 +895,7 @@
           var newN = Object.assign({}, vSelectedNode, { id: 'v_' + Math.random().toString(36).slice(2, 8), x: vSelectedNode.x + 20, y: vSelectedNode.y + 20 });
           vNodes.push(newN);
           renderVCanvas();
+          recordCanvasHistory();
         }
         return;
       }
@@ -678,9 +1067,23 @@
         gitResult.textContent = String(data.message || '');
       }
     }
+    if (data.type === 'instructionsOverview') {
+      handleInstructionsOverviewMessage(data);
+    }
+    if (data.type === 'instructionsHistory') {
+      handleInstructionsHistoryMessage(data);
+    }
+    if (data.type === 'instructionsActionDone') {
+      handleInstructionsActionDone(data);
+      if (data.ok) {
+        requestInstructionsOverview();
+      }
+    }
   });
 
   // --- VCanvas Engine ---
+  var CANVAS_HISTORY_LIMIT = 240;
+  var CANVAS_HISTORY_STORAGE_KEY = 'instructionStudioCanvasHistoryV1';
   var vNodes = [
     { id: 'v_1', type: 'persona', text: 'Architect', priority: 'High', x: 20, y: 50 },
     { id: 'v_2', type: 'condition', text: 'If Task=Refactor', priority: 'Medium', x: 250, y: 50 },
@@ -691,10 +1094,187 @@
   var vSelectedNode = null;
   var vDraggingNode = null;
   var vDragStartX = 0, vDragStartY = 0, vOrigX = 0, vOrigY = 0;
+  var vDraggedNodeChanged = false;
   var vIsPanning = false, vPanStartX = 0, vPanStartY = 0;
   var vIsLinking = false, vLinkFrom = null;
   var vSelectedEdge = null;
   var vCanvasNoticeTimer = null;
+  var vUndoStack = [];
+  var vRedoStack = [];
+  var vHistoryCommitTimer = null;
+
+  function clonePlain(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function captureCanvasSnapshot() {
+    return {
+      nodes: clonePlain(vNodes),
+      edges: clonePlain(vEdges),
+      pan: clonePlain(vPan),
+      selectedNodeId: vSelectedNode ? vSelectedNode.id : null,
+      selectedEdge: vSelectedEdge ? clonePlain(vSelectedEdge) : null,
+    };
+  }
+
+  function snapshotsEqual(a, b) {
+    return JSON.stringify(a || null) === JSON.stringify(b || null);
+  }
+
+  function readPersistedCanvasState() {
+    var state = vscode.getState();
+    if (state && state.canvasHistory && state.canvasHistory.current) {
+      return state.canvasHistory;
+    }
+    try {
+      var raw = localStorage.getItem(CANVAS_HISTORY_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function persistCanvasState() {
+    var state = vscode.getState() || {};
+    state.canvasHistory = {
+      current: captureCanvasSnapshot(),
+      undoStack: clonePlain(vUndoStack),
+      redoStack: clonePlain(vRedoStack),
+    };
+    vscode.setState(state);
+    try {
+      localStorage.setItem(CANVAS_HISTORY_STORAGE_KEY, JSON.stringify(state.canvasHistory));
+    } catch {
+      // Ignore storage failures.
+    }
+  }
+
+  function updateCanvasHistoryButtons() {
+    var undoBtn = document.getElementById('vBtnUndo');
+    var redoBtn = document.getElementById('vBtnRedo');
+    var canUndo = vUndoStack.length > 1;
+    var canRedo = vRedoStack.length > 0;
+    if (undoBtn) {
+      undoBtn.disabled = !canUndo;
+    }
+    if (redoBtn) {
+      redoBtn.disabled = !canRedo;
+    }
+  }
+
+  function applyCanvasSnapshot(snapshot) {
+    if (!snapshot || !Array.isArray(snapshot.nodes) || !Array.isArray(snapshot.edges)) { return; }
+    vNodes = clonePlain(snapshot.nodes);
+    vEdges = clonePlain(snapshot.edges);
+    vPan = snapshot.pan ? clonePlain(snapshot.pan) : { x: 0, y: 0, scale: 1 };
+    vSelectedNode = snapshot.selectedNodeId
+      ? (vNodes.find(function (node) { return node.id === snapshot.selectedNodeId; }) || null)
+      : null;
+    vSelectedEdge = snapshot.selectedEdge ? clonePlain(snapshot.selectedEdge) : null;
+    updateVInspector();
+    updateSelectedLinkInspector();
+    renderVCanvas();
+    persistCanvasState();
+    updateCanvasHistoryButtons();
+  }
+
+  function recordCanvasHistory() {
+    if (vHistoryCommitTimer) {
+      clearTimeout(vHistoryCommitTimer);
+      vHistoryCommitTimer = null;
+    }
+    var current = captureCanvasSnapshot();
+    if (vUndoStack.length > 0 && snapshotsEqual(vUndoStack[vUndoStack.length - 1], current)) {
+      persistCanvasState();
+      updateCanvasHistoryButtons();
+      return;
+    }
+    vUndoStack.push(current);
+    if (vUndoStack.length > CANVAS_HISTORY_LIMIT) {
+      vUndoStack = vUndoStack.slice(vUndoStack.length - CANVAS_HISTORY_LIMIT);
+    }
+    vRedoStack = [];
+    persistCanvasState();
+    updateCanvasHistoryButtons();
+  }
+
+  function scheduleCanvasHistoryCommit() {
+    if (vHistoryCommitTimer) {
+      clearTimeout(vHistoryCommitTimer);
+    }
+    vHistoryCommitTimer = setTimeout(function () {
+      vHistoryCommitTimer = null;
+      recordCanvasHistory();
+    }, 350);
+  }
+
+  function undoCanvas() {
+    if (vUndoStack.length <= 1) { return; }
+    var current = vUndoStack.pop();
+    if (current) {
+      vRedoStack.push(current);
+    }
+    applyCanvasSnapshot(vUndoStack[vUndoStack.length - 1]);
+    setCanvasNotice('Undo applied.', 'ok');
+  }
+
+  function redoCanvas() {
+    if (vRedoStack.length === 0) { return; }
+    var next = vRedoStack.pop();
+    if (!next) { return; }
+    vUndoStack.push(clonePlain(next));
+    applyCanvasSnapshot(next);
+    setCanvasNotice('Redo applied.', 'ok');
+  }
+
+  function initializeCanvasHistory() {
+    var persisted = readPersistedCanvasState();
+    if (persisted && persisted.current) {
+      vUndoStack = Array.isArray(persisted.undoStack) ? clonePlain(persisted.undoStack) : [];
+      vRedoStack = Array.isArray(persisted.redoStack) ? clonePlain(persisted.redoStack) : [];
+      applyCanvasSnapshot(persisted.current);
+      if (vUndoStack.length === 0 || !snapshotsEqual(vUndoStack[vUndoStack.length - 1], captureCanvasSnapshot())) {
+        vUndoStack.push(captureCanvasSnapshot());
+      }
+    } else {
+      vUndoStack = [captureCanvasSnapshot()];
+      vRedoStack = [];
+      persistCanvasState();
+    }
+    updateCanvasHistoryButtons();
+  }
+
+  function isTypingTarget(target) {
+    if (!target || !target.tagName) { return false; }
+    var tag = String(target.tagName).toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') { return true; }
+    if (target.isContentEditable) { return true; }
+    return false;
+  }
+
+  function setupCanvasKeyboardShortcuts() {
+    window.addEventListener('keydown', function (event) {
+      if (event.defaultPrevented) { return; }
+      if (isTypingTarget(event.target)) { return; }
+      var isModifier = !!(event.ctrlKey || event.metaKey);
+      if (!isModifier || event.altKey) { return; }
+      var key = String(event.key || '').toLowerCase();
+      if (key === 'z' && event.shiftKey) {
+        event.preventDefault();
+        redoCanvas();
+        return;
+      }
+      if (key === 'z') {
+        event.preventDefault();
+        undoCanvas();
+        return;
+      }
+      if (key === 'y') {
+        event.preventDefault();
+        redoCanvas();
+      }
+    });
+  }
 
   function setCanvasNotice(message, kind) {
     var host = document.getElementById('vCanvasNotice');
@@ -912,6 +1492,7 @@
         vSelectedNode = n;
         vSelectedEdge = null;
         vDraggingNode = n;
+        vDraggedNodeChanged = false;
         vDragStartX = e.clientX; vDragStartY = e.clientY;
         vOrigX = n.x; vOrigY = n.y;
         updateVInspector();
@@ -1012,6 +1593,9 @@
         var dy = (e.clientY - vDragStartY) / vPan.scale;
         vDraggingNode.x = vOrigX + dx;
         vDraggingNode.y = vOrigY + dy;
+        if (dx !== 0 || dy !== 0) {
+          vDraggedNodeChanged = true;
+        }
         renderVCanvas();
       } else if (vIsLinking) {
         var rect = container.getBoundingClientRect();
@@ -1035,6 +1619,7 @@
           setSelectedEdge({ from: vLinkFrom, to: toNode });
           renderConflicts([]);
           setCanvasNotice('Connection created.', 'ok');
+          recordCanvasHistory();
         } else {
           if (invalidReason.indexOf('Conflicting rules') === 0) {
             renderConflicts([{ severity: 'error', message: invalidReason }]);
@@ -1042,8 +1627,12 @@
           setCanvasNotice(invalidReason, 'error');
         }
       }
+      if (vDraggingNode && vDraggedNodeChanged) {
+        recordCanvasHistory();
+      }
       vIsPanning = false;
       vDraggingNode = null;
+      vDraggedNodeChanged = false;
       vIsLinking = false;
       vLinkFrom = null;
       renderVCanvas();
@@ -1054,6 +1643,7 @@
       var z = e.deltaY > 0 ? 0.9 : 1.1;
       vPan.scale = Math.max(0.2, Math.min(vPan.scale * z, 3));
       renderVCanvas();
+      persistCanvasState();
     });
 
     var btnAddPersona = document.getElementById('vBtnAddPersona');
@@ -1062,6 +1652,10 @@
     if (btnAddCond) btnAddCond.addEventListener('click', function() { addVNode('condition', 'If ...'); });
     var btnAddRule = document.getElementById('vBtnAddRule');
     if (btnAddRule) btnAddRule.addEventListener('click', function() { addVNode('rule', 'New Rule'); });
+    var btnUndo = document.getElementById('vBtnUndo');
+    if (btnUndo) btnUndo.addEventListener('click', undoCanvas);
+    var btnRedo = document.getElementById('vBtnRedo');
+    if (btnRedo) btnRedo.addEventListener('click', redoCanvas);
 
     var btnDelNode = document.getElementById('vBtnDeleteNode');
     if (btnDelNode) btnDelNode.addEventListener('click', function() {
@@ -1073,6 +1667,7 @@
         updateVInspector();
         updateSelectedLinkInspector();
         renderVCanvas();
+        recordCanvasHistory();
       }
     });
 
@@ -1086,6 +1681,7 @@
       updateSelectedLinkInspector();
       renderVCanvas();
       setCanvasNotice('Link removed.', 'ok');
+      recordCanvasHistory();
     });
 
     var inputInspectText = document.getElementById('vInspectText');
@@ -1093,6 +1689,12 @@
       if (vSelectedNode) {
         vSelectedNode.text = inputInspectText.value;
         renderVCanvas();
+        scheduleCanvasHistoryCommit();
+      }
+    });
+    if (inputInspectText) inputInspectText.addEventListener('blur', function() {
+      if (vSelectedNode) {
+        recordCanvasHistory();
       }
     });
 
@@ -1100,6 +1702,7 @@
     if (inputInspectPriority) inputInspectPriority.addEventListener('change', function() {
       if (vSelectedNode) {
         vSelectedNode.priority = String(inputInspectPriority.value || 'Medium');
+        recordCanvasHistory();
       }
     });
 
@@ -1228,6 +1831,7 @@
       y: -vPan.y / vPan.scale + 50
     });
     renderVCanvas();
+    recordCanvasHistory();
   }
 
   function updateVInspector() {
@@ -1271,9 +1875,13 @@
   send('ready');
   ensureRuleFallback();
   renderRules();
+  ensureUndoRedoButtons();
+  initializeCanvasHistory();
+  setupInstructionsManager();
   setupVCanvas();
   setupResizableLayout();
   setupBottomPanelToggle();
+  setupCanvasKeyboardShortcuts();
   updateSelectedLinkInspector();
   renderAiSuggestion();
   renderInsights(null);
