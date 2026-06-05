@@ -61,6 +61,14 @@ export interface InstructionPersona {
   enabled: boolean;
 }
 
+export interface PersonaRuleLibraryItem {
+  text: string;
+  line: number;
+  disabled: boolean;
+  relPath: string;
+  source: 'workspace' | 'bundled';
+}
+
 export interface InstructionSource {
   id: string;
   label: string;
@@ -99,6 +107,7 @@ export interface InstructionsOverview {
   units: InstructionUnit[];
   conflicts: InstructionConflict[];
   personas: InstructionPersona[];
+  personaRuleLibrary: Record<string, PersonaRuleLibraryItem[]>;
   /** Source ids ordered highest → lowest authority. */
   priorityOrder: string[];
   totalUnits: number;
@@ -523,6 +532,42 @@ function readPersonas(personaDir: string | undefined, workspaceRoot: string): In
   return personas;
 }
 
+function readPersonaRuleLibrary(
+  personas: InstructionPersona[],
+  personaDir: string | undefined,
+  workspaceRoot: string,
+): Record<string, PersonaRuleLibraryItem[]> {
+  const out: Record<string, PersonaRuleLibraryItem[]> = {};
+  for (const persona of personas) {
+    const relPath = toRel(persona.relPath);
+    const workspaceAbs = path.join(workspaceRoot, relPath);
+    const bundledAbs = personaDir ? path.join(personaDir, persona.sourceFile) : '';
+    const useWorkspace = fs.existsSync(workspaceAbs);
+    const sourceAbs = useWorkspace ? workspaceAbs : bundledAbs;
+    if (!sourceAbs || !fs.existsSync(sourceAbs)) {
+      out[persona.id] = [];
+      continue;
+    }
+    let body = '';
+    try {
+      body = fs.readFileSync(sourceAbs, 'utf8');
+    } catch {
+      out[persona.id] = [];
+      continue;
+    }
+    out[persona.id] = splitUnits(body)
+      .filter((unit) => !unit.managed && unit.text.trim().length > 0)
+      .map((unit) => ({
+        text: unit.text,
+        line: unit.line,
+        disabled: unit.disabled,
+        relPath,
+        source: useWorkspace ? 'workspace' : 'bundled',
+      }));
+  }
+  return out;
+}
+
 export function buildInstructionsOverview(options: BuildOverviewOptions): InstructionsOverview {
   const root = options.workspaceRoot;
   const sources: InstructionSource[] = [];
@@ -600,12 +645,16 @@ export function buildInstructionsOverview(options: BuildOverviewOptions): Instru
 
   const totalBytes = sources.reduce((sum, s) => sum + s.bytes, 0);
 
+  const personas = readPersonas(options.personaDir, root);
+  const personaRuleLibrary = readPersonaRuleLibrary(personas, options.personaDir, root);
+
   return {
     workspaceRoot: root,
     sources,
     units,
     conflicts,
-    personas: readPersonas(options.personaDir, root),
+    personas,
+    personaRuleLibrary,
     priorityOrder,
     totalUnits: units.length,
     totalBytes,

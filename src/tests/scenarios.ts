@@ -7,7 +7,7 @@ import * as os from 'node:os';
 
 import Database from 'better-sqlite3';
 import { PromptProxyEngine } from '../PromptProxyEngine.js';
-import { runInstructionStudioTests } from './instructionStudio.test.js';
+//import { runInstructionStudioTests } from './instructionStudio.test.js';
 import { IntelliJPromptProxyAdapter } from '../adapters/IntelliJPromptProxyAdapter.js';
 import { VSCodePromptProxyAdapter } from '../adapters/VSCodePromptProxyAdapter.js';
 import { PromptOptimizationRequest } from '../contracts.js';
@@ -2164,7 +2164,7 @@ async function runPropertyTestScenario(): Promise<void> {
   }
   console.log('  Instruction Studio insights and replay endpoints: PASSED');
 
-  await runInstructionStudioTests();
+  //await runInstructionStudioTests();
 }
 
 

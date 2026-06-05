@@ -157,32 +157,197 @@
   }
 
   var allPresets = [];
+  var visiblePresets = [];
+  var personaRulePresetsById = {};
   var appliedPresets = {};
+  var activeRibbonPersona = '';
+  var lastRibbonPersonas = [];
 
-  function applyPreset(preset, btn) {
+  function pruneAppliedPresets() {
+    var existing = {};
+    vNodes.forEach(function (node) {
+      if (node && node.id) {
+        existing[node.id] = true;
+      }
+    });
+    Object.keys(appliedPresets).forEach(function (presetId) {
+      if (!existing[appliedPresets[presetId]]) {
+        delete appliedPresets[presetId];
+      }
+    });
+  }
+
+  function syncPresetSelectionUi() {
+    pruneAppliedPresets();
+    var host = document.getElementById('presetList');
+    if (!host) { return; }
+    host.querySelectorAll('.preset-chip[data-preset-id]').forEach(function (chip) {
+      var presetId = String(chip.getAttribute('data-preset-id') || '').trim();
+      chip.classList.toggle('selected', !!appliedPresets[presetId]);
+    });
+    host.querySelectorAll('.preset-toggle-btn[data-preset-id]').forEach(function (btn) {
+      var presetId = String(btn.getAttribute('data-preset-id') || '').trim();
+      var selected = !!appliedPresets[presetId];
+      btn.classList.toggle('selected', selected);
+      btn.setAttribute('aria-pressed', selected ? 'true' : 'false');
+      btn.setAttribute('title', selected ? 'Remove this rule from canvas' : 'Add this rule to canvas');
+      btn.textContent = selected ? 'Deselect' : 'Select';
+    });
+  }
+
+  function selectedCanvasPersonaMeta() {
+    if (!vSelectedNode || vSelectedNode.type !== 'persona') {
+      return null;
+    }
+    var linked = personaFromNode(vSelectedNode);
+    if (linked && linked.personaId) {
+      return linked;
+    }
+    var label = String(vSelectedNode.text || '').trim();
+    if (!label) {
+      return null;
+    }
+    var byLabel = lastRibbonPersonas.find(function (persona) {
+      return String(persona.label || '').trim() === label;
+    });
+    if (!byLabel) {
+      return null;
+    }
+    return {
+      personaId: String(byLabel.id || '').trim(),
+      sourceFile: String(byLabel.sourceFile || '').trim(),
+      label: String(byLabel.label || byLabel.id || label),
+      enabled: byLabel.enabled !== false,
+    };
+  }
+
+  function selectedAgentPersonaMeta() {
+    if (!activeRibbonPersona) {
+      var selected = selectedCanvasPersonaMeta();
+      if (selected && selected.personaId) {
+        return selected;
+      }
+      return null;
+    }
+    var byLabel = lastRibbonPersonas.find(function (persona) {
+      return String(persona.label || '').trim() === String(activeRibbonPersona || '').trim();
+    });
+    if (!byLabel) {
+      var fallback = selectedCanvasPersonaMeta();
+      return (fallback && fallback.personaId) ? fallback : null;
+    }
+    return {
+      personaId: String(byLabel.id || '').trim(),
+      sourceFile: String(byLabel.sourceFile || '').trim(),
+      label: String(byLabel.label || byLabel.id || activeRibbonPersona),
+      enabled: byLabel.enabled !== false,
+    };
+  }
+
+  function setPresetContextHint(text) {
+    var host = document.getElementById('presetContextHint');
+    if (!host) { return; }
+    host.textContent = text || '';
+  }
+
+  function computeVisiblePresets() {
+    var meta = selectedAgentPersonaMeta();
+    if (!meta || !meta.personaId || !lastInstructionsOverview) {
+      return {
+        presets: [],
+        hint: 'Select an agent persona to show rules from its definition file.',
+      };
+    }
+    var source = sourceForPersona(lastInstructionsOverview, {
+      id: meta.personaId,
+      sourceFile: meta.sourceFile,
+    });
+    var entries = [];
+    var fallbackSource = '';
+    if (source && source.id) {
+      entries = (lastInstructionsOverview.units || []).filter(function (unit) {
+        return unit.sourceId === source.id && !unit.managed && String(unit.text || '').trim().length > 0;
+      }).map(function (unit) {
+        return {
+          text: unit.text,
+          line: unit.line,
+          disabled: !!unit.disabled,
+          relPath: String(source.relPath || ''),
+          source: 'workspace',
+        };
+      });
+    } else {
+      var lib = lastInstructionsOverview.personaRuleLibrary || {};
+      entries = Array.isArray(lib[meta.personaId]) ? lib[meta.personaId].slice() : [];
+      if (entries.length > 0) {
+        fallbackSource = String(entries[0].source || 'bundled');
+      }
+    }
+    if (entries.length === 0) {
+      return {
+        presets: [],
+        hint: 'No rules found in selected persona definition: ' + String(meta.label || meta.personaId) + '.',
+      };
+    }
+    var presets = entries.map(function (unit, index) {
+      var ruleText = String(unit.text || '').trim();
+      return {
+        id: 'agent-source-' + String(meta.personaId || 'persona') + '-rule-' + String(index + 1),
+        label: trimRuleLabel(ruleText),
+        ruleText: ruleText,
+        relPath: String(unit.relPath || ''),
+        line: unit.line,
+        disabled: !!unit.disabled,
+      };
+    });
+    if (presets.length > 0) {
+      var sourceLabel = '';
+      if (source && source.relPath) {
+        sourceLabel = String(source.relPath);
+      } else {
+        sourceLabel = String((entries[0] && entries[0].relPath) || (meta.personaId + '.md'));
+      }
+      var mode = (fallbackSource && fallbackSource !== 'workspace') ? ' (bundled fallback)' : '';
+      return {
+        presets: presets,
+        hint: 'Showing rules from selected agent definition file: ' + sourceLabel + mode + '.',
+      };
+    }
+    return {
+      presets: [],
+      hint: 'Selected agent definition file has no rules.',
+    };
+  }
+
+  function refreshPresetLibrary() {
+    var result = computeVisiblePresets();
+    renderPresets(result.presets);
+    setPresetContextHint(result.hint);
+  }
+
+  function applyPreset(preset, forceSelected) {
     if (document.querySelector('.vscode-layout')) {
-      if (btn && appliedPresets[preset.id]) {
+      var isSelected = !!appliedPresets[preset.id];
+      var shouldSelect = typeof forceSelected === 'boolean' ? forceSelected : !isSelected;
+      if (!shouldSelect && isSelected) {
         var existingRid = appliedPresets[preset.id];
         vNodes = vNodes.filter(function(n) { return n.id !== existingRid; });
         vEdges = vEdges.filter(function(e) { return e.to !== existingRid && e.from !== existingRid; });
         delete appliedPresets[preset.id];
-        btn.classList.remove('selected');
         renderVCanvas();
         recordCanvasHistory();
-      } else {
+      } else if (shouldSelect && !isSelected) {
         var rid = 'v_' + Math.random().toString(36).slice(2, 8);
         var baseConditionNode = vNodes.find(function(n) { return n.type === 'condition'; });
         vNodes.push({ id: rid, type: 'rule', text: preset.ruleText || 'Rule text...', priority: 'Medium', x: 450, y: 50 + (Object.keys(appliedPresets).length * 60) });
         if (baseConditionNode) {
           vEdges.push({ from: baseConditionNode.id, to: rid });
         }
-        if (btn) {
-          appliedPresets[preset.id] = rid;
-          btn.classList.add('selected');
-        }
+        appliedPresets[preset.id] = rid;
         renderVCanvas();
         recordCanvasHistory();
       }
+      syncPresetSelectionUi();
     } else {
       setValue('workflowName', preset.workflowName || 'Instruction Studio Starter');
       setValue('personaLabel', preset.persona || 'Architect');
@@ -193,33 +358,114 @@
     }
   }
 
-  function renderPresets(presets, append) {
+  function renderPresets(presets) {
     var host = document.getElementById('presetList');
     if (!host) { return; }
-    
+    visiblePresets = Array.isArray(presets) ? presets.slice() : [];
+    host.innerHTML = '';
+    if (visiblePresets.length === 0) {
+      return;
+    }
+    visiblePresets.forEach(function (preset) {
+      var row = document.createElement('label');
+      row.className = 'preset-item';
+
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = !preset.disabled;
+      cb.addEventListener('change', function () {
+        if (!preset.relPath) { return; }
+        vscode.postMessage({
+          type: 'toggleInstructionRule',
+          relPath: preset.relPath,
+          line: preset.line,
+          ruleText: preset.ruleText,
+          enabled: cb.checked,
+        });
+        // Optimistically update disabled flag so re-render stays in sync
+        preset.disabled = !cb.checked;
+      });
+
+      var span = document.createElement('span');
+      span.className = 'preset-rule-text';
+      span.textContent = preset.label || preset.ruleText || '';
+
+      row.appendChild(cb);
+      row.appendChild(span);
+      host.appendChild(row);
+    });
+    applyPresetSearchFilter();
+  }
+
+  function applyPresetSearchFilter() {
+    var search = document.getElementById('presetSearch');
+    var query = search ? String(search.value || '').toLowerCase() : '';
+    document.querySelectorAll('.preset-item').forEach(function (row) {
+      var span = row.querySelector('.preset-rule-text');
+      var text = span ? String(span.textContent || '').toLowerCase() : '';
+      row.style.display = text.includes(query) ? '' : 'none';
+    });
+  }
+
+  function normalizePresetSource(presets, append) {
     if (append && Array.isArray(presets)) {
       allPresets = allPresets.concat(presets);
     } else if (Array.isArray(presets)) {
-      allPresets = presets;
+      allPresets = presets.slice();
     }
-    
-    host.innerHTML = '';
-    if (allPresets.length === 0) {
-      host.textContent = 'No presets available.';
+    refreshPresetLibrary();
+  }
+
+  function trimRuleLabel(text) {
+    var src = String(text || '').trim().replace(/\s+/g, ' ');
+    if (src.length <= 56) { return src; }
+    return src.slice(0, 56).trim() + '...';
+  }
+
+  function sourceForPersona(overview, persona) {
+    if (!overview || !persona) { return null; }
+    var personaId = String(persona.id || '').trim();
+    var sourceFile = String(persona.sourceFile || '').trim();
+    var expected = '.promptoptimizer/skills/' + personaId + '.md';
+    var sources = Array.isArray(overview.sources) ? overview.sources : [];
+    return sources.find(function (src) {
+      var relPath = String(src.relPath || '').replace(/\\/g, '/').toLowerCase();
+      if (relPath === expected.toLowerCase()) { return true; }
+      if (sourceFile && relPath.endsWith('/' + sourceFile.toLowerCase())) { return true; }
+      return false;
+    }) || null;
+  }
+
+  function buildPersonaPresetIndex(overview) {
+    personaRulePresetsById = {};
+    if (!overview || !Array.isArray(overview.personas) || !Array.isArray(overview.units)) {
       return;
     }
-    allPresets.forEach(function (preset) {
-      var btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'preset-chip';
-      if (appliedPresets[preset.id]) {
-        btn.classList.add('selected');
+    overview.personas.forEach(function (persona) {
+      var personaId = String(persona.id || '').trim();
+      if (!personaId) { return; }
+      var source = sourceForPersona(overview, persona);
+      if (!source || !source.id) {
+        personaRulePresetsById[personaId] = [];
+        return;
       }
-      btn.textContent = (preset.category ? preset.category + ': ' : '') + (preset.label || preset.id || 'Preset');
-      btn.addEventListener('click', function () {
-        applyPreset(preset, btn);
+      var entries = overview.units.filter(function (unit) {
+        return unit.sourceId === source.id && !unit.managed && !unit.disabled && String(unit.text || '').trim().length > 0;
       });
-      host.appendChild(btn);
+      personaRulePresetsById[personaId] = entries.map(function (unit, index) {
+        var ruleText = String(unit.text || '').trim();
+        return {
+          id: 'persona-' + personaId + '-rule-' + String(index + 1),
+          category: 'Persona',
+          label: trimRuleLabel(ruleText),
+          workflowName: 'Instruction Studio Starter',
+          persona: String(persona.label || personaId),
+          condition: 'Always',
+          priority: 'Medium',
+          agentScope: 'Code Generation',
+          ruleText: ruleText,
+        };
+      });
     });
   }
 
@@ -490,6 +736,9 @@
     renderInstructionsConflicts(lastInstructionsOverview);
     renderInstructionsPersonas(lastInstructionsOverview);
     renderInstructionsHistorySelect(lastInstructionsOverview);
+    renderPersonaRibbonTabs(lastInstructionsOverview.personas || []);
+    buildPersonaPresetIndex(lastInstructionsOverview);
+    refreshPresetLibrary();
   }
 
   function handleInstructionsHistoryMessage(msg) {
@@ -860,27 +1109,113 @@
     };
   }
 
-  document.querySelectorAll('.ribbon-tab[data-action="selectRibbonPersona"]').forEach(function(tab) {
-    tab.addEventListener('click', function() {
-      document.querySelectorAll('.ribbon-tab').forEach(function(t) { t.classList.remove('active'); });
-      tab.classList.add('active');
-      var strongName = String(tab.getAttribute('data-persona') || tab.textContent || '').trim();
-      if (document.querySelector('.vscode-layout')) {
-        var pNode = vNodes.find(function(n) { return n.type === 'persona'; });
-        if (pNode) {
-          pNode.text = strongName;
-          renderVCanvas();
-          recordCanvasHistory();
-        }
-      }
+  function selectRibbonPersona(name) {
+    var personaName = String(name || '').trim();
+    if (!personaName) { return; }
+    activeRibbonPersona = personaName;
+    document.querySelectorAll('.ribbon-tab[data-action="selectRibbonPersona"]').forEach(function (tab) {
+      var on = String(tab.getAttribute('data-persona') || '').trim() === activeRibbonPersona;
+      tab.classList.toggle('active', on);
     });
-  });
+    var pNode = vNodes.find(function (n) { return n.type === 'persona'; });
+    if (pNode) {
+      pNode.text = activeRibbonPersona;
+      renderVCanvas();
+      recordCanvasHistory();
+    }
+    refreshPresetLibrary();
+  }
 
-  document.querySelectorAll('.ribbon-btn').forEach(function(btn) {
-    btn.addEventListener('click', function(e) {
-      const action = btn.getAttribute('data-action');
+  function personaFromNode(node) {
+    if (!node || node.type !== 'persona') { return null; }
+    var pid = String(node.personaId || '').trim();
+    var src = String(node.sourceFile || '').trim();
+    if (pid && src) {
+      return { personaId: pid, sourceFile: src, label: String(node.text || pid), enabled: node.personaEnabled !== false };
+    }
+    var byLabel = lastRibbonPersonas.find(function (p) {
+      return String(p.label || '').trim() === String(node.text || '').trim();
+    });
+    if (!byLabel) { return null; }
+    return {
+      personaId: String(byLabel.id || '').trim(),
+      sourceFile: String(byLabel.sourceFile || '').trim(),
+      label: String(byLabel.label || byLabel.id || ''),
+      enabled: byLabel.enabled !== false,
+    };
+  }
+
+  function syncPersonaNodes(personas) {
+    var byId = {};
+    (personas || []).forEach(function (p) {
+      byId[String(p.id || '').trim()] = p;
+    });
+    vNodes.forEach(function (node) {
+      if (node.type !== 'persona') { return; }
+      var pid = String(node.personaId || '').trim();
+      if (!pid || !byId[pid]) { return; }
+      node.personaEnabled = byId[pid].enabled !== false;
+    });
+  }
+
+  function renderPersonaRibbonTabs(personas) {
+    var host = document.getElementById('personaRibbonTabs');
+    if (!host) { return; }
+    var list = Array.isArray(personas) ? personas.slice() : [];
+    if (list.length === 0) {
+      list = [{ id: 'sdlc-architect', label: 'SDLC Architect', enabled: true }];
+    }
+    lastRibbonPersonas = list.slice();
+    syncPersonaNodes(list);
+    host.innerHTML = '';
+    list.forEach(function (persona, index) {
+      var label = String(persona.label || persona.id || '').trim();
+      if (!label) { return; }
+      var tab = document.createElement('div');
+      tab.className = 'ribbon-tab';
+      tab.setAttribute('data-action', 'selectRibbonPersona');
+      tab.setAttribute('data-persona', label);
+      tab.setAttribute('data-persona-id', String(persona.id || ''));
+      tab.setAttribute('data-source-file', String(persona.sourceFile || ''));
+      tab.setAttribute('data-enabled', persona.enabled === false ? 'false' : 'true');
+      tab.draggable = true;
+      tab.textContent = label;
+      if ((!activeRibbonPersona && index === 0) || activeRibbonPersona === label) {
+        tab.classList.add('active');
+        activeRibbonPersona = label;
+      }
+      host.appendChild(tab);
+    });
+  }
+
+  function setupPersonaRibbon() {
+    var ribbon = document.querySelector('.persona-ribbon');
+    if (!ribbon) { return; }
+    ribbon.addEventListener('dragstart', function (event) {
+      var tab = event.target && event.target.closest ? event.target.closest('.ribbon-tab[data-action="selectRibbonPersona"]') : null;
+      if (!tab || !event.dataTransfer) { return; }
+      var payload = {
+        personaId: String(tab.getAttribute('data-persona-id') || '').trim(),
+        sourceFile: String(tab.getAttribute('data-source-file') || '').trim(),
+        label: String(tab.getAttribute('data-persona') || tab.textContent || '').trim(),
+        enabled: String(tab.getAttribute('data-enabled') || 'true') !== 'false',
+      };
+      event.dataTransfer.setData('application/x-po-persona', JSON.stringify(payload));
+      event.dataTransfer.setData('text/plain', payload.label || 'Persona');
+      event.dataTransfer.effectAllowed = 'copy';
+      setCanvasNotice('Drop persona into canvas to add a persona node.', 'ok');
+    });
+    ribbon.addEventListener('click', function (event) {
+      var tab = event.target.closest ? event.target.closest('.ribbon-tab[data-action="selectRibbonPersona"]') : null;
+      if (tab) {
+        selectRibbonPersona(String(tab.getAttribute('data-persona') || tab.textContent || ''));
+        return;
+      }
+      var btn = event.target.closest ? event.target.closest('.ribbon-btn') : null;
+      if (!btn) { return; }
+      var action = btn.getAttribute('data-action');
       if (action === 'ribbonNew') {
-        vNodes = [{ id: 'v_1', type: 'persona', text: 'New Persona', priority: 'Medium', x: 20, y: 50 }];
+        vNodes = [{ id: 'v_1', type: 'persona', text: activeRibbonPersona || 'SDLC Architect', priority: 'Medium', x: 20, y: 50 }];
         vEdges = [];
         vSelectedNode = null;
         vSelectedEdge = null;
@@ -901,7 +1236,7 @@
       }
       if (action === 'ribbonEdit') {
         var inspect = document.getElementById('vInspectText');
-        if (inspect) inspect.focus();
+        if (inspect) { inspect.focus(); }
         return;
       }
       if (action === 'ribbonSync') {
@@ -911,12 +1246,11 @@
           vscode.postMessage({ type: 'fetchRulesFromUrl', url: urlValue });
         } else {
           var gitResult = document.getElementById('gitTraceResult');
-          if (gitResult) gitResult.textContent = 'Provide URL in External Rules input first.';
+          if (gitResult) { gitResult.textContent = 'Provide URL in External Rules input first.'; }
         }
-        return;
       }
     });
-  });
+  }
 
   document.querySelectorAll('button[data-action], select[data-action]').forEach((button) => {
     button.addEventListener('click', (e) => {
@@ -1010,13 +1344,7 @@
 
   var presetSearch = document.getElementById('presetSearch');
   if (presetSearch) {
-    presetSearch.addEventListener('input', function(e) {
-      var query = (e.target.value || '').toLowerCase();
-      document.querySelectorAll('.preset-chip').forEach(function(chip) {
-        var match = chip.textContent.toLowerCase().includes(query);
-        chip.style.display = match ? '' : 'none';
-      });
-    });
+    presetSearch.addEventListener('input', applyPresetSearchFilter);
   }
 
   var addRuleBtn = document.getElementById('addRuleBtn');
@@ -1030,7 +1358,7 @@
   window.addEventListener('message', function (event) {
     var data = event.data || {};
     if (data.type === 'presets') {
-      renderPresets(data.presets || [], data.append === true);
+      normalizePresetSource(data.presets || [], data.append === true);
     }
     if (data.type === 'customPersonas') {
       renderCustomPersonas(data.personas || []);
@@ -1498,11 +1826,14 @@
         updateVInspector();
         updateSelectedLinkInspector();
         renderVCanvas();
+        refreshPresetLibrary();
         e.stopPropagation();
       });
 
       viewport.appendChild(el);
     });
+
+    syncPresetSelectionUi();
 
     // Update dynamic node geometry before drawing edges
     setTimeout(function() {
@@ -1563,6 +1894,47 @@
     var container = document.getElementById('vCanvasContainer');
     if (!container) return;
 
+    container.addEventListener('dragover', function (event) {
+      var dt = event.dataTransfer;
+      if (!dt) { return; }
+      var types = dt.types || [];
+      var personaDrag = Array.prototype.indexOf.call(types, 'application/x-po-persona') >= 0;
+      if (!personaDrag) { return; }
+      event.preventDefault();
+      dt.dropEffect = 'copy';
+    });
+
+    container.addEventListener('drop', function (event) {
+      var dt = event.dataTransfer;
+      if (!dt) { return; }
+      var raw = dt.getData('application/x-po-persona');
+      if (!raw) { return; }
+      event.preventDefault();
+      var payload = null;
+      try { payload = JSON.parse(raw); } catch { payload = null; }
+      if (!payload || !payload.label) {
+        setCanvasNotice('Invalid persona payload.', 'error');
+        return;
+      }
+      var rect = container.getBoundingClientRect();
+      var x = (event.clientX - rect.left - vPan.x) / vPan.scale;
+      var y = (event.clientY - rect.top - vPan.y) / vPan.scale;
+      vNodes.push({
+        id: 'v_' + Math.random().toString(36).slice(2, 8),
+        type: 'persona',
+        text: String(payload.label || 'Persona'),
+        priority: 'Medium',
+        personaId: String(payload.personaId || ''),
+        sourceFile: String(payload.sourceFile || ''),
+        personaEnabled: payload.enabled !== false,
+        x: x,
+        y: y,
+      });
+      renderVCanvas();
+      recordCanvasHistory();
+      setCanvasNotice('Persona node added to canvas.', 'ok');
+    });
+
     container.addEventListener('mousedown', function(e) {
       if (e.target && e.target.closest && e.target.closest('.vcanvas-edge')) {
         return;
@@ -1577,6 +1949,7 @@
       if (e.target.closest('.vcanvas-node')) return;
       vSelectedNode = null;
       updateVInspector();
+      refreshPresetLibrary();
       vIsPanning = true;
       vPanStartX = e.clientX - vPan.x;
       vPanStartY = e.clientY - vPan.y;
@@ -1704,6 +2077,35 @@
         vSelectedNode.priority = String(inputInspectPriority.value || 'Medium');
         recordCanvasHistory();
       }
+    });
+
+    var inspectPersonaEnabled = document.getElementById('vInspectPersonaEnabled');
+    if (inspectPersonaEnabled) inspectPersonaEnabled.addEventListener('change', function () {
+      if (!vSelectedNode || vSelectedNode.type !== 'persona') { return; }
+      var meta = personaFromNode(vSelectedNode);
+      if (!meta || !meta.personaId || !meta.sourceFile) {
+        setCanvasNotice('This persona node is not linked to an SDLC persona definition.', 'error');
+        inspectPersonaEnabled.checked = vSelectedNode.personaEnabled !== false;
+        return;
+      }
+      vSelectedNode.personaEnabled = !!inspectPersonaEnabled.checked;
+      vscode.postMessage({
+        type: 'togglePersona',
+        personaId: meta.personaId,
+        sourceFile: meta.sourceFile,
+        enabled: !!inspectPersonaEnabled.checked,
+      });
+      setInstructionsNote(inspectPersonaEnabled.checked ? 'Enabling persona…' : 'Disabling persona…');
+      setCanvasNotice(inspectPersonaEnabled.checked ? 'Persona enabled.' : 'Persona disabled.', 'ok');
+      recordCanvasHistory();
+      renderPersonaRibbonTabs(lastRibbonPersonas.map(function (p) {
+        if (String(p.id || '') === meta.personaId) {
+          var copy = Object.assign({}, p);
+          copy.enabled = !!inspectPersonaEnabled.checked;
+          return copy;
+        }
+        return p;
+      }));
     });
 
     renderVCanvas();
@@ -1839,7 +2241,10 @@
     var textI = document.getElementById('vInspectText');
     var typeI = document.getElementById('vInspectType');
     var priorityI = document.getElementById('vInspectPriority');
-    if (!panel || !textI || !typeI || !priorityI) return;
+    var personaWrap = document.getElementById('vPersonaToggleWrap');
+    var personaEnabled = document.getElementById('vInspectPersonaEnabled');
+    var personaMeta = document.getElementById('vInspectPersonaMeta');
+    if (!panel || !textI || !typeI || !priorityI || !personaWrap || !personaEnabled || !personaMeta) return;
     if (vSelectedNode) {
       ensureNodeDefaults(vSelectedNode);
       panel.classList.remove('hidden');
@@ -1848,12 +2253,27 @@
       priorityI.value = vSelectedNode.priority || 'Medium';
       textI.disabled = false;
       priorityI.disabled = false;
+      if (vSelectedNode.type === 'persona') {
+        var linked = personaFromNode(vSelectedNode);
+        personaWrap.style.display = 'grid';
+        personaEnabled.checked = vSelectedNode.personaEnabled !== false;
+        if (linked && linked.personaId && linked.sourceFile) {
+          personaEnabled.disabled = false;
+          personaMeta.textContent = 'Linked: ' + linked.label + ' (' + linked.personaId + ')';
+        } else {
+          personaEnabled.disabled = true;
+          personaMeta.textContent = 'Unlinked persona node (drag from top SDLC personas to link).';
+        }
+      } else {
+        personaWrap.style.display = 'none';
+      }
     } else {
       textI.value = '';
       typeI.value = 'persona';
       priorityI.value = 'Medium';
       textI.disabled = true;
       priorityI.disabled = true;
+      personaWrap.style.display = 'none';
       panel.classList.toggle('hidden', !vSelectedEdge);
     }
   }
@@ -1875,6 +2295,8 @@
   send('ready');
   ensureRuleFallback();
   renderRules();
+  setupPersonaRibbon();
+  renderPersonaRibbonTabs([]);
   ensureUndoRedoButtons();
   initializeCanvasHistory();
   setupInstructionsManager();
@@ -1887,4 +2309,5 @@
   renderInsights(null);
   renderReplaySelect();
   renderReplayStep();
+  refreshPresetLibrary();
 })();

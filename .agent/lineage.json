@@ -118,5 +118,35 @@
     "modifiedBy": "New Persona",
     "rule": "Use \"use server\" by default. Only use \"use client\" when reactivity is needed.",
     "commit": "local-uncommitted"
+  },
+  {
+    "sessionId": "sess-mq0y0eds-au3o6q",
+    "timestamp": "2026-06-05T13:11:16.432Z",
+    "workflowName": "Canvas Generated Workflow",
+    "versionIndex": 10,
+    "file": ".instruction_studio/instructions.md",
+    "modifiedBy": "Architect",
+    "rule": "Always run unit tests.",
+    "commit": "local-uncommitted"
+  },
+  {
+    "sessionId": "sess-mq12agtv-6m9zo6",
+    "timestamp": "2026-06-05T15:11:04.627Z",
+    "workflowName": "Canvas Generated Workflow",
+    "versionIndex": 11,
+    "file": ".instruction_studio/instructions.md",
+    "modifiedBy": "SDLC Architect",
+    "rule": "Always run unit tests.",
+    "commit": "local-uncommitted"
+  },
+  {
+    "sessionId": "sess-mq12agtv-6m9zo6",
+    "timestamp": "2026-06-05T15:11:04.627Z",
+    "workflowName": "Canvas Generated Workflow",
+    "versionIndex": 11,
+    "file": ".instruction_studio/instructions.md",
+    "modifiedBy": "General",
+    "rule": "New Rule",
+    "commit": "local-uncommitted"
   }
 ]

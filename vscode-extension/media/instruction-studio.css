@@ -313,6 +313,37 @@ textarea {
   scrollbar-width: thin;
 }
 
+.preset-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  column-gap: 6px;
+  cursor: pointer;
+  padding: 3px 0;
+}
+
+.preset-item input[type="checkbox"] {
+  width: auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  margin: 2px 0 0 0;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.preset-rule-text {
+  display: block;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--fg);
+  user-select: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .preset-chip {
   border: 1px solid var(--border);
   background: transparent;
@@ -322,6 +353,23 @@ textarea {
   cursor: pointer;
   font-size: 11px;
   text-align: left;
+}
+
+.preset-toggle-btn {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  border-radius: 4px;
+  padding: 4px 7px;
+  cursor: pointer;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.preset-toggle-btn.selected {
+  border-color: transparent;
+  background: var(--vscode-button-background, #0e639c);
+  color: var(--vscode-button-foreground, #fff);
 }
 
 .preset-chip.selected {
@@ -446,6 +494,14 @@ textarea {
   background: color-mix(in srgb, var(--bg) 95%, #ffffff 5%);
   border: 1px solid var(--border);
   border-radius: 6px;
+}
+.persona-ribbon-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+  overflow-x: auto;
 }
 .ribbon-tab {
   padding: 3px 8px;
@@ -584,6 +640,18 @@ details > summary h2 {
   font-size: 11px;
   color: var(--muted);
   line-height: 1.35;
+}
+
+.persona-toggle-wrap {
+  display: grid;
+  gap: 4px;
+}
+
+.persona-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
 }
 
 .instr-tabs {

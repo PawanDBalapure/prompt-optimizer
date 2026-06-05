@@ -1,0 +1,47 @@
+{
+  "workflowName": "Canvas Generated Workflow",
+  "nodes": [
+    {
+      "id": "v_1",
+      "type": "persona",
+      "label": "Architect",
+      "text": "Architect",
+      "active": true
+    },
+    {
+      "id": "v_2",
+      "type": "condition",
+      "label": "If Task=Refactor",
+      "text": "If Task=Refactor",
+      "active": true
+    },
+    {
+      "id": "v_3",
+      "type": "rule",
+      "label": "Always run unit tests.",
+      "text": "Always run unit tests.",
+      "active": true
+    },
+    {
+      "id": "v_6q0yt2",
+      "type": "persona",
+      "label": "Initial Rule",
+      "text": "Initial Rule",
+      "active": true
+    }
+  ],
+  "edges": [
+    {
+      "from": "v_1",
+      "to": "v_2"
+    },
+    {
+      "from": "v_2",
+      "to": "v_3"
+    },
+    {
+      "from": "v_6q0yt2",
+      "to": "v_1"
+    }
+  ]
+}

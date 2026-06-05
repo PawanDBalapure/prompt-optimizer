@@ -435,6 +435,20 @@ export class InstructionStudioPanel {
       return;
     }
     try {
+      if (!fs.existsSync(resolved.abs)) {
+        const normalized = relPath.replace(/\\/g, '/');
+        const isSkillTarget = /^\.promptoptimizer\/skills\/[A-Za-z0-9._-]+\.md$/i.test(normalized);
+        if (isSkillTarget) {
+          const libDir = path.join(this.context.extensionUri.fsPath, 'media', 'skill-library');
+          const fileName = path.basename(normalized);
+          const srcPath = path.join(libDir, fileName);
+          const srcRel = path.relative(libDir, srcPath);
+          if (!srcRel.startsWith('..') && !path.isAbsolute(srcRel) && fs.existsSync(srcPath)) {
+            fs.mkdirSync(path.dirname(resolved.abs), { recursive: true });
+            fs.copyFileSync(srcPath, resolved.abs);
+          }
+        }
+      }
       const original = fs.readFileSync(resolved.abs, 'utf8');
       const eol = original.includes('\r\n') ? '\r\n' : '\n';
       const lines = original.split(/\r?\n/);

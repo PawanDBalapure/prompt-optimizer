@@ -154,5 +154,44 @@
       ".instruction_studio/instructions.md",
       ".instruction_studio/instruction-manifest.json"
     ]
+  },
+  {
+    "sessionId": "sess-mq0y0eds-au3o6q",
+    "timestamp": "2026-06-05T13:11:16.432Z",
+    "workflowName": "Canvas Generated Workflow",
+    "versionIndex": 10,
+    "ruleId": "v_3",
+    "status": "executed",
+    "confidence": 0.96,
+    "filesAffected": [
+      ".instruction_studio/instructions.md",
+      ".instruction_studio/instruction-manifest.json"
+    ]
+  },
+  {
+    "sessionId": "sess-mq12agtv-6m9zo6",
+    "timestamp": "2026-06-05T15:11:04.627Z",
+    "workflowName": "Canvas Generated Workflow",
+    "versionIndex": 11,
+    "ruleId": "v_3",
+    "status": "executed",
+    "confidence": 0.96,
+    "filesAffected": [
+      ".instruction_studio/instructions.md",
+      ".instruction_studio/instruction-manifest.json"
+    ]
+  },
+  {
+    "sessionId": "sess-mq12agtv-6m9zo6",
+    "timestamp": "2026-06-05T15:11:04.627Z",
+    "workflowName": "Canvas Generated Workflow",
+    "versionIndex": 11,
+    "ruleId": "v_r31wvd",
+    "status": "executed",
+    "confidence": 0.96,
+    "filesAffected": [
+      ".instruction_studio/instructions.md",
+      ".instruction_studio/instruction-manifest.json"
+    ]
   }
 ]

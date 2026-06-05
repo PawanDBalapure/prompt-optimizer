@@ -26,9 +26,7 @@
       
       <section class="persona-ribbon-section">
         <div class="persona-ribbon">
-          <div class="ribbon-tab active" data-action="selectRibbonPersona" data-persona="Architect">Architect <small>v1.2</small></div>
-          <div class="ribbon-tab" data-action="selectRibbonPersona" data-persona="Security">Security <small>v2.0</small></div>
-          <div class="ribbon-tab" data-action="selectRibbonPersona" data-persona="Refactoring Engineer">Refactoring Engineer <small>v1.0</small></div>
+          <div id="personaRibbonTabs" class="persona-ribbon-tabs"></div>
           <button class="ribbon-btn" data-action="ribbonNew" title="New">➕</button>
           <button class="ribbon-btn" data-action="ribbonEdit" title="Edit">✏️</button>
           <button class="ribbon-btn" data-action="ribbonClone" title="Clone">⎘</button>
@@ -98,6 +96,13 @@
                  <option value="Low">Low</option>
                </select>
              </label>
+             <div id="vPersonaToggleWrap" class="persona-toggle-wrap" style="display:none;">
+               <label class="persona-toggle-label">
+                 <input id="vInspectPersonaEnabled" type="checkbox" />
+                 Enable SDLC persona
+               </label>
+               <div id="vInspectPersonaMeta" class="selected-link-text"></div>
+             </div>
              <div class="actions compact-actions">
                 <button id="vBtnDeleteNode">Delete Node</button>
              </div>
@@ -134,10 +139,11 @@
           <details open>
           <summary><h2>Rule Library</h2></summary>
           <p class="muted-hint">Select rules to add them to your canvas.</p>
+          <p id="presetContextHint" class="muted-hint"></p>
           <input type="search" id="presetSearch" placeholder="Search rules..." style="margin-bottom: 8px;" />
           <div id="presetList" class="preset-list"></div>
           
-          <h3 style="font-size:11px; margin:12px 0 6px 0; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em;">External Rules</h3>
+          <!-- <h3 style="font-size:11px; margin:12px 0 6px 0; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em;">External Rules</h3>
           <div style="display:flex; gap:4px; margin-bottom: 8px;">
             <input type="url" id="importUrl" placeholder="https://..." style="flex:1" />
             <button id="btnImportUrl" data-action="fetchRulesFromUrl">Fetch</button>
@@ -149,7 +155,7 @@
               <option value="nextjs">Next.js (Vercel)</option>
               <option value="linux">Linux Kernel</option>
             </select>
-          </label>
+          </label> -->
           </details>
         </section>
 

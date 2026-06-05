@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-06-05T13:11:16.429Z",
+  "workflowName": "Canvas Generated Workflow",
+  "orderedNodeIds": [
+    "v_6q0yt2",
+    "v_1",
+    "v_2",
+    "v_3"
+  ],
+  "entries": [
+    {
+      "nodeId": "v_3",
+      "text": "Always run unit tests.",
+      "persona": "Architect",
+      "condition": "If Task=Refactor",
+      "priority": "Medium",
+      "agentScope": "Code Generation"
+    }
+  ],
+  "graph": {
+    "nodeCount": 4,
+    "edgeCount": 3
+  }
+}
