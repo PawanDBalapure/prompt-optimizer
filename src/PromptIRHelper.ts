@@ -4,4 +4,4 @@
  */
 export { parseToPromptIR } from './promptIR/parser.js';
 export { lintPrompt } from './promptIR/linter.js';
-export { compilePromptIR, explainRewrite, PromptTargetModel } from './promptIR/compiler.js';
+export { compilePromptIR, explainRewrite } from './promptIR/compiler.js';
