@@ -23,6 +23,7 @@ import { registerVersionCommands } from './commands/versions';
 import { highlightStatusBarOnActivate } from './panel/welcomeHighlight';
 import { PromptProxyViewProvider } from './panel/PromptProxyViewProvider';
 import { ProxyStatusPanel } from './panel/ProxyStatusPanel';
+import { InstructionStudioPanel } from './panel/InstructionStudioPanel';
 import {
   clearConversationForWorkspace,
   getConversation,
@@ -520,6 +521,10 @@ function registerCommands(
 
   push(vscode.commands.registerCommand('prompt-proxy.openOnboarding', async () => {
     await openOnboardingGuide(context);
+  }));
+
+  push(vscode.commands.registerCommand('prompt-proxy.openInstructionStudio', async () => {
+    InstructionStudioPanel.show(context);
   }));
 
   push(vscode.commands.registerCommand('prompt-proxy.cacheStats', async () => {

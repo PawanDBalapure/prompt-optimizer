@@ -1,0 +1,67 @@
+[
+  {
+    "sessionId": "sess-mq0gdpqm-yf3t2e",
+    "timestamp": "2026-06-05T04:57:44.590Z",
+    "workflowName": "Instruction Studio Starter",
+    "persona": "Architect",
+    "condition": "If Task=Refactor",
+    "priority": "Medium",
+    "agentScope": "Code Generation",
+    "ruleText": "Always run unit tests before completing changes.",
+    "versionIndex": 1,
+    "activeRuleCount": 1,
+    "inactiveRuleCount": 0
+  },
+  {
+    "sessionId": "sess-mq0h8rmk-6156ge",
+    "timestamp": "2026-06-05T05:21:53.372Z",
+    "workflowName": "Instruction Studio Starter",
+    "persona": "Architect",
+    "condition": "If Task=Refactor",
+    "priority": "Medium",
+    "agentScope": "Code Generation",
+    "ruleText": "Always run unit tests before completing changes.",
+    "versionIndex": 2,
+    "activeRuleCount": 1,
+    "inactiveRuleCount": 0
+  },
+  {
+    "sessionId": "sess-mq0hgym7-0iu8vt",
+    "timestamp": "2026-06-05T05:28:15.679Z",
+    "workflowName": "Canvas Generated Workflow",
+    "persona": "Architect",
+    "condition": "If Task=Refactor",
+    "priority": "Medium",
+    "agentScope": "Code Generation",
+    "ruleText": "Always run unit tests.",
+    "versionIndex": 3,
+    "activeRuleCount": 1,
+    "inactiveRuleCount": 0
+  },
+  {
+    "sessionId": "sess-mq0io1ji-kmbf1w",
+    "timestamp": "2026-06-05T06:01:45.678Z",
+    "workflowName": "Instruction Studio Starter",
+    "persona": "Architect",
+    "condition": "If Task=Refactor",
+    "priority": "Medium",
+    "agentScope": "Code Generation",
+    "ruleText": "Always run unit tests before completing changes.",
+    "versionIndex": 4,
+    "activeRuleCount": 1,
+    "inactiveRuleCount": 0
+  },
+  {
+    "sessionId": "sess-mq0j2ulc-0ub07t",
+    "timestamp": "2026-06-05T06:13:16.512Z",
+    "workflowName": "Instruction Studio Starter",
+    "persona": "Architect",
+    "condition": "If Task=Refactor",
+    "priority": "Medium",
+    "agentScope": "Code Generation",
+    "ruleText": "Always run unit tests before completing changes.",
+    "versionIndex": 5,
+    "activeRuleCount": 1,
+    "inactiveRuleCount": 0
+  }
+]

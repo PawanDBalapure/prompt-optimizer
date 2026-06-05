@@ -224,7 +224,10 @@ function stripManagedBlock(content: string): string {
   if (begin === -1) { return content; }
   const end = content.indexOf(MANAGED_END, begin);
   if (end === -1) {
-    return content.slice(0, begin).replace(/\s+$/g, '');
+    // Safety: never drop existing rules when markers are malformed.
+    // In this case we preserve the original file verbatim and append a
+    // fresh managed block at the end.
+    return content;
   }
   const before = content.slice(0, begin);
   const after  = content.slice(end + MANAGED_END.length);

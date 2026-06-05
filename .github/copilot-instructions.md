@@ -1,15 +1,5 @@
-# Project notes (managed by Prompt Optimizer)
 
-<!-- software-building-rules:begin -->
-Read ./software-building-rules.md for building in this project
-<!-- software-building-rules:end -->
-
-<!-- agent-beahavior-rules:begin -->
-Read ./AGENT_BEHAVIOR.md for detailed rules on agent behavior
-<!-- agent-beahavior-rules:end -->
-<!-- token-saving-rules:begin -->
-Read token-saving-rules.md for strategies to minimize token usage in prompts and interactions
-<!-- token-saving-rules:end -->
+Read the./promptoptimizer/skills/sdlc-architect.md before writing any code. follow everythign written there. Do not write any code until you have read and understood the entire file.
 
 <!-- prompt-optimizer:memory:begin -->
 

@@ -9,6 +9,28 @@ import { SemanticCacheManager } from './SemanticCacheManager.js';
 import { PromptEvalEngine } from './PromptEvalEngine.js';
 import { listRegisteredModes, listSkillErrors } from './engine/promptModes.js';
 import { buildInstructionsOverview } from './engine/instructionsManager.js';
+import {
+  compileInstructionStudioGraph,
+  parseInstructionStudioGraph,
+  writeInstructionStudioSnapshot,
+} from './engine/instructionStudio.js';
+import { detectInstructionStudioConflicts } from './engine/instructionStudioConflicts.js';
+import { INSTRUCTION_STUDIO_PRESETS } from './engine/instructionStudioPresets.js';
+import {
+  deleteInstructionStudioCustomPersona,
+  listInstructionStudioCustomPersonas,
+  saveInstructionStudioCustomPersona,
+} from './engine/instructionStudioPersonas.js';
+import {
+  appendInstructionStudioTraceEntry,
+  listInstructionStudioTraceEntries,
+  summarizeInstructionStudioTrace,
+} from './engine/instructionStudioTrace.js';
+import { writeInstructionStudioTelemetryArtifacts } from './engine/instructionStudioTelemetry.js';
+import {
+  loadInstructionStudioReplay,
+  summarizeInstructionStudioInsights,
+} from './engine/instructionStudioInsights.js';
 import { runHealthCheck } from './engine/health.js';
 import { exportDatabase } from './engine/backup.js';
 import { redactForPersistence } from './engine/redactor.js';
@@ -58,6 +80,17 @@ function printHelp(): void {
       '   or: prompt-proxy-engine --export-memory [--tier workspace|user|all] [--workspace <id>] [--out <file.json|.md>] [--db <path>]\n' +
       '   or: prompt-proxy-engine --sync-copilot-instructions --workspace-root <path> [--workspace <id>]\n' +
       '   or: prompt-proxy-engine --instructions-overview --workspace-root <path> [--persona-dir <path>]\n' +
+      '   or: prompt-proxy-engine --instruction-studio-presets\n' +
+      '   or: prompt-proxy-engine --instruction-studio-personas-list --workspace-root <path>\n' +
+      '   or: prompt-proxy-engine --instruction-studio-persona-save --workspace-root <path> (reads persona JSON from stdin)\n' +
+      '   or: prompt-proxy-engine --instruction-studio-persona-delete --workspace-root <path> --id <persona-id>\n' +
+      '   or: prompt-proxy-engine --instruction-studio-trace-list --workspace-root <path> [--limit N]\n' +
+      '   or: prompt-proxy-engine --instruction-studio-trace-append --workspace-root <path> (reads trace JSON from stdin)\n' +
+      '   or: prompt-proxy-engine --instruction-studio-trace-analytics --workspace-root <path>\n' +
+      '   or: prompt-proxy-engine --instruction-studio-insights --workspace-root <path>\n' +
+      '   or: prompt-proxy-engine --instruction-studio-replay --workspace-root <path> [--session-id <id>]\n' +
+      '   or: prompt-proxy-engine --instruction-studio-conflicts (reads graph JSON from stdin)\n' +
+      '   or: prompt-proxy-engine --instruction-studio-compile --workspace-root <path> (reads graph JSON from stdin)\n' +
       '   or: prompt-proxy-engine --redact-test (reads stdin, prints redacted output)\n'
   );
 }
@@ -522,6 +555,196 @@ function handleInstructionsOverview(args: string[]): void {
   process.stdout.write(`${JSON.stringify(overview)}\n`);
 }
 
+async function handleInstructionStudioCompile(args: string[]): Promise<void> {
+  const workspaceRoot = resolveArg(args, '--workspace-root');
+  if (!workspaceRoot) {
+    process.stderr.write('Error: --instruction-studio-compile requires --workspace-root <path>.\n');
+    process.exitCode = 1;
+    return;
+  }
+
+  const stdin = await readStdin();
+  let graph: unknown;
+  try {
+    graph = JSON.parse(stdin);
+  } catch {
+    process.stderr.write('Error: --instruction-studio-compile expects graph JSON on stdin.\n');
+    process.exitCode = 1;
+    return;
+  }
+
+  const parsedGraph = parseInstructionStudioGraph(graph);
+  const compiled = compileInstructionStudioGraph(parsedGraph);
+  const result = writeInstructionStudioSnapshot(path.resolve(workspaceRoot), parsedGraph);
+  const graphRuleNodes = parsedGraph.nodes.filter((node) =>
+    node.type === 'rule' && String(node.text ?? node.label ?? '').trim().length > 0,
+  );
+  const activeRuleCount = graphRuleNodes.filter((node) => node.active !== false).length;
+  const inactiveRuleCount = graphRuleNodes.length - activeRuleCount;
+  const firstEntry = compiled.manifest.entries[0];
+  if (firstEntry) {
+    appendInstructionStudioTraceEntry(path.resolve(workspaceRoot), {
+      workflowName: compiled.manifest.workflowName,
+      persona: firstEntry.persona,
+      condition: firstEntry.condition,
+      priority: firstEntry.priority,
+      agentScope: firstEntry.agentScope,
+      ruleText: firstEntry.text,
+      versionIndex: result.versionIndex,
+      activeRuleCount,
+      inactiveRuleCount,
+    });
+  }
+  writeInstructionStudioTelemetryArtifacts(
+    path.resolve(workspaceRoot),
+    compiled.manifest,
+    result.versionIndex,
+    activeRuleCount,
+    inactiveRuleCount,
+  );
+  process.stdout.write(`${JSON.stringify({ ok: true, ...result })}\n`);
+}
+
+async function handleInstructionStudioPersonasList(args: string[]): Promise<void> {
+  const workspaceRoot = resolveArg(args, '--workspace-root');
+  if (!workspaceRoot) {
+    process.stderr.write('Error: --instruction-studio-personas-list requires --workspace-root <path>.\n');
+    process.exitCode = 1;
+    return;
+  }
+  const personas = listInstructionStudioCustomPersonas(path.resolve(workspaceRoot));
+  process.stdout.write(`${JSON.stringify({ personas })}\n`);
+}
+
+async function handleInstructionStudioPersonaSave(args: string[]): Promise<void> {
+  const workspaceRoot = resolveArg(args, '--workspace-root');
+  if (!workspaceRoot) {
+    process.stderr.write('Error: --instruction-studio-persona-save requires --workspace-root <path>.\n');
+    process.exitCode = 1;
+    return;
+  }
+  const stdin = await readStdin();
+  let payload: unknown;
+  try {
+    payload = JSON.parse(stdin);
+  } catch {
+    process.stderr.write('Error: --instruction-studio-persona-save expects persona JSON on stdin.\n');
+    process.exitCode = 1;
+    return;
+  }
+  if (!payload || typeof payload !== 'object') {
+    process.stderr.write('Error: persona payload must be an object.\n');
+    process.exitCode = 1;
+    return;
+  }
+  const persona = saveInstructionStudioCustomPersona(path.resolve(workspaceRoot), payload as any);
+  process.stdout.write(`${JSON.stringify({ ok: true, persona })}\n`);
+}
+
+async function handleInstructionStudioPersonaDelete(args: string[]): Promise<void> {
+  const workspaceRoot = resolveArg(args, '--workspace-root');
+  const id = resolveArg(args, '--id');
+  if (!workspaceRoot) {
+    process.stderr.write('Error: --instruction-studio-persona-delete requires --workspace-root <path>.\n');
+    process.exitCode = 1;
+    return;
+  }
+  if (!id) {
+    process.stderr.write('Error: --instruction-studio-persona-delete requires --id <persona-id>.\n');
+    process.exitCode = 1;
+    return;
+  }
+  const removed = deleteInstructionStudioCustomPersona(path.resolve(workspaceRoot), id);
+  process.stdout.write(`${JSON.stringify({ ok: true, removed })}\n`);
+}
+
+async function handleInstructionStudioTraceList(args: string[]): Promise<void> {
+  const workspaceRoot = resolveArg(args, '--workspace-root');
+  if (!workspaceRoot) {
+    process.stderr.write('Error: --instruction-studio-trace-list requires --workspace-root <path>.\n');
+    process.exitCode = 1;
+    return;
+  }
+  const limitRaw = resolveArg(args, '--limit');
+  const limit = limitRaw ? Math.max(1, Math.min(500, Number(limitRaw) || 50)) : 50;
+  const rows = listInstructionStudioTraceEntries(path.resolve(workspaceRoot), limit);
+  process.stdout.write(`${JSON.stringify({ rows })}\n`);
+}
+
+async function handleInstructionStudioTraceAppend(args: string[]): Promise<void> {
+  const workspaceRoot = resolveArg(args, '--workspace-root');
+  if (!workspaceRoot) {
+    process.stderr.write('Error: --instruction-studio-trace-append requires --workspace-root <path>.\n');
+    process.exitCode = 1;
+    return;
+  }
+  const stdin = await readStdin();
+  let payload: unknown;
+  try {
+    payload = JSON.parse(stdin);
+  } catch {
+    process.stderr.write('Error: --instruction-studio-trace-append expects trace JSON on stdin.\n');
+    process.exitCode = 1;
+    return;
+  }
+  if (!payload || typeof payload !== 'object') {
+    process.stderr.write('Error: trace payload must be an object.\n');
+    process.exitCode = 1;
+    return;
+  }
+  const trace = appendInstructionStudioTraceEntry(path.resolve(workspaceRoot), payload as any);
+  process.stdout.write(`${JSON.stringify({ ok: true, trace })}\n`);
+}
+
+async function handleInstructionStudioTraceAnalytics(args: string[]): Promise<void> {
+  const workspaceRoot = resolveArg(args, '--workspace-root');
+  if (!workspaceRoot) {
+    process.stderr.write('Error: --instruction-studio-trace-analytics requires --workspace-root <path>.\n');
+    process.exitCode = 1;
+    return;
+  }
+  const analytics = summarizeInstructionStudioTrace(path.resolve(workspaceRoot));
+  process.stdout.write(`${JSON.stringify({ analytics })}\n`);
+}
+
+async function handleInstructionStudioInsights(args: string[]): Promise<void> {
+  const workspaceRoot = resolveArg(args, '--workspace-root');
+  if (!workspaceRoot) {
+    process.stderr.write('Error: --instruction-studio-insights requires --workspace-root <path>.\n');
+    process.exitCode = 1;
+    return;
+  }
+  const insights = summarizeInstructionStudioInsights(path.resolve(workspaceRoot));
+  process.stdout.write(`${JSON.stringify({ insights })}\n`);
+}
+
+async function handleInstructionStudioReplay(args: string[]): Promise<void> {
+  const workspaceRoot = resolveArg(args, '--workspace-root');
+  if (!workspaceRoot) {
+    process.stderr.write('Error: --instruction-studio-replay requires --workspace-root <path>.\n');
+    process.exitCode = 1;
+    return;
+  }
+  const sessionId = resolveArg(args, '--session-id');
+  const replay = loadInstructionStudioReplay(path.resolve(workspaceRoot), sessionId);
+  process.stdout.write(`${JSON.stringify(replay)}\n`);
+}
+
+async function handleInstructionStudioConflicts(): Promise<void> {
+  const stdin = await readStdin();
+  let payload: unknown;
+  try {
+    payload = JSON.parse(stdin);
+  } catch {
+    process.stderr.write('Error: --instruction-studio-conflicts expects graph JSON on stdin.\n');
+    process.exitCode = 1;
+    return;
+  }
+  const graph = parseInstructionStudioGraph(payload);
+  const conflicts = detectInstructionStudioConflicts(graph);
+  process.stdout.write(`${JSON.stringify({ conflicts })}\n`);
+}
+
 async function handleBenchmark(benchmarkPath: string, dbPath?: string): Promise<void> {
   const absolutePath = path.resolve(benchmarkPath);
   if (!fs.existsSync(absolutePath)) {
@@ -714,6 +937,61 @@ async function main(): Promise<void> {
 
   if (args.includes('--instructions-overview')) {
     handleInstructionsOverview(args);
+    return;
+  }
+
+  if (args.includes('--instruction-studio-compile')) {
+    await handleInstructionStudioCompile(args);
+    return;
+  }
+
+  if (args.includes('--instruction-studio-personas-list')) {
+    await handleInstructionStudioPersonasList(args);
+    return;
+  }
+
+  if (args.includes('--instruction-studio-persona-save')) {
+    await handleInstructionStudioPersonaSave(args);
+    return;
+  }
+
+  if (args.includes('--instruction-studio-persona-delete')) {
+    await handleInstructionStudioPersonaDelete(args);
+    return;
+  }
+
+  if (args.includes('--instruction-studio-trace-list')) {
+    await handleInstructionStudioTraceList(args);
+    return;
+  }
+
+  if (args.includes('--instruction-studio-trace-append')) {
+    await handleInstructionStudioTraceAppend(args);
+    return;
+  }
+
+  if (args.includes('--instruction-studio-trace-analytics')) {
+    await handleInstructionStudioTraceAnalytics(args);
+    return;
+  }
+
+  if (args.includes('--instruction-studio-insights')) {
+    await handleInstructionStudioInsights(args);
+    return;
+  }
+
+  if (args.includes('--instruction-studio-replay')) {
+    await handleInstructionStudioReplay(args);
+    return;
+  }
+
+  if (args.includes('--instruction-studio-conflicts')) {
+    await handleInstructionStudioConflicts();
+    return;
+  }
+
+  if (args.includes('--instruction-studio-presets')) {
+    process.stdout.write(`${JSON.stringify({ presets: INSTRUCTION_STUDIO_PRESETS })}\n`);
     return;
   }
 

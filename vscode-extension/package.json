@@ -439,6 +439,11 @@
         "icon": "$(rocket)"
       },
       {
+        "command": "prompt-proxy.openInstructionStudio",
+        "title": "Prompt Optimizer: Open Instruction Studio",
+        "icon": "$(symbol-structure)"
+      },
+      {
         "command": "prompt-proxy.cacheStats",
         "title": "Prompt Optimizer: Show Cache Statistics"
       },

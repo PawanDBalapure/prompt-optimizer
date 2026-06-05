@@ -1,0 +1,120 @@
+## System Architecture & Workspace Design
+You are a Principal Software Engineer and UX Architect. Provide a highly detailed, production-grade technical engineering specification to build Instruction Studio, a VS Code Extension that operates as an instruction orchestration engine, prompt IDE, and agent governance platform.
+
++-----------------------------------------------------------------------------------+
+
+|                           SECTION 1: PERSONA RIBBON                               |
+| [Card: Architect v1.2]  [Card: Security v2.0]  [+ New] [Edit] [Clone] [Sync URL]  |
++-----------------------------------------------------------------+-----------------+
+
+|                                                                 |                 |
+|                   SECTION 2: VISUAL RULE CANVAS                 |  RULE LIBRARY   |
+|                                                                 |                 |
+|    [Persona Node: Architect] ---> [Condition Node: If Refactor] | [Search Rules]  |
+|                                         |                       |                 |
+|                                         v                       | > Security      |
+|                             [Rule Node: Generate Unit Tests]    | > Performance   |
+|                                                                 | > Git & Review  |
+|                                                                 |                 |
++-----------------------------------------------------------------+-----------------+
+
+|                        SECTION 3: TRACE MATRIX & AUDIT LOGS                       |
+| Timeline: User Prompt -> Triggered Persona (Rule 4) -> Modified: PaymentService.ts|
++-----------------------------------------------------------------+-----------------+
+
+## Initialization & Environment Lifecycle
+
+* Startup Hook: On executing Instruction Studio: Open, invoke vscode.window.createWebviewPanel.
+* Window Workspace Allocation: Launch the studio interface inside a dedicated, isolated tab or multi-column layout acting as a native visual designer (comparable to Git Graph).
+* Theme Synchronization: Inherit active VS Code token definitions (--vscode-editor-background, --vscode-foreground) to match Light, Dark, or High-Contrast user layouts instantly.
+
+------------------------------
+## UI Regional Layout Specifications## Section 1: Persona Ribbon (Header Matrix)
+
+* Layout Topology: Top-anchored, horizontal MS Excel-style command ribbon.
+* Component Architecture:
+* Persona Registry Array: Display dynamically rendered, status-tagged, card-like tabs for preconfigured personas loaded via local directories, user configurations, or remote markdown source definitions (e.g., Architect, Security Expert, Refactoring Engineer).
+   * Metadata Enclosure: Render operational states (Active, Deactivated), unique UUID strings, author/creator strings, source paths, updates, and absolute version strings.
+* Persona Operations: Bind CRUD click targets directly onto the ribbon wrapper allowing developers to execute: Create, Edit, Clone, Delete, Load from Custom URL, Version Compare, and Merge.
+
+## Section 2: Visual Rule Canvas (Instruction Core Engine)
+
+* Core Node Topology: Fully integrated React Flow / Svelte Flow canvas supporting custom HTML/React wrappers, panning, zooming, and link-snapping validation.
+* Supported Graph Nodes:
+* Rule Node: Encapsulates a singular instruction unit string.
+   * Persona Node: Evaluates and expands to a full structural persona sub-graph.
+   * Conditional Node: Structural control branches (IF, ELSE, ELSE IF, SWITCH/CASE).
+   * Priority Node: Implements strict array ordering criteria (Critical, High, Medium, Low).
+   * Merge Node: Safely concatenates independent directive sub-graphs into unified operational stacks.
+   * Agent Scope Node: Contextually targets directives into precise action profiles (Code Generation, Review, Testing, Security Analysis).
+* Properties Inspector Panel: Docked slide-out panel showing absolute state strings, text content, active status, compliance tags, and isolation scopes upon canvas node-selection event.
+* Rule Library Wrapper: Side-docked, tag-filterable search view containing quick-insert blocks spanning categories like Security, Compliance, Testing, and Accessibility.
+
+------------------------------
+## Core Engineering Processing Layers## 1. AI-Assisted Instruction Engineering Engine
+
+* Integration Vector: Securely bind to local LLM setups (Ollama), enterprise API wrappers (Azure OpenAI), or native workspace language endpoints (vscode.lm).
+* Processing Capabilities: Provide automated refinement primitives via programmatic contextual prompts targeting: Improve, Simplify, Expand, Find Conflicts, Find Duplicates, and Generate Persona from Repository Context.
+* Structural Review Interface: Prompt responses return structural JSON arrays displaying text updates via inline, interactive Git-style diff layers featuring unified "Accept/Reject Change" action controls.
+
+## 2. Instruction Compilation & Local Versioning System
+
+* Compilation Core Pipeline: Map visually defined node graphs, logical conditions, and edge arrays into a structured, linear text compiler outputting absolute files to .instruction_studio/instructions.md and structural mapping to .instruction_studio/instruction-manifest.json.
+* State Mapping Strategy: Write standard hierarchical Markdown templates using markdown structural definitions alongside automated headers mapping canvas configurations directly back to physical lines:
+
+# Workflow: [Name]
+## Persona: [Architect]
+### Condition: [If Task=Refactor]- Always run unit tests before completing changes.
+
+* Version Registry Lifecycle: Every canvas save transaction generates an immutable snapshot entry under .instruction_studio/history/v[Index]/ hosting complete .json layout descriptors alongside raw generated markdown states to deliver visual layout diff comparisons across active registry histories.
+
+## 3. Execution Telemetry, Lineage, & Git Integration
+
+* Data Log Capture Matrix: Provide file/runtime event loops capturing execution-lifecycle session states on agent transaction conclusions, committing variables into absolute telemetry structures:
+
+{
+  "sessionId": "sess-2026-06-05-abc123",
+  "conversationRef": "chat-session-uuid-789",
+  "timestamp": "2026-06-05T05:52:00Z",
+  "personasActive": [{"id": "arch-01", "version": "1.2"}],
+  "ruleUsage": [
+    {
+      "ruleId": "rule-always-test",
+      "status": "executed",
+      "confidence": 0.96,
+      "filesAffected": ["src/UserService.ts", "src/UserService.test.ts"]
+    }
+  ],
+  "lineage": [
+    {
+      "file": "src/PaymentService.ts",
+      "modifiedBy": "Security Persona",
+      "rule": "Validate Inputs",
+      "commit": "git-sha-xyz"
+    }
+  ]
+}
+
+* Session Storage Blueprint: Export complete trace runs into isolated workspace roots:
+
+.agent/
+  ├── execution-log.json
+  ├── lineage.json
+  └── rule-usage.json
+
+* Git Transaction Handlers: Intercept native repository commit requests, prompting developer approval to stage compiled tracking logs inside the commit index (Include Full Trace, Include Summary, Exclude Trace) to assure absolute historical compliance.
+
+------------------------------
+## Advanced Intelligence Additions
+
+* Change Intelligence Analytics Dashboard: Display system charts exposing metrics tracking Most Used Rules, Unused Rules, Conflicting Rules, and Rule Effectiveness scores to simplify instruction lifecycle audits.
+* Deterministic AST Conflict Engine: Run background AST validation queries across the canvas graph to intercept, flag, and visualize opposing semantic rule matches (e.g., Node A declares "Never edit package.json" while Node B states "Update package dependencies").
+* Execution Replay Debugger: Allow engineers to load old execution JSON logs and step through execution phases iteratively, flashing active workspace rules and path nodes contextually on the visual canvas layer.
+
+------------------------------
+## Verification Milestones
+
+   1. Confirm local markdown personas fetch, parse, and populate the ribbon layer accurately.
+   2. Verify visual drag-and-drop actions output valid, compile-ready logic flow graphs.
+   3. Validate telemetry capture logs map rule choices to changed source files accurately post-execution.
+

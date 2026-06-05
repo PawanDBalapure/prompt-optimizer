@@ -691,11 +691,34 @@ ${inner}
       }
 
       const confirm = await vscode.window.showWarningMessage(
-        `Import ${bundle.files.length} instruction file(s)? Existing files with the same path will be overwritten.`,
+        `Import ${bundle.files.length} instruction file(s)? Existing files with the same path will be overwritten (copilot-instructions files are appended).`,
         { modal: true },
         'Import',
       );
       if (confirm !== 'Import') { done(false, { error: 'Import cancelled.' }); return; }
+
+      const shouldAppendCopilotInstructions = (relPath: string): boolean => {
+        const rel = relPath.replace(/\\/g, '/').toLowerCase();
+        return rel === '.github/copilot-instructions.md'
+          || rel === '.copilot-instructions.md'
+          || rel === 'copilot-instructions.md';
+      };
+
+      const appendInstructionText = (existing: string, incoming: string): string => {
+        const existingTrim = existing.replace(/\s+$/g, '');
+        const incomingTrim = incoming.trim();
+        if (!incomingTrim) { return existing; }
+        if (existingTrim.includes(incomingTrim)) { return existingTrim + '\n'; }
+        if (!existingTrim) { return incomingTrim + '\n'; }
+        const eol = existing.includes('\r\n') ? '\r\n' : '\n';
+        return [
+          existingTrim,
+          '',
+          '<!-- prompt-optimizer:import:append -->',
+          incomingTrim,
+          '',
+        ].join(eol);
+      };
 
       let written = 0;
       for (const file of bundle.files) {
@@ -706,7 +729,12 @@ ${inner}
         const containment = path.relative(wsRoot, abs);
         if (containment.startsWith('..') || path.isAbsolute(containment)) { continue; }
         fs.mkdirSync(path.dirname(abs), { recursive: true });
-        fs.writeFileSync(abs, content, 'utf8');
+        if (shouldAppendCopilotInstructions(rel) && fs.existsSync(abs)) {
+          const existing = fs.readFileSync(abs, 'utf8');
+          fs.writeFileSync(abs, appendInstructionText(existing, content), 'utf8');
+        } else {
+          fs.writeFileSync(abs, content, 'utf8');
+        }
         written++;
       }
       done(true, { message: `Imported ${written} instruction file${written === 1 ? '' : 's'}.` });

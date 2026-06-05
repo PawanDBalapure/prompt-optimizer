@@ -43,6 +43,11 @@ const ITEMS: GuideItem[] = [
     command: 'prompt-proxy.openMemoryFile',
   },
   {
+    label: '$(symbol-structure) Open Instruction Studio',
+    detail: 'Visual shell for persona/rule orchestration with starter scaffold generation.',
+    command: 'prompt-proxy.openInstructionStudio',
+  },
+  {
     label: '$(history) Show prompt history (side-by-side diff)',
     detail: 'Browse prior prompts with relative timestamps; open any prompt as an original ↔ optimized diff view.',
     command: 'prompt-proxy.showHistory',

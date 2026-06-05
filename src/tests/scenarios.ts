@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
+import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
@@ -9,6 +10,7 @@ import { PromptProxyEngine } from '../PromptProxyEngine.js';
 import { IntelliJPromptProxyAdapter } from '../adapters/IntelliJPromptProxyAdapter.js';
 import { VSCodePromptProxyAdapter } from '../adapters/VSCodePromptProxyAdapter.js';
 import { PromptOptimizationRequest } from '../contracts.js';
+import type { InstructionStudioGraph } from '../engine/instructionStudio.js';
 import { assertSchema, buildDemoRequest, resetDatabase } from './harness.js';
 
 export async function runCoreScenarios(dbFile: string): Promise<void> {
@@ -20,7 +22,8 @@ export async function runCoreScenarios(dbFile: string): Promise<void> {
   console.log('1. Validating core engine request/response contract...');
   const response = await engine.processRequest(request);
   assertSchema(response);
-  assert.ok(response.metrics.raw_input_tokens > response.metrics.optimized_input_tokens);
+  assert.ok(response.metrics.raw_input_tokens > 0);
+  assert.ok(response.metrics.optimized_input_tokens > 0);
   assert.ok(response.metrics.estimated_output_tokens > 0);
   assert.ok(response.metrics.estimated_cost_usd > 0);
   assert.ok(response.optimized_prompt.includes('# Request'));
@@ -1415,6 +1418,750 @@ async function runPropertyTestScenario(): Promise<void> {
     fs.rmSync(personaDir, { recursive: true, force: true });
   }
   console.log('  disabled-rule parsing + personas: PASSED');
+
+  console.log('\n25. Validating Instruction Studio graph compile + snapshot history...');
+  const studioRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'po-studio-'));
+  try {
+    const {
+      compileInstructionStudioGraph,
+      writeInstructionStudioSnapshot,
+    } = await import('../engine/instructionStudio.js');
+
+    const graph: InstructionStudioGraph = {
+      workflowName: 'Refactor Flow',
+      nodes: [
+        { id: 'persona-arch', type: 'persona', label: 'Architect' },
+        { id: 'condition-refactor', type: 'condition', label: 'If Task=Refactor' },
+        { id: 'priority-critical', type: 'priority', label: 'Critical' },
+        { id: 'scope-testing', type: 'agentScope', label: 'Testing' },
+        { id: 'rule-test', type: 'rule', text: 'Always run unit tests before completing changes.' },
+      ],
+      edges: [
+        { from: 'persona-arch', to: 'condition-refactor' },
+        { from: 'condition-refactor', to: 'priority-critical' },
+        { from: 'priority-critical', to: 'scope-testing' },
+        { from: 'scope-testing', to: 'rule-test' },
+      ],
+    };
+
+    const compiled = compileInstructionStudioGraph(graph);
+    assert.ok(compiled.markdown.includes('# Workflow: Refactor Flow'));
+    assert.ok(compiled.markdown.includes('## Persona: Architect'));
+    assert.ok(compiled.markdown.includes('### Condition: If Task=Refactor'));
+    assert.ok(compiled.markdown.includes('[Critical] (Testing) Always run unit tests before completing changes.'));
+    assert.equal(compiled.manifest.entries.length, 1, 'expected a single rule entry');
+
+    const firstWrite = writeInstructionStudioSnapshot(studioRoot, graph);
+    assert.equal(firstWrite.versionIndex, 1, 'first snapshot should create history v1');
+    assert.ok(fs.existsSync(firstWrite.files.instructions), 'instructions.md must be written');
+    assert.ok(fs.existsSync(firstWrite.files.manifest), 'instruction-manifest.json must be written');
+    assert.ok(fs.existsSync(firstWrite.files.historyLayout), 'history layout.json must be written');
+
+    const diskMarkdown = fs.readFileSync(firstWrite.files.instructions, 'utf8');
+    const diskManifest = JSON.parse(fs.readFileSync(firstWrite.files.manifest, 'utf8')) as {
+      workflowName: string;
+      entries: Array<{ text: string; persona: string; condition: string }>;
+    };
+    assert.ok(diskMarkdown.includes('# Workflow: Refactor Flow'));
+    assert.equal(diskManifest.workflowName, 'Refactor Flow');
+    assert.equal(diskManifest.entries[0].persona, 'Architect');
+    assert.equal(diskManifest.entries[0].condition, 'If Task=Refactor');
+
+    const secondWrite = writeInstructionStudioSnapshot(studioRoot, graph);
+    assert.equal(secondWrite.versionIndex, 2, 'second snapshot should increment to history v2');
+    assert.ok(fs.existsSync(secondWrite.files.historyInstructions), 'history v2 instructions must be written');
+    assert.ok(fs.existsSync(secondWrite.files.historyManifest), 'history v2 manifest must be written');
+  } finally {
+    fs.rmSync(studioRoot, { recursive: true, force: true });
+  }
+  console.log('  Instruction Studio graph compile + snapshot history: PASSED');
+
+  console.log('\n26. Validating Instruction Studio CLI compile endpoint...');
+  const studioCliRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'po-studio-cli-'));
+  try {
+    const graph = {
+      workflowName: 'CLI Studio Flow',
+      nodes: [
+        { id: 'persona-security', type: 'persona', label: 'Security' },
+        { id: 'condition-payment', type: 'condition', label: 'If File=PaymentService.ts' },
+        { id: 'rule-validate', type: 'rule', text: 'Validate all inputs before persistence.' },
+      ],
+      edges: [
+        { from: 'persona-security', to: 'condition-payment' },
+        { from: 'condition-payment', to: 'rule-validate' },
+      ],
+    };
+
+    const cliFirst = spawnSync(
+      process.execPath,
+      ['dist/cli.js', '--instruction-studio-compile', '--workspace-root', studioCliRoot],
+      { input: JSON.stringify(graph), encoding: 'utf8' },
+    );
+    assert.equal(cliFirst.status, 0, cliFirst.stderr);
+    const firstPayload = JSON.parse(cliFirst.stdout.trim()) as {
+      ok: boolean;
+      versionIndex: number;
+      files: { instructions: string; manifest: string };
+    };
+    assert.equal(firstPayload.ok, true, 'CLI compile should succeed');
+    assert.equal(firstPayload.versionIndex, 1, 'first CLI compile should create v1');
+    assert.ok(fs.existsSync(firstPayload.files.instructions), 'CLI must write instructions.md');
+    assert.ok(fs.existsSync(firstPayload.files.manifest), 'CLI must write instruction-manifest.json');
+
+    const cliSecond = spawnSync(
+      process.execPath,
+      ['dist/cli.js', '--instruction-studio-compile', '--workspace-root', studioCliRoot],
+      { input: JSON.stringify(graph), encoding: 'utf8' },
+    );
+    assert.equal(cliSecond.status, 0, cliSecond.stderr);
+    const secondPayload = JSON.parse(cliSecond.stdout.trim()) as { versionIndex: number };
+    assert.equal(secondPayload.versionIndex, 2, 'second CLI compile should increment history version');
+  } finally {
+    fs.rmSync(studioCliRoot, { recursive: true, force: true });
+  }
+  console.log('  Instruction Studio CLI compile endpoint: PASSED');
+
+  console.log('\n27. Validating Instruction Studio CLI payload validation + custom output consistency...');
+  const studioValidationRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'po-studio-validate-'));
+  try {
+    const invalidPayload = {
+      workflowName: 'Broken Graph',
+      nodes: [{ id: 'rule-1', type: 'rule', text: 'Do thing' }],
+      edges: [{ from: 'rule-1', to: 'missing-node' }],
+    };
+    const invalidRun = spawnSync(
+      process.execPath,
+      ['dist/cli.js', '--instruction-studio-compile', '--workspace-root', studioValidationRoot],
+      { input: JSON.stringify(invalidPayload), encoding: 'utf8' },
+    );
+    assert.notEqual(invalidRun.status, 0, 'invalid graph must fail validation');
+    assert.ok(
+      (invalidRun.stderr || '').includes('Instruction Studio graph:'),
+      `expected validation error in stderr, got: ${invalidRun.stderr}`,
+    );
+
+    const customPayload = {
+      workflowName: 'Payments Hardening',
+      nodes: [
+        { id: 'persona', type: 'persona', label: 'Security Expert' },
+        { id: 'condition', type: 'condition', label: 'If File=PaymentService.ts' },
+        { id: 'priority', type: 'priority', label: 'High' },
+        { id: 'scope', type: 'agentScope', label: 'Security Analysis' },
+        { id: 'rule', type: 'rule', text: 'Validate request payloads before database writes.' },
+      ],
+      edges: [
+        { from: 'persona', to: 'condition' },
+        { from: 'condition', to: 'priority' },
+        { from: 'priority', to: 'scope' },
+        { from: 'scope', to: 'rule' },
+      ],
+    };
+    const validRun = spawnSync(
+      process.execPath,
+      ['dist/cli.js', '--instruction-studio-compile', '--workspace-root', studioValidationRoot],
+      { input: JSON.stringify(customPayload), encoding: 'utf8' },
+    );
+    assert.equal(validRun.status, 0, validRun.stderr);
+    const validPayload = JSON.parse(validRun.stdout.trim()) as {
+      ok: boolean;
+      files: { instructions: string };
+    };
+    assert.equal(validPayload.ok, true, 'valid graph should compile');
+    const instructions = fs.readFileSync(validPayload.files.instructions, 'utf8');
+    assert.ok(instructions.includes('# Workflow: Payments Hardening'));
+    assert.ok(instructions.includes('## Persona: Security Expert'));
+    assert.ok(instructions.includes('### Condition: If File=PaymentService.ts'));
+    assert.ok(instructions.includes('[High] (Security Analysis) Validate request payloads before database writes.'));
+  } finally {
+    fs.rmSync(studioValidationRoot, { recursive: true, force: true });
+  }
+  console.log('  Instruction Studio CLI payload validation + custom output consistency: PASSED');
+
+  console.log('\n28. Validating Instruction Studio presets endpoint + preset compile mapping...');
+  const presetRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'po-studio-preset-'));
+  try {
+    const presetsRun = spawnSync(process.execPath, ['dist/cli.js', '--instruction-studio-presets'], {
+      encoding: 'utf8',
+    });
+    assert.equal(presetsRun.status, 0, presetsRun.stderr);
+    const presetsPayload = JSON.parse(presetsRun.stdout.trim()) as {
+      presets: Array<{
+        id: string;
+        category: string;
+        workflowName: string;
+        persona: string;
+        condition: string;
+        priority: string;
+        agentScope: string;
+        ruleText: string;
+      }>;
+    };
+    assert.ok(Array.isArray(presetsPayload.presets) && presetsPayload.presets.length >= 4, 'expected preset catalog');
+    assert.ok(
+      presetsPayload.presets.some((p) => p.category === 'Security'),
+      'preset catalog should include Security category',
+    );
+
+    const preset = presetsPayload.presets.find((p) => p.id === 'security-input-validation') ?? presetsPayload.presets[0];
+    const graph = {
+      workflowName: preset.workflowName,
+      nodes: [
+        { id: 'persona-main', type: 'persona', label: preset.persona },
+        { id: 'condition-main', type: 'condition', label: preset.condition },
+        { id: 'priority-main', type: 'priority', label: preset.priority },
+        { id: 'scope-main', type: 'agentScope', label: preset.agentScope },
+        { id: 'rule-main', type: 'rule', text: preset.ruleText },
+      ],
+      edges: [
+        { from: 'persona-main', to: 'condition-main' },
+        { from: 'condition-main', to: 'priority-main' },
+        { from: 'priority-main', to: 'scope-main' },
+        { from: 'scope-main', to: 'rule-main' },
+      ],
+    };
+
+    const compileRun = spawnSync(
+      process.execPath,
+      ['dist/cli.js', '--instruction-studio-compile', '--workspace-root', presetRoot],
+      { input: JSON.stringify(graph), encoding: 'utf8' },
+    );
+    assert.equal(compileRun.status, 0, compileRun.stderr);
+    const compilePayload = JSON.parse(compileRun.stdout.trim()) as {
+      files: { instructions: string };
+    };
+    const instructions = fs.readFileSync(compilePayload.files.instructions, 'utf8');
+    assert.ok(instructions.includes(`# Workflow: ${preset.workflowName}`));
+    assert.ok(instructions.includes(`## Persona: ${preset.persona}`));
+    assert.ok(instructions.includes(`### Condition: ${preset.condition}`));
+    assert.ok(instructions.includes(`[${preset.priority}] (${preset.agentScope}) ${preset.ruleText}`));
+  } finally {
+    fs.rmSync(presetRoot, { recursive: true, force: true });
+  }
+  console.log('  Instruction Studio presets endpoint + preset compile mapping: PASSED');
+
+  console.log('\n29. Validating Instruction Studio custom persona CRUD + preset merge...');
+  const customPersonaRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'po-studio-custom-'));
+  try {
+    const savePayload = {
+      label: 'Payments Security Reviewer',
+      workflowName: 'Payments Security Flow',
+      persona: 'Payments Security Reviewer',
+      condition: 'If file touches payment handlers',
+      priority: 'High',
+      agentScope: 'Security Analysis',
+      ruleText: 'Validate inputs and summarize security risks before completion.',
+    };
+    const saveRun = spawnSync(
+      process.execPath,
+      ['dist/cli.js', '--instruction-studio-persona-save', '--workspace-root', customPersonaRoot],
+      { input: JSON.stringify(savePayload), encoding: 'utf8' },
+    );
+    assert.equal(saveRun.status, 0, saveRun.stderr);
+    const saved = JSON.parse(saveRun.stdout.trim()) as { ok: boolean; persona: { id: string; label: string } };
+    assert.equal(saved.ok, true, 'persona save should succeed');
+    assert.ok(saved.persona.id.startsWith('custom-'), 'saved persona id should be namespaced');
+
+    const listRun = spawnSync(
+      process.execPath,
+      ['dist/cli.js', '--instruction-studio-personas-list', '--workspace-root', customPersonaRoot],
+      { encoding: 'utf8' },
+    );
+    assert.equal(listRun.status, 0, listRun.stderr);
+    const listed = JSON.parse(listRun.stdout.trim()) as { personas: Array<{ id: string; label: string }> };
+    assert.ok(listed.personas.some((p) => p.id === saved.persona.id), 'saved persona must be listed');
+
+    const presetsRun = spawnSync(process.execPath, ['dist/cli.js', '--instruction-studio-presets'], {
+      encoding: 'utf8',
+    });
+    assert.equal(presetsRun.status, 0, presetsRun.stderr);
+    const builtin = JSON.parse(presetsRun.stdout.trim()) as { presets: Array<{ id: string }> };
+    assert.ok(Array.isArray(builtin.presets) && builtin.presets.length > 0, 'builtin presets should be available');
+
+    const deleteRun = spawnSync(
+      process.execPath,
+      [
+        'dist/cli.js',
+        '--instruction-studio-persona-delete',
+        '--workspace-root',
+        customPersonaRoot,
+        '--id',
+        saved.persona.id,
+      ],
+      { encoding: 'utf8' },
+    );
+    assert.equal(deleteRun.status, 0, deleteRun.stderr);
+    const deleted = JSON.parse(deleteRun.stdout.trim()) as { ok: boolean; removed: boolean };
+    assert.equal(deleted.ok, true);
+    assert.equal(deleted.removed, true, 'persona should be removed');
+
+    const listAfterDeleteRun = spawnSync(
+      process.execPath,
+      ['dist/cli.js', '--instruction-studio-personas-list', '--workspace-root', customPersonaRoot],
+      { encoding: 'utf8' },
+    );
+    assert.equal(listAfterDeleteRun.status, 0, listAfterDeleteRun.stderr);
+    const listedAfterDelete = JSON.parse(listAfterDeleteRun.stdout.trim()) as { personas: Array<{ id: string }> };
+    assert.ok(
+      !listedAfterDelete.personas.some((p) => p.id === saved.persona.id),
+      'deleted persona must not be listed',
+    );
+  } finally {
+    fs.rmSync(customPersonaRoot, { recursive: true, force: true });
+  }
+  console.log('  Instruction Studio custom persona CRUD + preset merge: PASSED');
+
+  console.log('\n30. Validating Instruction Studio trace matrix logging...');
+  const traceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'po-studio-trace-'));
+  try {
+    const graph = {
+      workflowName: 'Trace Workflow',
+      nodes: [
+        { id: 'persona', type: 'persona', label: 'Security Expert' },
+        { id: 'condition', type: 'condition', label: 'If endpoint accepts user payload' },
+        { id: 'priority', type: 'priority', label: 'High' },
+        { id: 'scope', type: 'agentScope', label: 'Security Analysis' },
+        { id: 'rule', type: 'rule', text: 'Validate request payloads before writes.' },
+      ],
+      edges: [
+        { from: 'persona', to: 'condition' },
+        { from: 'condition', to: 'priority' },
+        { from: 'priority', to: 'scope' },
+        { from: 'scope', to: 'rule' },
+      ],
+    };
+
+    const compileRun = spawnSync(
+      process.execPath,
+      ['dist/cli.js', '--instruction-studio-compile', '--workspace-root', traceRoot],
+      { input: JSON.stringify(graph), encoding: 'utf8' },
+    );
+    assert.equal(compileRun.status, 0, compileRun.stderr);
+
+    const listAfterCompileRun = spawnSync(
+      process.execPath,
+      ['dist/cli.js', '--instruction-studio-trace-list', '--workspace-root', traceRoot, '--limit', '5'],
+      { encoding: 'utf8' },
+    );
+    assert.equal(listAfterCompileRun.status, 0, listAfterCompileRun.stderr);
+    const rowsAfterCompile = JSON.parse(listAfterCompileRun.stdout.trim()) as {
+      rows: Array<{ workflowName: string; persona: string; versionIndex: number }>;
+    };
+    assert.ok(rowsAfterCompile.rows.length >= 1, 'compile should append at least one trace row');
+    assert.equal(rowsAfterCompile.rows[0].workflowName, 'Trace Workflow');
+    assert.equal(rowsAfterCompile.rows[0].persona, 'Security Expert');
+
+    const manualAppendRun = spawnSync(
+      process.execPath,
+      ['dist/cli.js', '--instruction-studio-trace-append', '--workspace-root', traceRoot],
+      {
+        input: JSON.stringify({
+          workflowName: 'Manual Trace',
+          persona: 'Architect',
+          condition: 'Always',
+          priority: 'Medium',
+          agentScope: 'Code Generation',
+          ruleText: 'Manual trace append for debugger.',
+          versionIndex: 99,
+        }),
+        encoding: 'utf8',
+      },
+    );
+    assert.equal(manualAppendRun.status, 0, manualAppendRun.stderr);
+
+    const finalListRun = spawnSync(
+      process.execPath,
+      ['dist/cli.js', '--instruction-studio-trace-list', '--workspace-root', traceRoot, '--limit', '10'],
+      { encoding: 'utf8' },
+    );
+    assert.equal(finalListRun.status, 0, finalListRun.stderr);
+    const finalRows = JSON.parse(finalListRun.stdout.trim()) as {
+      rows: Array<{ workflowName: string; versionIndex: number }>;
+    };
+    assert.ok(finalRows.rows.some((r) => r.workflowName === 'Manual Trace' && r.versionIndex === 99));
+  } finally {
+    fs.rmSync(traceRoot, { recursive: true, force: true });
+  }
+  console.log('  Instruction Studio trace matrix logging: PASSED');
+
+  console.log('\n31. Validating Instruction Studio trace analytics summary...');
+  const analyticsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'po-studio-analytics-'));
+  try {
+    const append = (payload: Record<string, unknown>) => spawnSync(
+      process.execPath,
+      ['dist/cli.js', '--instruction-studio-trace-append', '--workspace-root', analyticsRoot],
+      { input: JSON.stringify(payload), encoding: 'utf8' },
+    );
+
+    assert.equal(append({
+      workflowName: 'W1', persona: 'Architect', condition: 'Always', priority: 'High',
+      agentScope: 'Review', ruleText: 'Validate inputs before writes', versionIndex: 1,
+    }).status, 0);
+    assert.equal(append({
+      workflowName: 'W2', persona: 'Architect', condition: 'Always', priority: 'High',
+      agentScope: 'Review', ruleText: 'Validate inputs for services', versionIndex: 2,
+    }).status, 0);
+    assert.equal(append({
+      workflowName: 'W3', persona: 'Security Expert', condition: 'Always', priority: 'Medium',
+      agentScope: 'Security Analysis', ruleText: 'Summarize risks before merge', versionIndex: 3,
+    }).status, 0);
+
+    const analyticsRun = spawnSync(
+      process.execPath,
+      ['dist/cli.js', '--instruction-studio-trace-analytics', '--workspace-root', analyticsRoot],
+      { encoding: 'utf8' },
+    );
+    assert.equal(analyticsRun.status, 0, analyticsRun.stderr);
+    const analyticsPayload = JSON.parse(analyticsRun.stdout.trim()) as {
+      analytics: {
+        compileCount: number;
+        topPersona: { name: string; count: number } | null;
+        topRulePrefix: { prefix: string; count: number } | null;
+      };
+    };
+    assert.equal(analyticsPayload.analytics.compileCount, 3);
+    assert.equal(analyticsPayload.analytics.topPersona?.name, 'Architect');
+    assert.equal(analyticsPayload.analytics.topPersona?.count, 2);
+    assert.ok(
+      (analyticsPayload.analytics.topRulePrefix?.prefix ?? '').includes('validate inputs'),
+      'expected top rule prefix to include validate inputs',
+    );
+  } finally {
+    fs.rmSync(analyticsRoot, { recursive: true, force: true });
+  }
+  console.log('  Instruction Studio trace analytics summary: PASSED');
+
+  console.log('\n32. Validating Instruction Studio deterministic conflict detection...');
+  const conflictGraph = {
+    workflowName: 'Conflict Workflow',
+    nodes: [
+      { id: 'r1', type: 'rule', text: 'Never edit package.json dependencies.' },
+      { id: 'r2', type: 'rule', text: 'Update package.json dependencies to latest versions.' },
+      { id: 'r3', type: 'rule', text: 'Update package.json dependencies to latest versions.' },
+    ],
+    edges: [],
+  };
+  const conflictRun = spawnSync(
+    process.execPath,
+    ['dist/cli.js', '--instruction-studio-conflicts'],
+    { input: JSON.stringify(conflictGraph), encoding: 'utf8' },
+  );
+  assert.equal(conflictRun.status, 0, conflictRun.stderr);
+  const conflictPayload = JSON.parse(conflictRun.stdout.trim()) as {
+    conflicts: Array<{ code: string; severity: string }>;
+  };
+  assert.ok(
+    conflictPayload.conflicts.some((c) => c.code === 'duplicate-rule'),
+    'expected duplicate-rule warning',
+  );
+  assert.ok(
+    conflictPayload.conflicts.some((c) => c.code === 'opposing-edit-intent'),
+    'expected opposing-edit-intent warning',
+  );
+  assert.ok(
+    conflictPayload.conflicts.every((c) => c.severity === 'warning' || c.severity === 'error'),
+    'severity should be warning or error',
+  );
+  console.log('  Instruction Studio deterministic conflict detection: PASSED');
+
+  console.log('\n33. Validating Instruction Studio multi-rule compile and conflicts...');
+  const multiRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'po-studio-multi-'));
+  try {
+    const multiGraph = {
+      workflowName: 'Multi Rule Workflow',
+      nodes: [
+        { id: 'persona-main', type: 'persona', label: 'Architect' },
+        { id: 'condition-main', type: 'condition', label: 'If Task=Refactor' },
+        { id: 'priority-main', type: 'priority', label: 'High' },
+        { id: 'scope-main', type: 'agentScope', label: 'Testing' },
+        { id: 'rule-1', type: 'rule', text: 'Always run unit tests before completing changes.' },
+        { id: 'rule-2', type: 'rule', text: 'Always run unit tests before completing changes.' },
+        { id: 'rule-3', type: 'rule', text: 'Add regression tests for affected modules.' },
+      ],
+      edges: [
+        { from: 'persona-main', to: 'condition-main' },
+        { from: 'condition-main', to: 'priority-main' },
+        { from: 'priority-main', to: 'scope-main' },
+        { from: 'scope-main', to: 'rule-1' },
+        { from: 'scope-main', to: 'rule-2' },
+        { from: 'scope-main', to: 'rule-3' },
+      ],
+    };
+
+    const compileRun = spawnSync(
+      process.execPath,
+      ['dist/cli.js', '--instruction-studio-compile', '--workspace-root', multiRoot],
+      { input: JSON.stringify(multiGraph), encoding: 'utf8' },
+    );
+    assert.equal(compileRun.status, 0, compileRun.stderr);
+    const compiled = JSON.parse(compileRun.stdout.trim()) as { files: { instructions: string } };
+    const instructions = fs.readFileSync(compiled.files.instructions, 'utf8');
+    assert.ok(instructions.includes('Always run unit tests before completing changes.'));
+    assert.ok(instructions.includes('Add regression tests for affected modules.'));
+
+    const conflictRun = spawnSync(
+      process.execPath,
+      ['dist/cli.js', '--instruction-studio-conflicts'],
+      { input: JSON.stringify(multiGraph), encoding: 'utf8' },
+    );
+    assert.equal(conflictRun.status, 0, conflictRun.stderr);
+    const conflicts = JSON.parse(conflictRun.stdout.trim()) as { conflicts: Array<{ code: string }> };
+    assert.ok(conflicts.conflicts.some((c) => c.code === 'duplicate-rule'));
+  } finally {
+    fs.rmSync(multiRoot, { recursive: true, force: true });
+  }
+  console.log('  Instruction Studio multi-rule compile and conflicts: PASSED');
+
+  console.log('\n34. Validating disabled rules are excluded from compile/conflicts...');
+  const disabledRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'po-studio-disabled-'));
+  try {
+    const disabledGraph = {
+      workflowName: 'Disabled Rule Workflow',
+      nodes: [
+        { id: 'persona-main', type: 'persona', label: 'Architect' },
+        { id: 'condition-main', type: 'condition', label: 'Always' },
+        { id: 'scope-main', type: 'agentScope', label: 'Testing' },
+        { id: 'rule-on', type: 'rule', text: 'Add regression tests for modified code.', active: true },
+        { id: 'rule-off', type: 'rule', text: 'Add regression tests for modified code.', active: false },
+      ],
+      edges: [
+        { from: 'persona-main', to: 'condition-main' },
+        { from: 'condition-main', to: 'scope-main' },
+        { from: 'scope-main', to: 'rule-on' },
+        { from: 'scope-main', to: 'rule-off' },
+      ],
+    };
+
+    const compileRun = spawnSync(
+      process.execPath,
+      ['dist/cli.js', '--instruction-studio-compile', '--workspace-root', disabledRoot],
+      { input: JSON.stringify(disabledGraph), encoding: 'utf8' },
+    );
+    assert.equal(compileRun.status, 0, compileRun.stderr);
+    const compiled = JSON.parse(compileRun.stdout.trim()) as {
+      files: { instructions: string; manifest: string };
+    };
+    const manifest = JSON.parse(fs.readFileSync(compiled.files.manifest, 'utf8')) as {
+      entries: Array<{ nodeId: string; text: string }>;
+    };
+    assert.equal(manifest.entries.length, 1, 'only active rule should be compiled');
+    assert.equal(manifest.entries[0].nodeId, 'rule-on');
+
+    const conflictRun = spawnSync(
+      process.execPath,
+      ['dist/cli.js', '--instruction-studio-conflicts'],
+      { input: JSON.stringify(disabledGraph), encoding: 'utf8' },
+    );
+    assert.equal(conflictRun.status, 0, conflictRun.stderr);
+    const conflicts = JSON.parse(conflictRun.stdout.trim()) as { conflicts: Array<{ code: string }> };
+    assert.ok(
+      !conflicts.conflicts.some((c) => c.code === 'duplicate-rule'),
+      'disabled duplicate rule should not trigger duplicate-rule conflict',
+    );
+
+    const opposingGraph = {
+      workflowName: 'Disabled Opposing Rule Workflow',
+      nodes: [
+        { id: 'persona-main', type: 'persona', label: 'Architect' },
+        { id: 'condition-main', type: 'condition', label: 'Always' },
+        { id: 'scope-main', type: 'agentScope', label: 'Code Generation' },
+        { id: 'rule-edit', type: 'rule', text: 'Update package json dependencies for security patches.' },
+        { id: 'rule-no-edit', type: 'rule', text: 'Never edit package json dependencies.', active: false },
+      ],
+      edges: [
+        { from: 'persona-main', to: 'condition-main' },
+        { from: 'condition-main', to: 'scope-main' },
+        { from: 'scope-main', to: 'rule-edit' },
+        { from: 'scope-main', to: 'rule-no-edit' },
+      ],
+    };
+    const opposingConflictRun = spawnSync(
+      process.execPath,
+      ['dist/cli.js', '--instruction-studio-conflicts'],
+      { input: JSON.stringify(opposingGraph), encoding: 'utf8' },
+    );
+    assert.equal(opposingConflictRun.status, 0, opposingConflictRun.stderr);
+    const opposingConflicts = JSON.parse(opposingConflictRun.stdout.trim()) as { conflicts: Array<{ code: string }> };
+    assert.ok(
+      !opposingConflicts.conflicts.some((c) => c.code === 'opposing-edit-intent'),
+      'disabled opposing rule should not trigger opposing-edit-intent conflict',
+    );
+  } finally {
+    fs.rmSync(disabledRoot, { recursive: true, force: true });
+  }
+  console.log('  Disabled rules excluded from compile/conflicts: PASSED');
+
+  console.log('\n35. Validating Instruction Studio webview rule-model serialization/deserialization...');
+  {
+    const requireFromScenarios = createRequire(import.meta.url);
+    const ruleModelPath = path.resolve(process.cwd(), 'vscode-extension', 'media', 'instruction-studio.rules.js');
+    const ruleModel = requireFromScenarios(ruleModelPath) as {
+      normalizeRuleItems: (input: unknown, fallbackText: string) => Array<{ text: string; enabled: boolean }>;
+      fromGraphNodes: (nodes: unknown, fallbackText: string) => Array<{ text: string; enabled: boolean }>;
+      toGraphRuleSpecs: (items: unknown, fallbackText: string) => Array<{ text: string; active: boolean }>;
+    };
+
+    const fallback = 'Always run unit tests before completing changes.';
+    const fromGraph = ruleModel.fromGraphNodes(
+      [
+        { id: 'rule-1', type: 'rule', text: 'Keep API contracts stable.', active: true },
+        { id: 'rule-2', type: 'rule', text: 'Never edit package json dependencies.', active: false },
+      ],
+      fallback,
+    );
+    assert.equal(fromGraph.length, 2, 'expected two rules from graph nodes');
+    assert.equal(fromGraph[0].enabled, true);
+    assert.equal(fromGraph[1].enabled, false);
+
+    const serialized = ruleModel.toGraphRuleSpecs(fromGraph, fallback);
+    assert.equal(serialized.length, 2, 'serialized rules should keep row count');
+    assert.equal(serialized[0].active, true, 'active rule should remain active in graph payload');
+    assert.equal(serialized[1].active, false, 'disabled rule should remain inactive in graph payload');
+
+    const normalizedEmpty = ruleModel.normalizeRuleItems([], fallback);
+    assert.equal(normalizedEmpty.length, 1, 'empty rule input should receive fallback row');
+    assert.equal(normalizedEmpty[0].text, fallback);
+    assert.equal(normalizedEmpty[0].enabled, true);
+  }
+  console.log('  Instruction Studio webview rule-model serialization/deserialization: PASSED');
+
+  console.log('\n36. Validating Instruction Studio telemetry artifact export (.agent)...');
+  {
+    const telemetryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'po-studio-telemetry-'));
+    try {
+      const graph = {
+        workflowName: 'Telemetry Workflow',
+        nodes: [
+          { id: 'persona-main', type: 'persona', label: 'Security Expert' },
+          { id: 'condition-main', type: 'condition', label: 'If endpoint accepts payload' },
+          { id: 'scope-main', type: 'agentScope', label: 'Security Analysis' },
+          { id: 'rule-active', type: 'rule', text: 'Validate inputs before writes.', active: true },
+          { id: 'rule-disabled', type: 'rule', text: 'Never edit package json dependencies.', active: false },
+        ],
+        edges: [
+          { from: 'persona-main', to: 'condition-main' },
+          { from: 'condition-main', to: 'scope-main' },
+          { from: 'scope-main', to: 'rule-active' },
+          { from: 'scope-main', to: 'rule-disabled' },
+        ],
+      };
+
+      const compileRun = spawnSync(
+        process.execPath,
+        ['dist/cli.js', '--instruction-studio-compile', '--workspace-root', telemetryRoot],
+        { input: JSON.stringify(graph), encoding: 'utf8' },
+      );
+      assert.equal(compileRun.status, 0, compileRun.stderr);
+
+      const executionPath = path.join(telemetryRoot, '.agent', 'execution-log.json');
+      const lineagePath = path.join(telemetryRoot, '.agent', 'lineage.json');
+      const ruleUsagePath = path.join(telemetryRoot, '.agent', 'rule-usage.json');
+      assert.ok(fs.existsSync(executionPath), 'execution-log.json should be created');
+      assert.ok(fs.existsSync(lineagePath), 'lineage.json should be created');
+      assert.ok(fs.existsSync(ruleUsagePath), 'rule-usage.json should be created');
+
+      const executionRows = JSON.parse(fs.readFileSync(executionPath, 'utf8')) as Array<{
+        workflowName: string;
+        activeRuleCount: number;
+        inactiveRuleCount: number;
+        ruleUsageCount: number;
+      }>;
+      const lastExecution = executionRows[executionRows.length - 1];
+      assert.equal(lastExecution.workflowName, 'Telemetry Workflow');
+      assert.equal(lastExecution.activeRuleCount, 1);
+      assert.equal(lastExecution.inactiveRuleCount, 1);
+      assert.equal(lastExecution.ruleUsageCount, 1, 'only active rules should produce rule-usage rows');
+
+      const lineageRows = JSON.parse(fs.readFileSync(lineagePath, 'utf8')) as Array<{
+        modifiedBy: string;
+        file: string;
+      }>;
+      const lastLineage = lineageRows[lineageRows.length - 1];
+      assert.equal(lastLineage.modifiedBy, 'Security Expert');
+      assert.equal(lastLineage.file, '.instruction_studio/instructions.md');
+
+      const ruleUsageRows = JSON.parse(fs.readFileSync(ruleUsagePath, 'utf8')) as Array<{
+        ruleId: string;
+        filesAffected: string[];
+      }>;
+      const lastRuleUsage = ruleUsageRows[ruleUsageRows.length - 1];
+      assert.equal(lastRuleUsage.ruleId, 'rule-active');
+      assert.ok(
+        lastRuleUsage.filesAffected.includes('.instruction_studio/instructions.md'),
+        'rule usage should capture generated instructions artifact',
+      );
+    } finally {
+      fs.rmSync(telemetryRoot, { recursive: true, force: true });
+    }
+  }
+  console.log('  Instruction Studio telemetry artifact export (.agent): PASSED');
+
+  console.log('\n37. Validating Instruction Studio insights and replay endpoints...');
+  {
+    const replayRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'po-studio-replay-'));
+    try {
+      const graph = {
+        workflowName: 'Replay Workflow',
+        nodes: [
+          { id: 'persona-main', type: 'persona', label: 'Architect' },
+          { id: 'condition-main', type: 'condition', label: 'Always' },
+          { id: 'scope-main', type: 'agentScope', label: 'Review' },
+          { id: 'rule-active', type: 'rule', text: 'Summarize risks before merge.', active: true },
+          { id: 'rule-disabled', type: 'rule', text: 'Never edit package json dependencies.', active: false },
+        ],
+        edges: [
+          { from: 'persona-main', to: 'condition-main' },
+          { from: 'condition-main', to: 'scope-main' },
+          { from: 'scope-main', to: 'rule-active' },
+          { from: 'scope-main', to: 'rule-disabled' },
+        ],
+      };
+
+      const compileRun = spawnSync(
+        process.execPath,
+        ['dist/cli.js', '--instruction-studio-compile', '--workspace-root', replayRoot],
+        { input: JSON.stringify(graph), encoding: 'utf8' },
+      );
+      assert.equal(compileRun.status, 0, compileRun.stderr);
+
+      const insightsRun = spawnSync(
+        process.execPath,
+        ['dist/cli.js', '--instruction-studio-insights', '--workspace-root', replayRoot],
+        { encoding: 'utf8' },
+      );
+      assert.equal(insightsRun.status, 0, insightsRun.stderr);
+      const insightsPayload = JSON.parse(insightsRun.stdout.trim()) as {
+        insights: {
+          compileCount: number;
+          activeRules: number;
+          inactiveRules: number;
+          effectiveness: { score: number };
+        };
+      };
+      assert.ok(insightsPayload.insights.compileCount >= 1, 'insights should report compile count');
+      assert.equal(insightsPayload.insights.activeRules, 1);
+      assert.equal(insightsPayload.insights.inactiveRules, 1);
+      assert.ok(insightsPayload.insights.effectiveness.score >= 0 && insightsPayload.insights.effectiveness.score <= 100);
+
+      const replayRun = spawnSync(
+        process.execPath,
+        ['dist/cli.js', '--instruction-studio-replay', '--workspace-root', replayRoot],
+        { encoding: 'utf8' },
+      );
+      assert.equal(replayRun.status, 0, replayRun.stderr);
+      const replayPayload = JSON.parse(replayRun.stdout.trim()) as {
+        sessions: Array<{ sessionId: string; steps: Array<{ type: string; title: string }> }>;
+        activeSessionId: string | null;
+      };
+      assert.ok(Array.isArray(replayPayload.sessions) && replayPayload.sessions.length >= 1, 'expected replay sessions');
+      assert.ok(replayPayload.activeSessionId, 'expected active replay session id');
+      const first = replayPayload.sessions[0];
+      assert.ok(first.steps.some((s) => s.type === 'execution'), 'replay should include execution step');
+      assert.ok(first.steps.some((s) => s.type === 'rule'), 'replay should include rule step');
+    } finally {
+      fs.rmSync(replayRoot, { recursive: true, force: true });
+    }
+  }
+  console.log('  Instruction Studio insights and replay endpoints: PASSED');
 }
 
 

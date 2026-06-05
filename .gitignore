@@ -51,3 +51,5 @@ vscode-extension/*.exe
 vscode-extension/*.zip
 vscode-extension/engine-runtime/*
 .node-runtime-cache/*
+vscode-extension/.node-runtime-cache/*
+.aider*

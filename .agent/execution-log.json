@@ -30,5 +30,53 @@
     "activeRuleCount": 1,
     "inactiveRuleCount": 0,
     "ruleUsageCount": 1
+  },
+  {
+    "sessionId": "sess-mq0hgym8-fptvwm",
+    "conversationRef": "instruction-studio-3",
+    "timestamp": "2026-06-05T05:28:15.680Z",
+    "workflowName": "Canvas Generated Workflow",
+    "versionIndex": 3,
+    "personasActive": [
+      {
+        "id": "architect",
+        "version": "v3"
+      }
+    ],
+    "activeRuleCount": 1,
+    "inactiveRuleCount": 0,
+    "ruleUsageCount": 1
+  },
+  {
+    "sessionId": "sess-mq0io1jj-tlqoe8",
+    "conversationRef": "instruction-studio-4",
+    "timestamp": "2026-06-05T06:01:45.679Z",
+    "workflowName": "Instruction Studio Starter",
+    "versionIndex": 4,
+    "personasActive": [
+      {
+        "id": "architect",
+        "version": "v4"
+      }
+    ],
+    "activeRuleCount": 1,
+    "inactiveRuleCount": 0,
+    "ruleUsageCount": 1
+  },
+  {
+    "sessionId": "sess-mq0j2uld-etq7f0",
+    "conversationRef": "instruction-studio-5",
+    "timestamp": "2026-06-05T06:13:16.513Z",
+    "workflowName": "Instruction Studio Starter",
+    "versionIndex": 5,
+    "personasActive": [
+      {
+        "id": "architect",
+        "version": "v5"
+      }
+    ],
+    "activeRuleCount": 1,
+    "inactiveRuleCount": 0,
+    "ruleUsageCount": 1
   }
 ]

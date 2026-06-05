@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{CSP_SOURCE}} https: data:; style-src {{CSP_SOURCE}} 'unsafe-inline'; script-src 'nonce-{{NONCE}}'; font-src {{CSP_SOURCE}};">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="{{CSS_URI}}">
+  {{EXTRA_CSS_LINKS}}
+  <title>Instruction Studio</title>
+</head>
+<body>
+  <div class="vscode-layout">
+    <header class="vscode-header">
+      <div class="header-main">
+        <div class="header-title">
+          <p class="kicker">Instruction Studio</p>
+          <h1>Instruction orchestration, built in steps.</h1>
+        </div>
+        <div class="header-actions actions">
+          <button data-action="createStarterScaffold">Create starter scaffold</button>
+          <button data-action="openMemoryFile">Open memory file</button>
+          <button data-action="openSkillManager">Open personas</button>
+          <button data-action="openPanel">Back to optimizer panel</button>
+        </div>
+      </div>
+      
+      <section class="persona-ribbon-section">
+        <div class="persona-ribbon">
+          <div class="ribbon-tab active" data-action="selectRibbonPersona" data-persona="Architect">Architect <small>v1.2</small></div>
+          <div class="ribbon-tab" data-action="selectRibbonPersona" data-persona="Security">Security <small>v2.0</small></div>
+          <div class="ribbon-tab" data-action="selectRibbonPersona" data-persona="Refactoring Engineer">Refactoring Engineer <small>v1.0</small></div>
+          <button class="ribbon-btn" data-action="ribbonNew" title="New">➕</button>
+          <button class="ribbon-btn" data-action="ribbonEdit" title="Edit">✏️</button>
+          <button class="ribbon-btn" data-action="ribbonClone" title="Clone">⎘</button>
+          <button class="ribbon-btn" data-action="ribbonSync" title="Sync URL">🌐</button>
+        </div>
+      </section>
+    </header>
+
+    <div class="vscode-body">
+      <main class="vscode-main">
+        <section class="card visual-canvas-card flex-fill">
+          <details open style="display:flex; flex:1; flex-direction:column; min-height:0;">
+          <summary style="display:block;">
+          <div class="canvas-header" style="display:inline-flex; align-items:center; width:calc(100% - 20px);">
+             <h2>Visual Rule Canvas</h2>
+             <div class="canvas-actions actions compact-actions" style="margin-left:auto;">
+               <button id="vBtnAddPersona">➕ Persona</button>
+               <button id="vBtnAddCond">➕ Condition</button>
+               <button id="vBtnAddRule">➕ Rule</button>
+               <button data-action="compileCanvasGraph">Compile Canvas</button>
+             </div>
+          </div>
+          </summary>
+          <div class="canvas-layout" style="margin-top:4px;">
+            <div id="vCanvasContainer" class="vcanvas-container">
+               <svg id="vEdgesLayer" class="vcanvas-svg">
+                 <defs>
+                   <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                     <path d="M 0 0 L 10 5 L 0 10 z" fill="#888" />
+                   </marker>
+                 </defs>
+               </svg>
+               <div id="vNodesLayer" class="vcanvas-viewport"></div>
+            </div>
+          </div>
+          <p class="muted-hint" style="margin-top:8px;">Drag nodes to pan. Use mouse wheel to zoom. Drag from right edges to left edges to connect nodes. Select a node to edit in the right panel.</p>
+          <div id="vCanvasNotice" class="canvas-notice" aria-live="polite"></div>
+          </details>
+        </section>
+      </main>
+
+      <div id="sidebarSplitter" class="layout-splitter vertical" role="separator" aria-orientation="vertical" aria-label="Resize side panel"></div>
+
+      <aside class="vscode-sidebar">
+        
+        <section class="card sidebar-card hidden" id="vCanvasInspector">
+          <details open>
+          <summary><h2>Node Inspector</h2></summary>
+          <div class="form-grid">
+             <label>Text / Label:
+               <textarea id="vInspectText" rows="4"></textarea>
+             </label>
+             <label>Type:
+               <select id="vInspectType" disabled>
+                 <option value="persona">Persona</option>
+                 <option value="condition">Condition</option>
+                 <option value="rule">Rule</option>
+               </select>
+             </label>
+             <label>Priority:
+               <select id="vInspectPriority">
+                 <option value="Critical">Critical</option>
+                 <option value="High">High</option>
+                 <option value="Medium">Medium</option>
+                 <option value="Low">Low</option>
+               </select>
+             </label>
+             <div class="actions compact-actions">
+                <button id="vBtnDeleteNode">Delete Node</button>
+             </div>
+             <hr style="border:none; border-top: 1px solid var(--border); margin:12px 0;">
+             <div id="conflictWarnings" class="conflict-warnings"></div>
+             <hr style="border:none; border-top: 1px solid var(--border); margin:12px 0;">
+             <div class="link-inspector">
+               <div id="vSelectedLinkText" class="selected-link-text">No link selected.</div>
+               <div class="actions compact-actions">
+                 <button id="vBtnDeleteLink" type="button" disabled>Remove Link</button>
+               </div>
+             </div>
+          </div>
+          </details>
+        </section>
+
+        <section class="card sidebar-card">
+          <details open>
+          <summary><h2>AI Rule Assistant</h2></summary>
+          <p class="muted-hint">Refine one rule at a time.</p>
+          <div class="actions compact-actions">
+            <button data-action="aiImproveRule">Improve</button>
+            <button data-action="aiSimplifyRule">Simplify</button>
+            <button data-action="aiExpandRule">Expand</button>
+            <button data-action="aiFindConflicts">Find Conflicts</button>
+            <button data-action="aiFindDuplicates">Find Duplicates</button>
+            <button data-action="aiGeneratePersona">Generate Persona</button>
+          </div>
+          <div id="aiSuggestion" class="ai-suggestion" style="margin-top:8px;"></div>
+          </details>
+        </section>
+
+        <section class="card sidebar-card">
+          <details open>
+          <summary><h2>Rule Library</h2></summary>
+          <p class="muted-hint">Select rules to add them to your canvas.</p>
+          <input type="search" id="presetSearch" placeholder="Search rules..." style="margin-bottom: 8px;" />
+          <div id="presetList" class="preset-list"></div>
+          
+          <h3 style="font-size:11px; margin:12px 0 6px 0; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em;">External Rules</h3>
+          <div style="display:flex; gap:4px; margin-bottom: 8px;">
+            <input type="url" id="importUrl" placeholder="https://..." style="flex:1" />
+            <button id="btnImportUrl" data-action="fetchRulesFromUrl">Fetch</button>
+          </div>
+          <label>Popular Repos
+            <select id="popularRepos" data-action="loadPopularRepo">
+              <option value="">-- Load predefined --</option>
+              <option value="react">React (Facebook)</option>
+              <option value="nextjs">Next.js (Vercel)</option>
+              <option value="linux">Linux Kernel</option>
+            </select>
+          </label>
+          </details>
+        </section>
+
+        <section class="card sidebar-card">
+          <details open>
+          <summary><h2>Custom Personas</h2></summary>
+          <div class="form-grid">
+            <label>Saved personas
+              <select id="customPersonaSelect"></select>
+            </label>
+          </div>
+          <div class="actions compact-actions">
+            <button data-action="saveCustomPersona">Save</button>
+            <button data-action="deleteCustomPersona">Delete</button>
+          </div>
+          </details>
+        </section>
+        
+        <section class="card sidebar-card" style="display:none;">
+          <h2>Graph Editor (Minimal)</h2>
+          <div class="form-grid">
+            <label>Workflow name <input id="workflowName" type="text" value="Instruction Studio Starter"></label>
+            <label>Persona <input id="personaLabel" type="text" value="Architect"></label>
+            <label>Condition <input id="conditionLabel" type="text" value="If Task=Refactor"></label>
+            <label>Priority
+              <select id="priorityLabel">
+                <option value="Critical">Critical</option>
+                <option value="High">High</option>
+                <option value="Medium" selected>Medium</option>
+                <option value="Low">Low</option>
+              </select>
+            </label>
+            <label>Agent scope
+              <select id="agentScopeLabel">
+                <option value="Code Generation" selected>Code Generation</option>
+                <option value="Review">Review</option>
+                <option value="Testing">Testing</option>
+                <option value="Security Analysis">Security Analysis</option>
+              </select>
+            </label>
+            <div class="span-2 rule-editor">
+              <div class="rule-editor-head">
+                <span>Rules</span>
+                <button type="button" id="addRuleBtn">Add Rule</button>
+              </div>
+              <div id="ruleList" class="rule-list"></div>
+            </div>
+          </div>
+        </section>
+      </aside>
+    </div>
+
+    <div id="panelSplitter" class="layout-splitter horizontal" role="separator" aria-orientation="horizontal" aria-label="Resize terminal panel"></div>
+
+    <footer class="vscode-panel" id="bottomWorkbenchPanel">
+      <div class="panel-header">
+        <button id="panelCollapseToggle" class="panel-toggle" type="button" aria-expanded="true" title="Collapse panel">▾</button>
+        <span class="panel-title">Terminal Panel</span>
+      </div>
+      <div class="panel-body">
+      <div class="panel-sections">
+        <section class="panel-section">
+          <details open>
+          <summary><h2>Trace Matrix</h2></summary>
+          <div id="traceAnalytics" class="trace-analytics"></div>
+          <div id="traceList" class="trace-list flex-scroll" style="margin-top:8px;"></div>
+          </details>
+        </section>
+        <section class="panel-section">
+          <details open>
+          <summary><h2>Change Intelligence Dashboard</h2></summary>
+          <div id="insightsPanel" class="insights-panel flex-scroll" style="margin-top:8px;"></div>
+          </details>
+        </section>
+        <section class="panel-section">
+          <details open>
+          <summary><h2>Execution Replay Debugger</h2></summary>
+          <label>Session: <select id="replaySessionSelect"></select></label>
+          <div class="actions compact-actions">
+            <button data-action="loadReplay">Load</button>
+            <button data-action="replayPrev">Prev</button>
+            <button data-action="replayNext">Next</button>
+          </div>
+          <div id="replayStep" class="replay-step flex-scroll" style="margin-top:8px;"></div>
+          </details>
+        </section>
+        <section class="panel-section">
+          <details open>
+          <summary><h2>Git Trace Staging</h2></summary>
+          <div class="actions compact-actions">
+            <button data-action="stageTraceFull">Full Trace</button>
+            <button data-action="stageTraceSummary">Summary</button>
+            <button data-action="stageTraceExclude">Exclude</button>
+          </div>
+          <div id="gitTraceResult" class="git-trace-result" style="margin-top:8px;"></div>
+          </details>
+        </section>
+      </div>
+      </div>
+    </footer>
+  </div>
+
+  {{EXTRA_JS_SCRIPTS}}
+  <script nonce="{{NONCE}}" src="{{JS_URI}}"></script>
+</body>
+</html>
