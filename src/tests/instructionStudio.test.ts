@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -9,7 +8,7 @@ import * as os from 'node:os';
  *
  * These tests exercise the core Instruction Studio logic:
  *  - graph validation
- *  - compile (CLI and programmatic)
+ *  - compile (programmatic)
  *  - conflict detection
  *  - disabled rules
  *  - presets
@@ -25,21 +24,8 @@ import * as os from 'node:os';
 // Helpers
 // ---------------------------------------------------------------------------
 
-function cli(args: string[], input?: string): { status: number; stdout: string; stderr: string } {
-  const result = spawnSync(process.execPath, args, {
-    input,
-    encoding: 'utf8',
-  });
-  return { status: result.status ?? -1, stdout: result.stdout.trim(), stderr: result.stderr.trim() };
-}
-
 function mkTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'po-instr-test-'));
-}
-
-function writeFile(filePath: string, content: string): void {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, content, 'utf8');
 }
 
 // ---------------------------------------------------------------------------
@@ -47,6 +33,8 @@ function writeFile(filePath: string, content: string): void {
 // ---------------------------------------------------------------------------
 export function testGraphValidation(): void {
   console.log('  [Instruction Studio] graph validation...');
+
+  const { compileInstructionStudioGraph } = require('../engine/instructionStudio.js');
 
   // Valid graph
   const validGraph = {
@@ -63,11 +51,8 @@ export function testGraphValidation(): void {
       { from: 's', to: 'r' },
     ],
   };
-  const validRun = cli(
-    ['dist/cli.js', '--instruction-studio-compile', '--workspace-root', mkTempDir()],
-    JSON.stringify(validGraph),
-  );
-  assert.equal(validRun.status, 0, `valid graph should compile: ${validRun.stderr}`);
+  const validResult = compileInstructionStudioGraph(validGraph);
+  assert.ok(validResult.markdown.includes('# Workflow: Valid'), 'valid graph should compile');
 
   // Invalid graph – missing node referenced in edge
   const invalidGraph = {
@@ -75,14 +60,10 @@ export function testGraphValidation(): void {
     nodes: [{ id: 'r1', type: 'rule', text: 'Do thing' }],
     edges: [{ from: 'r1', to: 'missing' }],
   };
-  const invalidRun = cli(
-    ['dist/cli.js', '--instruction-studio-compile', '--workspace-root', mkTempDir()],
-    JSON.stringify(invalidGraph),
-  );
-  assert.notEqual(invalidRun.status, 0, 'invalid graph must fail validation');
-  assert.ok(
-    invalidRun.stderr.includes('Instruction Studio graph:'),
-    `expected validation error in stderr, got: ${invalidRun.stderr}`,
+  assert.throws(
+    () => compileInstructionStudioGraph(invalidGraph),
+    /Instruction Studio graph:/,
+    'invalid graph must throw validation error',
   );
 
   console.log('  [Instruction Studio] graph validation: PASSED');
@@ -93,6 +74,9 @@ export function testGraphValidation(): void {
 // ---------------------------------------------------------------------------
 export function testCompileOutput(): void {
   console.log('  [Instruction Studio] compile output...');
+
+  const { compileInstructionStudioGraph, writeInstructionStudioSnapshot } =
+    require('../engine/instructionStudio.js');
 
   const root = mkTempDir();
   const graph = {
@@ -112,26 +96,23 @@ export function testCompileOutput(): void {
     ],
   };
 
-  const run = cli(
-    ['dist/cli.js', '--instruction-studio-compile', '--workspace-root', root],
-    JSON.stringify(graph),
-  );
-  assert.equal(run.status, 0, run.stderr);
-  const payload = JSON.parse(run.stdout) as {
-    ok: boolean;
-    files: { instructions: string; manifest: string };
-  };
-  assert.equal(payload.ok, true, 'compile should report ok');
-  assert.ok(fs.existsSync(payload.files.instructions), 'instructions.md must be written');
-  assert.ok(fs.existsSync(payload.files.manifest), 'instruction-manifest.json must be written');
+  const compiled = compileInstructionStudioGraph(graph);
+  assert.ok(compiled.markdown.includes('# Workflow: Security Flow'));
+  assert.ok(compiled.markdown.includes('## Persona: Security Expert'));
+  assert.ok(compiled.markdown.includes('### Condition: If endpoint accepts payload'));
+  assert.ok(compiled.markdown.includes('[High] (Security Analysis) Validate request payloads before writes.'));
 
-  const instructions = fs.readFileSync(payload.files.instructions, 'utf8');
+  const snapshot = writeInstructionStudioSnapshot(root, graph);
+  assert.ok(fs.existsSync(snapshot.files.instructions), 'instructions.md must be written');
+  assert.ok(fs.existsSync(snapshot.files.manifest), 'instruction-manifest.json must be written');
+
+  const instructions = fs.readFileSync(snapshot.files.instructions, 'utf8');
   assert.ok(instructions.includes('# Workflow: Security Flow'));
   assert.ok(instructions.includes('## Persona: Security Expert'));
   assert.ok(instructions.includes('### Condition: If endpoint accepts payload'));
   assert.ok(instructions.includes('[High] (Security Analysis) Validate request payloads before writes.'));
 
-  const manifest = JSON.parse(fs.readFileSync(payload.files.manifest, 'utf8')) as {
+  const manifest = JSON.parse(fs.readFileSync(snapshot.files.manifest, 'utf8')) as {
     workflowName: string;
     entries: Array<{ text: string; persona: string; condition: string }>;
   };
@@ -148,6 +129,8 @@ export function testCompileOutput(): void {
 export function testConflictDetection(): void {
   console.log('  [Instruction Studio] conflict detection...');
 
+  const { detectInstructionStudioConflicts } = require('../engine/instructionStudio.js');
+
   const graph = {
     workflowName: 'Conflict Workflow',
     nodes: [
@@ -158,24 +141,17 @@ export function testConflictDetection(): void {
     edges: [],
   };
 
-  const run = cli(
-    ['dist/cli.js', '--instruction-studio-conflicts'],
-    JSON.stringify(graph),
-  );
-  assert.equal(run.status, 0, run.stderr);
-  const payload = JSON.parse(run.stdout) as {
-    conflicts: Array<{ code: string; severity: string }>;
-  };
+  const conflicts = detectInstructionStudioConflicts(graph);
   assert.ok(
-    payload.conflicts.some((c) => c.code === 'duplicate-rule'),
+    conflicts.some((c) => c.code === 'duplicate-rule'),
     'expected duplicate-rule warning',
   );
   assert.ok(
-    payload.conflicts.some((c) => c.code === 'opposing-edit-intent'),
+    conflicts.some((c) => c.code === 'opposing-edit-intent'),
     'expected opposing-edit-intent warning',
   );
   assert.ok(
-    payload.conflicts.every((c) => c.severity === 'warning' || c.severity === 'error'),
+    conflicts.every((c) => c.severity === 'warning' || c.severity === 'error'),
     'severity should be warning or error',
   );
 
@@ -187,6 +163,12 @@ export function testConflictDetection(): void {
 // ---------------------------------------------------------------------------
 export function testDisabledRules(): void {
   console.log('  [Instruction Studio] disabled rules...');
+
+  const {
+    compileInstructionStudioGraph,
+    writeInstructionStudioSnapshot,
+    detectInstructionStudioConflicts,
+  } = require('../engine/instructionStudio.js');
 
   const root = mkTempDir();
   const graph = {
@@ -207,29 +189,21 @@ export function testDisabledRules(): void {
   };
 
   // Compile
-  const compileRun = cli(
-    ['dist/cli.js', '--instruction-studio-compile', '--workspace-root', root],
-    JSON.stringify(graph),
-  );
-  assert.equal(compileRun.status, 0, compileRun.stderr);
-  const compiled = JSON.parse(compileRun.stdout) as {
-    files: { instructions: string; manifest: string };
-  };
-  const manifest = JSON.parse(fs.readFileSync(compiled.files.manifest, 'utf8')) as {
+  const compiled = compileInstructionStudioGraph(graph);
+  assert.equal(compiled.manifest.entries.length, 1, 'only active rule should be compiled');
+  assert.equal(compiled.manifest.entries[0].nodeId, 'rule-on');
+
+  const snapshot = writeInstructionStudioSnapshot(root, graph);
+  const manifest = JSON.parse(fs.readFileSync(snapshot.files.manifest, 'utf8')) as {
     entries: Array<{ nodeId: string; text: string }>;
   };
   assert.equal(manifest.entries.length, 1, 'only active rule should be compiled');
   assert.equal(manifest.entries[0].nodeId, 'rule-on');
 
   // Conflicts
-  const conflictRun = cli(
-    ['dist/cli.js', '--instruction-studio-conflicts'],
-    JSON.stringify(graph),
-  );
-  assert.equal(conflictRun.status, 0, conflictRun.stderr);
-  const conflicts = JSON.parse(conflictRun.stdout) as { conflicts: Array<{ code: string }> };
+  const conflicts = detectInstructionStudioConflicts(graph);
   assert.ok(
-    !conflicts.conflicts.some((c) => c.code === 'duplicate-rule'),
+    !conflicts.some((c) => c.code === 'duplicate-rule'),
     'disabled duplicate rule should not trigger duplicate-rule conflict',
   );
 
@@ -250,14 +224,9 @@ export function testDisabledRules(): void {
       { from: 'scope', to: 'rule-no-edit' },
     ],
   };
-  const opposingRun = cli(
-    ['dist/cli.js', '--instruction-studio-conflicts'],
-    JSON.stringify(opposingGraph),
-  );
-  assert.equal(opposingRun.status, 0, opposingRun.stderr);
-  const opposingConflicts = JSON.parse(opposingRun.stdout) as { conflicts: Array<{ code: string }> };
+  const opposingConflicts = detectInstructionStudioConflicts(opposingGraph);
   assert.ok(
-    !opposingConflicts.conflicts.some((c) => c.code === 'opposing-edit-intent'),
+    !opposingConflicts.some((c) => c.code === 'opposing-edit-intent'),
     'disabled opposing rule should not trigger opposing-edit-intent conflict',
   );
 
@@ -270,28 +239,20 @@ export function testDisabledRules(): void {
 export function testPresets(): void {
   console.log('  [Instruction Studio] presets...');
 
-  const run = cli(['dist/cli.js', '--instruction-studio-presets']);
-  assert.equal(run.status, 0, run.stderr);
-  const payload = JSON.parse(run.stdout) as {
-    presets: Array<{
-      id: string;
-      category: string;
-      workflowName: string;
-      persona: string;
-      condition: string;
-      priority: string;
-      agentScope: string;
-      ruleText: string;
-    }>;
-  };
-  assert.ok(Array.isArray(payload.presets) && payload.presets.length >= 4, 'expected preset catalog');
+  const { getInstructionStudioPresets } = require('../engine/instructionStudio.js');
+
+  const presets = getInstructionStudioPresets();
+  assert.ok(Array.isArray(presets) && presets.length >= 4, 'expected preset catalog');
   assert.ok(
-    payload.presets.some((p) => p.category === 'Security'),
+    presets.some((p) => p.category === 'Security'),
     'preset catalog should include Security category',
   );
 
   // Compile a preset
-  const preset = payload.presets.find((p) => p.id === 'security-input-validation') ?? payload.presets[0];
+  const preset = presets.find((p) => p.id === 'security-input-validation') ?? presets[0];
+  const { compileInstructionStudioGraph, writeInstructionStudioSnapshot } =
+    require('../engine/instructionStudio.js');
+
   const root = mkTempDir();
   const graph = {
     workflowName: preset.workflowName,
@@ -309,13 +270,15 @@ export function testPresets(): void {
       { from: 'scope', to: 'rule' },
     ],
   };
-  const compileRun = cli(
-    ['dist/cli.js', '--instruction-studio-compile', '--workspace-root', root],
-    JSON.stringify(graph),
-  );
-  assert.equal(compileRun.status, 0, compileRun.stderr);
-  const compiled = JSON.parse(compileRun.stdout) as { files: { instructions: string } };
-  const instructions = fs.readFileSync(compiled.files.instructions, 'utf8');
+
+  const compiled = compileInstructionStudioGraph(graph);
+  assert.ok(compiled.markdown.includes(`# Workflow: ${preset.workflowName}`));
+  assert.ok(compiled.markdown.includes(`## Persona: ${preset.persona}`));
+  assert.ok(compiled.markdown.includes(`### Condition: ${preset.condition}`));
+  assert.ok(compiled.markdown.includes(`[${preset.priority}] (${preset.agentScope}) ${preset.ruleText}`));
+
+  const snapshot = writeInstructionStudioSnapshot(root, graph);
+  const instructions = fs.readFileSync(snapshot.files.instructions, 'utf8');
   assert.ok(instructions.includes(`# Workflow: ${preset.workflowName}`));
   assert.ok(instructions.includes(`## Persona: ${preset.persona}`));
   assert.ok(instructions.includes(`### Condition: ${preset.condition}`));
@@ -330,6 +293,12 @@ export function testPresets(): void {
 export function testCustomPersonaCRUD(): void {
   console.log('  [Instruction Studio] custom persona CRUD...');
 
+  const {
+    saveCustomPersona,
+    listCustomPersonas,
+    deleteCustomPersona,
+  } = require('../engine/instructionStudio.js');
+
   const root = mkTempDir();
   const savePayload = {
     label: 'Payments Security Reviewer',
@@ -342,45 +311,21 @@ export function testCustomPersonaCRUD(): void {
   };
 
   // Save
-  const saveRun = cli(
-    ['dist/cli.js', '--instruction-studio-persona-save', '--workspace-root', root],
-    JSON.stringify(savePayload),
-  );
-  assert.equal(saveRun.status, 0, saveRun.stderr);
-  const saved = JSON.parse(saveRun.stdout) as { ok: boolean; persona: { id: string; label: string } };
+  const saved = saveCustomPersona(root, savePayload);
   assert.equal(saved.ok, true, 'persona save should succeed');
   assert.ok(saved.persona.id.startsWith('custom-'), 'saved persona id should be namespaced');
 
   // List
-  const listRun = cli(
-    ['dist/cli.js', '--instruction-studio-personas-list', '--workspace-root', root],
-  );
-  assert.equal(listRun.status, 0, listRun.stderr);
-  const listed = JSON.parse(listRun.stdout) as { personas: Array<{ id: string; label: string }> };
+  const listed = listCustomPersonas(root);
   assert.ok(listed.personas.some((p) => p.id === saved.persona.id), 'saved persona must be listed');
 
   // Delete
-  const deleteRun = cli(
-    [
-      'dist/cli.js',
-      '--instruction-studio-persona-delete',
-      '--workspace-root',
-      root,
-      '--id',
-      saved.persona.id,
-    ],
-  );
-  assert.equal(deleteRun.status, 0, deleteRun.stderr);
-  const deleted = JSON.parse(deleteRun.stdout) as { ok: boolean; removed: boolean };
+  const deleted = deleteCustomPersona(root, saved.persona.id);
   assert.equal(deleted.ok, true);
   assert.equal(deleted.removed, true, 'persona should be removed');
 
   // List after delete
-  const listAfterRun = cli(
-    ['dist/cli.js', '--instruction-studio-personas-list', '--workspace-root', root],
-  );
-  assert.equal(listAfterRun.status, 0, listAfterRun.stderr);
-  const listedAfter = JSON.parse(listAfterRun.stdout) as { personas: Array<{ id: string }> };
+  const listedAfter = listCustomPersonas(root);
   assert.ok(
     !listedAfter.personas.some((p) => p.id === saved.persona.id),
     'deleted persona must not be listed',
@@ -394,6 +339,13 @@ export function testCustomPersonaCRUD(): void {
 // ---------------------------------------------------------------------------
 export function testTraceMatrix(): void {
   console.log('  [Instruction Studio] trace matrix...');
+
+  const {
+    compileInstructionStudioGraph,
+    writeInstructionStudioSnapshot,
+    listInstructionStudioTraces,
+    appendInstructionStudioTrace,
+  } = require('../engine/instructionStudio.js');
 
   const root = mkTempDir();
   const graph = {
@@ -414,46 +366,26 @@ export function testTraceMatrix(): void {
   };
 
   // Compile to generate a trace row
-  const compileRun = cli(
-    ['dist/cli.js', '--instruction-studio-compile', '--workspace-root', root],
-    JSON.stringify(graph),
-  );
-  assert.equal(compileRun.status, 0, compileRun.stderr);
+  writeInstructionStudioSnapshot(root, graph);
 
   // List traces
-  const listRun = cli(
-    ['dist/cli.js', '--instruction-studio-trace-list', '--workspace-root', root, '--limit', '5'],
-  );
-  assert.equal(listRun.status, 0, listRun.stderr);
-  const rows = JSON.parse(listRun.stdout) as {
-    rows: Array<{ workflowName: string; persona: string; versionIndex: number }>;
-  };
+  const rows = listInstructionStudioTraces(root, 5);
   assert.ok(rows.rows.length >= 1, 'compile should append at least one trace row');
   assert.equal(rows.rows[0].workflowName, 'Trace Workflow');
   assert.equal(rows.rows[0].persona, 'Security Expert');
 
   // Manual append
-  const appendRun = cli(
-    ['dist/cli.js', '--instruction-studio-trace-append', '--workspace-root', root],
-    JSON.stringify({
-      workflowName: 'Manual Trace',
-      persona: 'Architect',
-      condition: 'Always',
-      priority: 'Medium',
-      agentScope: 'Code Generation',
-      ruleText: 'Manual trace append for debugger.',
-      versionIndex: 99,
-    }),
-  );
-  assert.equal(appendRun.status, 0, appendRun.stderr);
+  appendInstructionStudioTrace(root, {
+    workflowName: 'Manual Trace',
+    persona: 'Architect',
+    condition: 'Always',
+    priority: 'Medium',
+    agentScope: 'Code Generation',
+    ruleText: 'Manual trace append for debugger.',
+    versionIndex: 99,
+  });
 
-  const finalListRun = cli(
-    ['dist/cli.js', '--instruction-studio-trace-list', '--workspace-root', root, '--limit', '10'],
-  );
-  assert.equal(finalListRun.status, 0, finalListRun.stderr);
-  const finalRows = JSON.parse(finalListRun.stdout) as {
-    rows: Array<{ workflowName: string; versionIndex: number }>;
-  };
+  const finalRows = listInstructionStudioTraces(root, 10);
   assert.ok(finalRows.rows.some((r) => r.workflowName === 'Manual Trace' && r.versionIndex === 99));
 
   console.log('  [Instruction Studio] trace matrix: PASSED');
@@ -465,61 +397,44 @@ export function testTraceMatrix(): void {
 export function testTraceAnalytics(): void {
   console.log('  [Instruction Studio] trace analytics...');
 
+  const {
+    appendInstructionStudioTrace,
+    getInstructionStudioTraceAnalytics,
+  } = require('../engine/instructionStudio.js');
+
   const root = mkTempDir();
   const append = (payload: Record<string, unknown>) =>
-    cli(
-      ['dist/cli.js', '--instruction-studio-trace-append', '--workspace-root', root],
-      JSON.stringify(payload),
-    );
+    appendInstructionStudioTrace(root, payload);
 
-  assert.equal(
-    append({
-      workflowName: 'W1',
-      persona: 'Architect',
-      condition: 'Always',
-      priority: 'High',
-      agentScope: 'Review',
-      ruleText: 'Validate inputs before writes',
-      versionIndex: 1,
-    }).status,
-    0,
-  );
-  assert.equal(
-    append({
-      workflowName: 'W2',
-      persona: 'Architect',
-      condition: 'Always',
-      priority: 'High',
-      agentScope: 'Review',
-      ruleText: 'Validate inputs for services',
-      versionIndex: 2,
-    }).status,
-    0,
-  );
-  assert.equal(
-    append({
-      workflowName: 'W3',
-      persona: 'Security Expert',
-      condition: 'Always',
-      priority: 'Medium',
-      agentScope: 'Security Analysis',
-      ruleText: 'Summarize risks before merge',
-      versionIndex: 3,
-    }).status,
-    0,
-  );
+  append({
+    workflowName: 'W1',
+    persona: 'Architect',
+    condition: 'Always',
+    priority: 'High',
+    agentScope: 'Review',
+    ruleText: 'Validate inputs before writes',
+    versionIndex: 1,
+  });
+  append({
+    workflowName: 'W2',
+    persona: 'Architect',
+    condition: 'Always',
+    priority: 'High',
+    agentScope: 'Review',
+    ruleText: 'Validate inputs for services',
+    versionIndex: 2,
+  });
+  append({
+    workflowName: 'W3',
+    persona: 'Security Expert',
+    condition: 'Always',
+    priority: 'Medium',
+    agentScope: 'Security Analysis',
+    ruleText: 'Summarize risks before merge',
+    versionIndex: 3,
+  });
 
-  const analyticsRun = cli(
-    ['dist/cli.js', '--instruction-studio-trace-analytics', '--workspace-root', root],
-  );
-  assert.equal(analyticsRun.status, 0, analyticsRun.stderr);
-  const analytics = JSON.parse(analyticsRun.stdout) as {
-    analytics: {
-      compileCount: number;
-      topPersona: { name: string; count: number } | null;
-      topRulePrefix: { prefix: string; count: number } | null;
-    };
-  };
+  const analytics = getInstructionStudioTraceAnalytics(root);
   assert.equal(analytics.analytics.compileCount, 3);
   assert.equal(analytics.analytics.topPersona?.name, 'Architect');
   assert.equal(analytics.analytics.topPersona?.count, 2);
@@ -536,6 +451,8 @@ export function testTraceAnalytics(): void {
 // ---------------------------------------------------------------------------
 export function testTelemetryArtifacts(): void {
   console.log('  [Instruction Studio] telemetry artifacts...');
+
+  const { writeInstructionStudioSnapshot } = require('../engine/instructionStudio.js');
 
   const root = mkTempDir();
   const graph = {
@@ -555,11 +472,7 @@ export function testTelemetryArtifacts(): void {
     ],
   };
 
-  const compileRun = cli(
-    ['dist/cli.js', '--instruction-studio-compile', '--workspace-root', root],
-    JSON.stringify(graph),
-  );
-  assert.equal(compileRun.status, 0, compileRun.stderr);
+  writeInstructionStudioSnapshot(root, graph);
 
   const executionPath = path.join(root, '.agent', 'execution-log.json');
   const lineagePath = path.join(root, '.agent', 'lineage.json');
@@ -608,6 +521,12 @@ export function testTelemetryArtifacts(): void {
 export function testInsightsAndReplay(): void {
   console.log('  [Instruction Studio] insights & replay...');
 
+  const {
+    writeInstructionStudioSnapshot,
+    getInstructionStudioInsights,
+    getInstructionStudioReplay,
+  } = require('../engine/instructionStudio.js');
+
   const root = mkTempDir();
   const graph = {
     workflowName: 'Replay Workflow',
@@ -626,25 +545,10 @@ export function testInsightsAndReplay(): void {
     ],
   };
 
-  const compileRun = cli(
-    ['dist/cli.js', '--instruction-studio-compile', '--workspace-root', root],
-    JSON.stringify(graph),
-  );
-  assert.equal(compileRun.status, 0, compileRun.stderr);
+  writeInstructionStudioSnapshot(root, graph);
 
   // Insights
-  const insightsRun = cli(
-    ['dist/cli.js', '--instruction-studio-insights', '--workspace-root', root],
-  );
-  assert.equal(insightsRun.status, 0, insightsRun.stderr);
-  const insights = JSON.parse(insightsRun.stdout) as {
-    insights: {
-      compileCount: number;
-      activeRules: number;
-      inactiveRules: number;
-      effectiveness: { score: number };
-    };
-  };
+  const insights = getInstructionStudioInsights(root);
   assert.ok(insights.insights.compileCount >= 1, 'insights should report compile count');
   assert.equal(insights.insights.activeRules, 1);
   assert.equal(insights.insights.inactiveRules, 1);
@@ -653,14 +557,7 @@ export function testInsightsAndReplay(): void {
   );
 
   // Replay
-  const replayRun = cli(
-    ['dist/cli.js', '--instruction-studio-replay', '--workspace-root', root],
-  );
-  assert.equal(replayRun.status, 0, replayRun.stderr);
-  const replay = JSON.parse(replayRun.stdout) as {
-    sessions: Array<{ sessionId: string; steps: Array<{ type: string; title: string }> }>;
-    activeSessionId: string | null;
-  };
+  const replay = getInstructionStudioReplay(root);
   assert.ok(Array.isArray(replay.sessions) && replay.sessions.length >= 1, 'expected replay sessions');
   assert.ok(replay.activeSessionId, 'expected active replay session id');
   const first = replay.sessions[0];
