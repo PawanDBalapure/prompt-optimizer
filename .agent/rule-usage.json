@@ -1,0 +1,28 @@
+[
+  {
+    "sessionId": "sess-mq0gdpqn-f8vaah",
+    "timestamp": "2026-06-05T04:57:44.591Z",
+    "workflowName": "Instruction Studio Starter",
+    "versionIndex": 1,
+    "ruleId": "rule-main-1",
+    "status": "executed",
+    "confidence": 0.96,
+    "filesAffected": [
+      ".instruction_studio/instructions.md",
+      ".instruction_studio/instruction-manifest.json"
+    ]
+  },
+  {
+    "sessionId": "sess-mq0h8rml-0ptdtb",
+    "timestamp": "2026-06-05T05:21:53.373Z",
+    "workflowName": "Instruction Studio Starter",
+    "versionIndex": 2,
+    "ruleId": "rule-main-1",
+    "status": "executed",
+    "confidence": 0.96,
+    "filesAffected": [
+      ".instruction_studio/instructions.md",
+      ".instruction_studio/instruction-manifest.json"
+    ]
+  }
+]

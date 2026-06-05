@@ -1,0 +1,34 @@
+[
+  {
+    "sessionId": "sess-mq0gdpqn-f8vaah",
+    "conversationRef": "instruction-studio-1",
+    "timestamp": "2026-06-05T04:57:44.591Z",
+    "workflowName": "Instruction Studio Starter",
+    "versionIndex": 1,
+    "personasActive": [
+      {
+        "id": "architect",
+        "version": "v1"
+      }
+    ],
+    "activeRuleCount": 1,
+    "inactiveRuleCount": 0,
+    "ruleUsageCount": 1
+  },
+  {
+    "sessionId": "sess-mq0h8rml-0ptdtb",
+    "conversationRef": "instruction-studio-2",
+    "timestamp": "2026-06-05T05:21:53.373Z",
+    "workflowName": "Instruction Studio Starter",
+    "versionIndex": 2,
+    "personasActive": [
+      {
+        "id": "architect",
+        "version": "v2"
+      }
+    ],
+    "activeRuleCount": 1,
+    "inactiveRuleCount": 0,
+    "ruleUsageCount": 1
+  }
+]
