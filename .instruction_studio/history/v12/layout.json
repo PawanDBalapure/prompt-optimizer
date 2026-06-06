@@ -1,0 +1,49 @@
+{
+  "workflowName": "Instruction Studio Starter",
+  "nodes": [
+    {
+      "id": "persona-main",
+      "type": "persona",
+      "label": "Architect"
+    },
+    {
+      "id": "condition-main",
+      "type": "condition",
+      "label": "If Task=Refactor"
+    },
+    {
+      "id": "priority-main",
+      "type": "priority",
+      "label": "Medium"
+    },
+    {
+      "id": "scope-main",
+      "type": "agentScope",
+      "label": "Code Generation"
+    },
+    {
+      "id": "rule-main-1",
+      "type": "rule",
+      "text": "Always run unit tests before completing changes.",
+      "active": true
+    }
+  ],
+  "edges": [
+    {
+      "from": "persona-main",
+      "to": "condition-main"
+    },
+    {
+      "from": "condition-main",
+      "to": "priority-main"
+    },
+    {
+      "from": "priority-main",
+      "to": "scope-main"
+    },
+    {
+      "from": "scope-main",
+      "to": "rule-main-1"
+    }
+  ]
+}

@@ -11,7 +11,8 @@ import type { CustomSecretPatternConfig, SecretPatternMatchMode } from '../types
  */
 
 const ALLOWED_TYPES = new Set([
-  'ready', 'setMode', 'setTargetModel', 'agentRun', 'analyze',
+  'ready', 'setMode', 'setTargetModel', 'setDensity', 'agentRun', 'analyze',
+  'estimateTokens',
   'sendPrompt', 'openChatWithPrompt', 'copyPrompt', 'openChat',
   'openReadme', 'openSecretSettings', 'saveSecretSettings',
   'openSettings', 'close',
@@ -35,6 +36,7 @@ const ALLOWED_TYPES = new Set([
 
 const ALLOWED_MODES = new Set(['agent', 'optimize', 'direct']);
 const ALLOWED_MODELS = new Set(['claude', 'gpt', 'gemini', 'deepseek', 'grok', 'local']);
+const ALLOWED_DENSITIES = new Set(['rich', 'lean']);
 const ALLOWED_MATCH_MODES = new Set<SecretPatternMatchMode>(
   ['regex', 'like', 'contains', 'startsWith', 'endsWith', 'exact'],
 );
@@ -63,9 +65,12 @@ function clampString(v: unknown, max: number): string | undefined {
 export interface ValidWebviewMessage {
   type: string;
   prompt?: string;
+  text?: string;
+  fieldId?: string;
   optimized?: string;
   mode?: string;
   model?: string;
+  density?: string;
   enabled?: boolean;
   customPatterns?: CustomSecretPatternConfig[];
   /** OCR request id (round-trip correlation token from the webview). */
@@ -112,6 +117,19 @@ export function validateMessage(raw: unknown): ValidWebviewMessage | null {
     out.prompt = prompt;
   }
 
+  if (data.text !== undefined) {
+    const text = clampString(data.text, MAX_PROMPT_CHARS);
+    if (text === undefined) { return null; }
+    out.text = text;
+  }
+
+  if (data.fieldId !== undefined) {
+    if (!isString(data.fieldId) || !['inputTokenCount', 'optimizedTokenCount'].includes(data.fieldId)) {
+      return null;
+    }
+    out.fieldId = data.fieldId;
+  }
+
   if (data.optimized !== undefined) {
     const optimized = clampString(data.optimized, MAX_PROMPT_CHARS);
     if (optimized === undefined) { return null; }
@@ -126,6 +144,11 @@ export function validateMessage(raw: unknown): ValidWebviewMessage | null {
   if (data.model !== undefined) {
     if (!isString(data.model) || !ALLOWED_MODELS.has(data.model)) { return null; }
     out.model = data.model;
+  }
+
+  if (data.density !== undefined) {
+    if (!isString(data.density) || !ALLOWED_DENSITIES.has(data.density)) { return null; }
+    out.density = data.density;
   }
 
   if (data.enabled !== undefined) {

@@ -15,6 +15,7 @@ import {
   compilePromptIR,
   explainRewrite,
 } from './PromptIRHelper.js';
+import { buildCompilerSpec } from './promptIR/promptCompiler.js';
 import { inferRepoStack } from './RepoAwareness.js';
 
 import { CACHE_TIMEOUT_MS, MAX_CACHE_CANDIDATES, MAX_IMPROVEMENTS } from './engine/constants.js';
@@ -177,8 +178,10 @@ export class PromptProxyEngine {
     const mode = request.mode ?? 'blocking';
     const workspaceId = request.workspace_id ?? request.ide_context?.workspace_root ?? 'global';
     const targetModel = request.target_model ?? 'local';
+    const density: 'rich' | 'lean' =
+      request.density ?? (process.env.PROMPT_OPT_DENSITY === 'lean' ? 'lean' : 'rich');
     const rawSnapshot = buildRawInputSnapshot(rawPrompt, request.ide_context);
-    const cacheSnapshot = buildModelScopedCacheSnapshot(rawSnapshot, targetModel);
+    const cacheSnapshot = buildModelScopedCacheSnapshot(rawSnapshot, targetModel, density);
     const rawInputTokens = countTokens(rawSnapshot);
     const contextPack = this.contextPacker.collectRelevantContext(rawPrompt, request.ide_context);
 
@@ -188,9 +191,6 @@ export class PromptProxyEngine {
     const structuredIr = parseToPromptIR(rawPrompt);
     const diagnostics = lintPrompt(rawPrompt, structuredIr, rawInputTokens, targetModel);
     const stackInfo = inferRepoStack(request.ide_context?.workspace_root);
-    const compiledRequest = compilePromptIR(structuredIr, targetModel, stackInfo.summary);
-
-    // Workspace memory + knowledge graph + peer-workspace augmentations.
     const augmentedSections = this.collectAugmentedSections(
       rawPrompt,
       workspaceId,
@@ -200,6 +200,18 @@ export class PromptProxyEngine {
       contextPack.files.map((file) => file.path),
       request.seeding === true,
     );
+
+    // The optimized prompt is a clean, deterministic YAML spec. We intentionally
+    // do NOT inline workspace memory dumps, file digests, or KG facts into the
+    // context — Copilot reads workspace files natively, and dumping them here only
+    // bloats the prompt and duplicates content. The context is the concise repo
+    // stack summary only. The augmented sections are still collected above so the
+    // knowledge graph / segment-reuse telemetry stays accurate.
+    const spec = structuredIr.compiler_spec ?? buildCompilerSpec('', structuredIr);
+    spec.intent.domain = stackInfo.summary?.trim() ?? '';
+    structuredIr.compiler_spec = spec;
+
+    const compiledRequest = compilePromptIR(structuredIr, targetModel, spec.intent.domain, density);
 
     const cacheStatus = cacheResult?.matchType ?? 'miss';
     const shouldReuseCached =
@@ -232,12 +244,11 @@ export class PromptProxyEngine {
       builtPrompt = (cacheResult as CacheQueryResult).optimizedPrompt;
     } else {
       const segmentStore = new SegmentReuseStore(this.cacheManager.rawDatabase(), reuseEnabled);
-      const reuse = segmentStore.applyReuse(workspaceId, [
-        ...contextPack.sections,
-        ...augmentedSections,
-      ]);
+      // We pass the augmented sections through the reuse store purely for telemetry metrics.
+      // We do not append the output to the prompt since they are now injected via YAML.
+      const reuse = segmentStore.applyReuse(workspaceId, augmentedSections);
       reusedSegments = reuse.reused;
-      builtPrompt = buildOptimizedPrompt(compiledRequest, reuse.sections);
+      builtPrompt = buildOptimizedPrompt(compiledRequest, []);
     }
 
     const optimizedPrompt = applySdlcMode(sanitizeOptimizedPrompt(builtPrompt), sdlcMode);
@@ -496,31 +507,15 @@ function applySdlcMode(
 }
 
 function stripSdlcModeSections(prompt: string, forceChecklist = false): string {
-  // The optimized prompt always has the shape:
-  //   # Role — <label>\n<role body>\n\n# Request\n…\n\n# Quality checklist\n…
-  // A custom agent's role body can itself contain markdown sub-headings, so a
-  // strip that merely stops at the first "\n\n#" left the rest of the agent
-  // text behind — leaking the previous attempt's agent into a later prompt.
-  // Anchor the role strip to the canonical "# Request" section instead, which
-  // buildOptimizedPrompt always emits first, so the whole stale role block is
-  // removed regardless of its internal headings.
-  const roleToRequest = /^# Role\s+[—-][\s\S]*?(?=\n#+[ \t]*Request\b)/;
-  const roleToEnd = /^# Role\s+[—-][^\n]*\n[\s\S]*?(?=\n\n#|\s*$)/;
-  let result = prompt;
-  let hadRole = false;
-  if (roleToRequest.test(result)) {
-    hadRole = true;
-    result = result.replace(roleToRequest, '').trimStart();
-  } else if (roleToEnd.test(result)) {
-    hadRole = true;
-    result = result.replace(roleToEnd, '').trimStart();
+  // Strip out previous role: and quality_checklist: blocks if present
+  let clean = prompt;
+  clean = clean.replace(/(?:^|\n)role: >[\s\S]*?(?=\ncontext:|\ninput:|\nrequirements:|$)/g, '\n');
+  if (forceChecklist || clean.includes('quality_checklist:')) {
+    clean = clean.replace(/(?:^|\n)quality_checklist:[\s\S]*?(?=\n[a-z_]+:|$)/g, '\n');
   }
-  if (!hadRole && !forceChecklist) { return result.trim(); }
-  // The quality checklist is always appended last, so remove it through the
-  // end of the string rather than up to the next heading.
-  return result.replace(/(?:\n\n)?# Quality checklist\n[\s\S]*$/, '').trimEnd();
+  return clean.trim();
 }
 
-function buildModelScopedCacheSnapshot(rawSnapshot: string, targetModel: string): string {
-  return [`# Target Model`, targetModel, '', rawSnapshot].join('\n');
+function buildModelScopedCacheSnapshot(rawSnapshot: string, targetModel: string, density = 'rich'): string {
+  return [`# Target Model`, targetModel, `# Density`, density, '', rawSnapshot].join('\n');
 }

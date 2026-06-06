@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Downloads the prebuilt INT8-quantized Flan-T5-Small ONNX bundle
- * (Xenova/flan-t5-small on HuggingFace) into
- * vscode-extension/models/flan-t5-small-q4/.
+ * Downloads the prebuilt INT4-quantized LLMLingua-2 BERT-Base ONNX bundle
+ * (microsoft/llmlingua-2-bert-base-multilingual-cased-meetingbank on HuggingFace)
+ * into vscode-extension/models/llmlingua-2-bert-q4/.
  *
  * This is the Phase-1 fallback model used by src/local/localOptimizer.ts
  * when no custom distilled model is present. Run once before packaging:
@@ -10,6 +10,10 @@
  *   node scripts/fetch-model.cjs
  *
  * The model is bundled into the VSIX so installs work fully offline.
+ *
+ * LLMLingua-2 compresses prompts via BERT-based token classification —
+ * each token is scored for relevance and low-scoring tokens are dropped,
+ * reducing prompt size while preserving key context.
  */
 'use strict';
 
@@ -18,18 +22,17 @@ const path = require('path');
 const https = require('https');
 const { URL } = require('url');
 
-const REPO = 'Xenova/flan-t5-small';
+const REPO = 'microsoft/llmlingua-2-bert-base-multilingual-cased-meetingbank';
 const REVISION = 'main';
-const OUT_DIR = path.resolve(__dirname, '..', 'models', 'flan-t5-small-q4');
+const OUT_DIR = path.resolve(__dirname, '..', 'models', 'llmlingua-2-bert-q4');
 
 const FILES = [
   'config.json',
-  'generation_config.json',
   'tokenizer.json',
   'tokenizer_config.json',
   'special_tokens_map.json',
-  'onnx/encoder_model_quantized.onnx',
-  'onnx/decoder_model_merged_quantized.onnx',
+  'vocab.txt',
+  'onnx/model_q4.onnx',
 ];
 
 function ensureDir(p) {

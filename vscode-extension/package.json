@@ -156,6 +156,15 @@
           "default": "",
           "description": "Custom path for the local SQLite semantic cache database. If left blank, it defaults to the global storage path."
         },
+        "promptProxy.density": {
+          "type": "string",
+          "enum": [
+            "rich",
+            "lean"
+          ],
+          "default": "rich",
+          "description": "Output density for the structured prompt. 'rich' adds repo context and measurable constraints; 'lean' emits a minimal task line plus a single output-discipline constraint for the fewest tokens."
+        },
         "promptProxy.processingMode": {
           "type": "string",
           "enum": [

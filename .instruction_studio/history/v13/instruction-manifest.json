@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-06-06T08:24:37.437Z",
+  "workflowName": "Canvas Generated Workflow",
+  "orderedNodeIds": [
+    "v_cucbnf",
+    "v_hxcfx7",
+    "v_i3wij5",
+    "v_lmzxwc",
+    "v_tzaio4",
+    "v_vf4wo3"
+  ],
+  "entries": [
+    {
+      "nodeId": "v_hxcfx7",
+      "text": "New Rule",
+      "persona": "General",
+      "condition": "Always",
+      "priority": "Medium",
+      "agentScope": "Code Generation"
+    }
+  ],
+  "graph": {
+    "nodeCount": 6,
+    "edgeCount": 0
+  }
+}

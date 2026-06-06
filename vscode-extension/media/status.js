@@ -196,9 +196,12 @@ const vscode = acquireVsCodeApi();
     el('btnSettings').addEventListener('click',  () => vscode.postMessage({ type: 'openSettings' }));
     el('btnClose').addEventListener('click',     () => vscode.postMessage({ type: 'close' }));
 
-    el('targetModelSelect').addEventListener('change', function() {
-      vscode.postMessage({ type: 'setTargetModel', model: el('targetModelSelect').value });
-    });
+    const targetModelSel = el('targetModelSelect');
+    if (targetModelSel) {
+      targetModelSel.addEventListener('change', function() {
+        vscode.postMessage({ type: 'setTargetModel', model: targetModelSel.value });
+      });
+    }
 
     el('optimizedText').addEventListener('click', function(e) {
       var btn = e.target.closest('.secret-del');
@@ -236,7 +239,8 @@ const vscode = acquireVsCodeApi();
           renderState(msg.payload);
           break;
         case 'targetModelPattern':
-          el('targetModelSelect').value = msg.model;
+          const tSel = el('targetModelSelect');
+          if (tSel) { tSel.value = msg.model; }
           break;
         case 'error': {
           el('loading').style.display = 'none';

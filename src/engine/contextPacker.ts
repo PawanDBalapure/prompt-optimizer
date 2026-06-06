@@ -12,6 +12,7 @@ import {
   MAX_LOG_LINES,
   SMALL_FILE_LINES,
 } from './constants.js';
+import { compressLogStack, isCodeLanguage, preFilterCode } from './contentPipelines.js';
 import type { RelevantContextPack } from './types.js';
 
 const LANGUAGE_BY_EXT: Record<string, string> = {
@@ -135,16 +136,18 @@ export class ContextPacker {
   }
 
   extractRelevantFileSnippet(file: IdeContextFile, queryTerms: Set<string>): string {
+    const language = file.language ?? detectLanguageFromPath(file.path);
+
     // 1. An explicit user selection is the most relevant, slimmest context.
     if ((file.selection ?? '').trim() !== '') {
-      return (file.selection as string).trim();
+      return this.stripCodeBoilerplate((file.selection as string).trim(), language);
     }
 
     const lines = file.content.split(/\r?\n/);
 
     // 2. Tiny files carry little noise — keep them whole.
     if (lines.length <= SMALL_FILE_LINES) {
-      return file.content.trim();
+      return this.stripCodeBoilerplate(file.content.trim(), language);
     }
 
     // 3. Larger files: extract only the query-relevant region so the optimized
@@ -157,35 +160,47 @@ export class ContextPacker {
     }
 
     if (matchingLineIndexes.length > 0) {
-      return buildSnippetFromLineIndexes(lines, matchingLineIndexes, MAX_FILE_LINES).trim();
+      const region = buildSnippetFromLineIndexes(lines, matchingLineIndexes, MAX_FILE_LINES).trim();
+      return this.stripCodeBoilerplate(region, language);
     }
 
     // 4. No relevant lines: only the active file is worth a short head excerpt;
     //    background files are dropped entirely to avoid noise.
     return file.is_active
-      ? lines.slice(0, SMALL_FILE_LINES).join('\n').trim()
+      ? this.stripCodeBoilerplate(lines.slice(0, SMALL_FILE_LINES).join('\n').trim(), language)
       : '';
   }
 
-  extractRelevantLogSnippet(log: IdeContextLog, queryTerms: Set<string>): string {
-    const lines = log.content.split(/\r?\n/);
-    const relevantLines: string[] = [];
-    const seenLines = new Set<string>();
+  /**
+   * Pipeline 1 entry point: run the code-boilerplate stripper on snippets whose
+   * language is a recognised programming language. The `...` snippet separators
+   * inserted by {@link buildSnippetFromLineIndexes} are preserved so the model
+   * still sees where regions were elided. Non-empty results are guaranteed; an
+   * over-eager strip that empties the snippet falls back to the original text.
+   */
+  private stripCodeBoilerplate(snippet: string, language: string): string {
+    if (snippet === '' || !isCodeLanguage(language)) { return snippet; }
+    const stripped = preFilterCode(snippet, language);
+    return stripped === '' ? snippet : stripped;
+  }
 
-    for (const line of lines) {
+  extractRelevantLogSnippet(log: IdeContextLog, queryTerms: Set<string>): string {
+    // Collect every relevant line *including duplicates* so Pipeline 3 can
+    // report accurate `(Nx)` occurrence multipliers when it clusters them.
+    const relevantLines: string[] = [];
+    for (const line of log.content.split(/\r?\n/)) {
       const trimmedLine = line.trim();
       if (trimmedLine === '') { continue; }
-      const normalizedLine = trimmedLine.toLowerCase();
-      if (seenLines.has(normalizedLine)) { continue; }
-
-      if (lineMatchesQuery(normalizedLine, queryTerms)
+      if (lineMatchesQuery(trimmedLine.toLowerCase(), queryTerms)
         || /error|exception|failed|warning|stack/i.test(trimmedLine)) {
-        seenLines.add(normalizedLine);
         relevantLines.push(trimmedLine);
       }
-      if (relevantLines.length >= MAX_LOG_LINES) { break; }
     }
-    return relevantLines.join('\n').trim();
+
+    if (relevantLines.length === 0) { return ''; }
+
+    // Pipeline 3: deduplicate and frequency-cluster the noisy log stack.
+    return compressLogStack(relevantLines.join('\n'), { maxClusters: MAX_LOG_LINES });
   }
 
   collectRelevantContext(rawPrompt: string, ideContext?: PromptIDEContext): RelevantContextPack {

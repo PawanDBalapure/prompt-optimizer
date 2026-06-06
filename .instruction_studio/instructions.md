@@ -1,8 +1,5 @@
-# Workflow: Canvas Generated Workflow
+# Workflow: Instruction Studio Starter
 
-## Persona: SDLC Architect
+## Persona: Architect
 ### Condition: If Task=Refactor
-- [Medium] (Code Generation) Always run unit tests.
-## Persona: General
-### Condition: Always
-- [Medium] (Code Generation) New Rule
+- [Medium] (Code Generation) Always run unit tests before completing changes.

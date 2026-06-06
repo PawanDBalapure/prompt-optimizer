@@ -114,9 +114,22 @@ export class KnowledgeGraph {
       }
 
       const files = collectFileRefs(ide);
+      const fileByKey = buildPathLookup(files);
+      const fileNodeIds = new Map<string, number>();
       for (const file of files) {
         const id = this.upsertNode(workspaceId, 'file', file.path, file.summary);
         this.upsertEdge(promptId, id, 'mentions-file', 2.0);
+        fileNodeIds.set(file.path, id);
+
+        const signals = extractFileSignals(file.content, file.path, fileByKey);
+        for (const symbol of signals.implements) {
+          const symbolId = this.upsertNode(workspaceId, 'concept', symbol, `Symbol: ${symbol}`);
+          this.upsertEdge(id, symbolId, 'implements', 1.5);
+        }
+        for (const depPath of signals.dependencies) {
+          const depId = this.upsertNode(workspaceId, 'file', depPath, `Dependency file: ${depPath}`);
+          this.upsertEdge(id, depId, 'depends-on', 1.0);
+        }
       }
 
       if (!seeding) {
@@ -126,6 +139,44 @@ export class KnowledgeGraph {
         }
       }
     } catch { /* graph harvest must never break optimization */ }
+  }
+
+  /**
+   * Build a compact architecture map from SQLite graph data for prompt-time
+   * injection. The shape is intentionally stable so downstream compressors
+   * preserve structure and references.
+   */
+  buildArchitectureSummary(workspaceId: string, rawPrompt: string): string | null {
+    const seedTerms = Array.from(new Set(extractConceptTerms(rawPrompt))).slice(0, MAX_SEED_TERMS);
+    if (seedTerms.length === 0) { return null; }
+
+    let files = this.rankTargetFiles(workspaceId, seedTerms).slice(0, 4);
+    if (files.length === 0) {
+      // Fallback: when term matching is sparse, still surface the most recent
+      // graph-backed file map so the optimizer receives concrete file anchors.
+      files = this.rankTargetFiles(workspaceId, []).slice(0, 4);
+    }
+    if (files.length === 0) { return null; }
+
+    const lines: string[] = [
+      '[PROJECT ARCHITECTURE SUMMARY]',
+      'Target files identified by local graph dependency search:',
+      '',
+    ];
+
+    for (const file of files) {
+      lines.push(`#file: ${file.path}`);
+      lines.push(`   └─ 🔗 Implements: ${file.implements.length > 0 ? file.implements.join(', ') : '-'}`);
+      lines.push(`   └─ 🔌 Dependencies: ${file.dependencies.length > 0 ? file.dependencies.join(', ') : '-'}`);
+      lines.push('');
+    }
+
+    lines.push('[AGENT INSTRUCTION]');
+    lines.push('Based *only* on the reference architecture map above, analyze the user request. Do not crawl any files outside of this specified dependency map.');
+    lines.push('');
+    lines.push('[USER REQUEST]');
+    lines.push(compactUserRequest(rawPrompt));
+    return lines.join('\n').trim();
   }
 
   /**
@@ -230,6 +281,118 @@ export class KnowledgeGraph {
       relation: row.relation,
     }));
   }
+
+  private rankTargetFiles(
+    workspaceId: string,
+    seedTerms: string[],
+  ): Array<{ path: string; score: number; updatedAt: number; implements: string[]; dependencies: string[] }> {
+    let fileRows: Array<{ id: number; name: string; summary: string; updatedAt: number }> = [];
+    try {
+      fileRows = this.db.prepare(`
+        SELECT id, name, summary, updated_at AS updatedAt
+        FROM kg_nodes
+        WHERE workspace_id = ? AND node_type = 'file'
+        ORDER BY updated_at DESC
+        LIMIT 80
+      `).all(workspaceId) as Array<{ id: number; name: string; summary: string; updatedAt: number }>;
+    } catch {
+      return [];
+    }
+
+    const out: Array<{ path: string; score: number; updatedAt: number; implements: string[]; dependencies: string[] }> = [];
+    for (const file of fileRows) {
+      const signals = this.loadFileSignals(file.id);
+      const lowerPath = file.name.toLowerCase();
+      const lowerSummary = (file.summary ?? '').toLowerCase();
+
+      let score = 0;
+      for (const term of seedTerms) {
+        const t = term.toLowerCase();
+        if (lowerPath.includes(t)) { score += 3; }
+        if (lowerSummary.includes(t)) { score += 2; }
+        if (signals.implements.some((s) => s.toLowerCase().includes(t))) { score += 2; }
+        if (signals.dependencies.some((d) => d.toLowerCase().includes(t))) { score += 1.5; }
+      }
+      score += this.scorePromptMentions(file.id, seedTerms);
+
+      if (score <= 0 && signals.implements.length === 0 && signals.dependencies.length === 0) {
+        continue;
+      }
+
+      out.push({
+        path: file.name,
+        score,
+        updatedAt: file.updatedAt,
+        implements: signals.implements.slice(0, 4),
+        dependencies: signals.dependencies.slice(0, 4),
+      });
+    }
+
+    out.sort((a, b) => {
+      if (b.score !== a.score) { return b.score - a.score; }
+      return b.updatedAt - a.updatedAt;
+    });
+    return out;
+  }
+
+  private loadFileSignals(fileNodeId: number): { implements: string[]; dependencies: string[] } {
+    let rows: Array<{ relation: string; nodeType: KgNodeType; name: string; weight: number }> = [];
+    try {
+      rows = this.db.prepare(`
+        SELECT e.relation AS relation,
+               n.node_type AS nodeType,
+               n.name AS name,
+               e.weight AS weight
+        FROM kg_edges e
+        JOIN kg_nodes n ON n.id = e.dst_id
+        WHERE e.src_id = ?
+          AND e.relation IN ('implements', 'depends-on')
+        ORDER BY e.weight DESC, e.updated_at DESC
+        LIMIT 32
+      `).all(fileNodeId) as Array<{ relation: string; nodeType: KgNodeType; name: string; weight: number }>;
+    } catch {
+      return { implements: [], dependencies: [] };
+    }
+
+    const impl = new Set<string>();
+    const deps = new Set<string>();
+    for (const row of rows) {
+      if (row.relation === 'implements' && row.nodeType === 'concept' && row.name) {
+        impl.add(row.name);
+      }
+      if (row.relation === 'depends-on' && row.nodeType === 'file' && row.name) {
+        deps.add(row.name);
+      }
+    }
+    return { implements: Array.from(impl), dependencies: Array.from(deps) };
+  }
+
+  private scorePromptMentions(fileNodeId: number, seedTerms: string[]): number {
+    let rows: Array<{ name: string; summary: string; weight: number }> = [];
+    try {
+      rows = this.db.prepare(`
+        SELECT p.name AS name, p.summary AS summary, e.weight AS weight
+        FROM kg_edges e
+        JOIN kg_nodes p ON p.id = e.src_id
+        WHERE e.dst_id = ?
+          AND e.relation = 'mentions-file'
+          AND p.node_type = 'prompt'
+        ORDER BY e.updated_at DESC
+        LIMIT 16
+      `).all(fileNodeId) as Array<{ name: string; summary: string; weight: number }>;
+    } catch {
+      return 0;
+    }
+
+    let score = 0;
+    for (const row of rows) {
+      const hay = `${row.name} ${row.summary}`.toLowerCase();
+      for (const term of seedTerms) {
+        if (hay.includes(term)) { score += Math.max(0.2, row.weight * 0.2); }
+      }
+    }
+    return score;
+  }
 }
 
 // ── pure helpers ──────────────────────────────────────────────────────────────
@@ -243,17 +406,142 @@ function summarizePrompt(rawPrompt: string): string {
   return rawPrompt.trim().replace(/\s+/g, ' ').slice(0, MAX_NODE_SUMMARY);
 }
 
-function collectFileRefs(ide?: PromptIDEContext): Array<{ path: string; summary: string }> {
+function compactUserRequest(rawPrompt: string): string {
+  const noFences = rawPrompt.replace(/```[\s\S]*?```/g, ' ');
+  const noHeaders = noFences.replace(/^#\s+.*$/gm, ' ');
+  const flattened = noHeaders.replace(/\s+/g, ' ').trim();
+  return flattened.slice(0, 220);
+}
+
+function collectFileRefs(ide?: PromptIDEContext): Array<{ path: string; summary: string; content: string }> {
   if (!ide) { return []; }
-  const refs: Array<{ path: string; summary: string }> = [];
+  const refs: Array<{ path: string; summary: string; content: string }> = [];
   if (ide.active_file) {
-    refs.push({ path: ide.active_file.path, summary: `Active file (${ide.active_file.language ?? 'text'})` });
+    refs.push({
+      path: ide.active_file.path,
+      summary: `Active file (${ide.active_file.language ?? 'text'})`,
+      content: ide.active_file.content ?? '',
+    });
   }
   for (const f of ide.open_files ?? []) {
     if (ide.active_file && f.path === ide.active_file.path) { continue; }
-    refs.push({ path: f.path, summary: `Open file (${f.language ?? 'text'})` });
+    refs.push({
+      path: f.path,
+      summary: `Open file (${f.language ?? 'text'})`,
+      content: f.content ?? '',
+    });
   }
   return refs.slice(0, 8);
+}
+
+function buildPathLookup(files: Array<{ path: string }>): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const file of files) {
+    const normalized = normalizePath(file.path);
+    out.set(normalized, file.path);
+    const noExt = normalized.replace(/\.[a-z0-9]+$/i, '');
+    out.set(noExt, file.path);
+    out.set(noExt + '/index', file.path);
+  }
+  return out;
+}
+
+function extractFileSignals(
+  content: string,
+  filePath: string,
+  pathLookup: Map<string, string>,
+): { implements: string[]; dependencies: string[] } {
+  if (!content) { return { implements: [], dependencies: [] }; }
+  const impl = new Set<string>();
+  const deps = new Set<string>();
+
+  for (const symbol of extractImplementedSymbols(content)) {
+    impl.add(symbol);
+  }
+  for (const specifier of extractImportSpecifiers(content)) {
+    const resolved = resolveDependencyPath(filePath, specifier, pathLookup);
+    if (resolved) { deps.add(resolved); }
+  }
+
+  return {
+    implements: Array.from(impl).slice(0, 8),
+    dependencies: Array.from(deps).slice(0, 8),
+  };
+}
+
+function extractImplementedSymbols(content: string): string[] {
+  const found = new Set<string>();
+  const patterns = [
+    /(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)/g,
+    /(?:export\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)/g,
+    /(?:export\s+)?interface\s+([A-Za-z_][A-Za-z0-9_]*)/g,
+    /(?:export\s+)?type\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/g,
+    /(?:export\s+)?(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/g,
+    /def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/g,
+  ];
+  for (const re of patterns) {
+    let m: RegExpExecArray | null = null;
+    while ((m = re.exec(content)) !== null) {
+      found.add(m[1]);
+      if (found.size >= 12) { break; }
+    }
+    if (found.size >= 12) { break; }
+  }
+  return Array.from(found);
+}
+
+function extractImportSpecifiers(content: string): string[] {
+  const found = new Set<string>();
+  const patterns = [
+    /import\s+[^'"\n]+\s+from\s+['"]([^'"\n]+)['"]/g,
+    /import\s+['"]([^'"\n]+)['"]/g,
+    /require\(\s*['"]([^'"\n]+)['"]\s*\)/g,
+    /from\s+([A-Za-z0-9_./-]+)\s+import\s+/g,
+  ];
+  for (const re of patterns) {
+    let m: RegExpExecArray | null = null;
+    while ((m = re.exec(content)) !== null) {
+      found.add(m[1]);
+      if (found.size >= 20) { break; }
+    }
+    if (found.size >= 20) { break; }
+  }
+  return Array.from(found);
+}
+
+function resolveDependencyPath(
+  sourcePath: string,
+  importSpecifier: string,
+  pathLookup: Map<string, string>,
+): string | null {
+  const spec = importSpecifier.trim();
+  if (!spec.startsWith('.')) { return null; }
+
+  const sourceDir = normalizePath(sourcePath).replace(/\/[^/]*$/, '');
+  const raw = normalizePath(joinPath(sourceDir, spec));
+  const noExt = raw.replace(/\.[a-z0-9]+$/i, '');
+
+  return pathLookup.get(raw)
+    ?? pathLookup.get(noExt)
+    ?? pathLookup.get(noExt + '/index')
+    ?? raw;
+}
+
+function joinPath(baseDir: string, relative: string): string {
+  const stack = baseDir.split('/').filter(Boolean);
+  for (const part of relative.split('/')) {
+    if (!part || part === '.') { continue; }
+    if (part === '..') {
+      stack.pop();
+      continue;
+    }
+    stack.push(part);
+  }
+  return stack.join('/');
+}
+
+function normalizePath(p: string): string {
+  return p.replace(/\\/g, '/').replace(/\/+/g, '/').replace(/^\.\//, '');
 }
 
 function extractConceptTerms(rawPrompt: string): string[] {

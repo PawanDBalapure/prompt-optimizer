@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 
 import { openChatWithPrompt } from '../commands/open';
 import { analyzePrompt } from '../chat/analyzer';
-import { getTargetModel, setTargetModel } from '../state/config';
+import { getTargetModel, setTargetModel, getDensity, setDensity } from '../state/config';
 import { getLastAnalysis } from '../state/session';
 import type { PromptProxyPanelState } from '../types';
 import { renderWebviewHtml } from '../webview/loader';
@@ -81,17 +81,21 @@ export class ProxyStatusPanel {
   }
 
   private async _handleMessage(
-    data: { type: string; prompt?: string; model?: string },
+    data: { type: string; prompt?: string; model?: string; density?: string },
   ): Promise<void> {
     switch (data.type) {
       case 'ready': {
         const state = getLastAnalysis(this._context);
         if (state) { this.publishAnalysis(state); }
         this._panel.webview.postMessage({ type: 'targetModelPattern', model: getTargetModel(this._context) });
+        this._panel.webview.postMessage({ type: 'densityState', density: getDensity(this._context) });
         return;
       }
       case 'setTargetModel':
         await setTargetModel(this._context, data.model ?? 'gpt');
+        return;
+      case 'setDensity':
+        await setDensity(this._context, data.density ?? 'rich');
         return;
       case 'analyze': {
         const prompt = data.prompt?.trim() ?? '';

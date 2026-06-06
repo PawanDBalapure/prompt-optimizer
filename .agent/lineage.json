@@ -148,5 +148,35 @@
     "modifiedBy": "General",
     "rule": "New Rule",
     "commit": "local-uncommitted"
+  },
+  {
+    "sessionId": "sess-mq233hdf-wezu26",
+    "timestamp": "2026-06-06T08:21:24.531Z",
+    "workflowName": "Instruction Studio Starter",
+    "versionIndex": 12,
+    "file": ".instruction_studio/instructions.md",
+    "modifiedBy": "Architect",
+    "rule": "Always run unit tests before completing changes.",
+    "commit": "local-uncommitted"
+  },
+  {
+    "sessionId": "sess-mq237m80-f3xs76",
+    "timestamp": "2026-06-06T08:24:37.440Z",
+    "workflowName": "Canvas Generated Workflow",
+    "versionIndex": 13,
+    "file": ".instruction_studio/instructions.md",
+    "modifiedBy": "General",
+    "rule": "New Rule",
+    "commit": "local-uncommitted"
+  },
+  {
+    "sessionId": "sess-mq27labr-3vpwkq",
+    "timestamp": "2026-06-06T10:27:13.671Z",
+    "workflowName": "Instruction Studio Starter",
+    "versionIndex": 14,
+    "file": ".instruction_studio/instructions.md",
+    "modifiedBy": "Architect",
+    "rule": "Always run unit tests before completing changes.",
+    "commit": "local-uncommitted"
   }
 ]

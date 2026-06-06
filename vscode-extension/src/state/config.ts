@@ -2,8 +2,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-import { TARGET_MODEL_KEY } from '../constants';
-import type { TargetModel } from '../types';
+import { TARGET_MODEL_KEY, DENSITY_KEY } from '../constants';
+import type { TargetModel, PromptDensity } from '../types';
 
 function getConfig(): vscode.WorkspaceConfiguration {
   return vscode.workspace.getConfiguration('promptProxy');
@@ -114,6 +114,27 @@ export async function setTargetModel(
 ): Promise<void> {
   if (isTargetModel(val)) {
     await context.globalState.update(TARGET_MODEL_KEY, val);
+  }
+}
+
+function isDensity(value: unknown): value is PromptDensity {
+  return value === 'rich' || value === 'lean';
+}
+
+export function getDensity(context: vscode.ExtensionContext): PromptDensity {
+  const stored = context.globalState.get<string>(DENSITY_KEY);
+  if (isDensity(stored)) { return stored; }
+
+  const fallback = getConfig().get<string>('density') ?? 'rich';
+  return isDensity(fallback) ? fallback : 'rich';
+}
+
+export async function setDensity(
+  context: vscode.ExtensionContext,
+  val: string,
+): Promise<void> {
+  if (isDensity(val)) {
+    await context.globalState.update(DENSITY_KEY, val);
   }
 }
 

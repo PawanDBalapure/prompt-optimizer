@@ -953,20 +953,18 @@ function buildDescriptor(id: string, spec: ModeSpec, trigger: string | null): Sd
  * Render the role preface block (`# Role`) prepended to the optimized prompt.
  */
 export function renderRoleSection(mode: SdlcModeDescriptor): string {
-  const readOnlyLine = mode.readOnly
-    ? '\nMode: READ-ONLY — do not modify files.'
-    : '';
-  return `# Role — ${mode.label}\n${mode.rolePreface}${readOnlyLine}`;
+  const readOnlyLine = mode.readOnly ? ' (READ-ONLY — do not modify files)' : '';
+  return `role: >\n  ${mode.label}${readOnlyLine}\n  ${mode.rolePreface.replace(/\n/g, '\n  ')}`;
 }
 
 /**
- * Render the quality checklist (`# Quality checklist`) appended to the
- * optimized prompt so the assistant self-verifies before responding.
+ * Render the quality checklist appended to the optimized prompt.
  */
 export function renderChecklistSection(mode: SdlcModeDescriptor): string {
-  const bullets = mode.checklist.map((item) => `- ${item}`).join('\n');
-  return `# Quality checklist\n${bullets}`;
+  const bullets = mode.checklist.map((item) => `  - "${item.replace(/"/g, '\\"')}"`).join('\n');
+  return `quality_checklist:\n${bullets}`;
 }
+
 
 /**
  * Friendly improvement-line label so the panel surfaces why the optimized

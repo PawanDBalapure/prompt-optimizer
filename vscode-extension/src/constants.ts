@@ -12,6 +12,7 @@ export const BOOTSTRAP_DONE_KEY = 'promptProxy.bootstrapped';
 export const CONVERSATION_KEY = 'promptProxy.conversation';
 export const MODE_KEY = 'promptProxy.mode';
 export const TARGET_MODEL_KEY = 'promptProxy.targetModel';
+export const DENSITY_KEY = 'promptProxy.density';
 export const PASSIVE_EVENTS_KEY = 'promptProxy.passiveEvents';
 /** Pending (analyzed-but-not-yet-sent) optimization awaiting user confirmation. */
 export const PENDING_OPTIMIZATION_KEY = 'promptProxy.pendingOptimization';

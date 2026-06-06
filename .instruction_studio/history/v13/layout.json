@@ -1,0 +1,48 @@
+{
+  "workflowName": "Canvas Generated Workflow",
+  "nodes": [
+    {
+      "id": "v_tzaio4",
+      "type": "persona",
+      "label": "SDLC Implementer",
+      "text": "SDLC Implementer",
+      "active": true
+    },
+    {
+      "id": "v_i3wij5",
+      "type": "persona",
+      "label": "New Persona",
+      "text": "New Persona",
+      "active": true
+    },
+    {
+      "id": "v_lmzxwc",
+      "type": "persona",
+      "label": "New Persona",
+      "text": "New Persona",
+      "active": true
+    },
+    {
+      "id": "v_vf4wo3",
+      "type": "persona",
+      "label": "New Persona",
+      "text": "New Persona",
+      "active": true
+    },
+    {
+      "id": "v_cucbnf",
+      "type": "condition",
+      "label": "If ...",
+      "text": "If ...",
+      "active": true
+    },
+    {
+      "id": "v_hxcfx7",
+      "type": "rule",
+      "label": "New Rule",
+      "text": "New Rule",
+      "active": true
+    }
+  ],
+  "edges": []
+}

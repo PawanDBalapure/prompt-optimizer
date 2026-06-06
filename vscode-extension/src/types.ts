@@ -3,6 +3,8 @@
 export type ProxyMode = 'agent' | 'optimize' | 'direct';
 export type PromptSource = 'panel' | 'chat' | 'clipboard';
 export type TargetModel = 'claude' | 'gpt' | 'gemini' | 'deepseek' | 'grok' | 'local';
+/** Output density for the structured YAML prompt. */
+export type PromptDensity = 'rich' | 'lean';
 
 export type SecretPatternMatchMode =
   | 'regex'

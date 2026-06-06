@@ -24,7 +24,7 @@ import {
   resolveReferences,
 } from '../state/conversation';
 import { getCurrentMode } from '../state/mode';
-import { getTargetModel, setTargetModel, getDbPath, getCreditForecastConfig } from '../state/config';
+import { getTargetModel, setTargetModel, getDensity, setDensity, getDbPath, getCreditForecastConfig } from '../state/config';
 import { getLastAnalysis } from '../state/session';
 import type {
   CustomSecretPatternConfig,
@@ -39,6 +39,7 @@ import { PROMPT_PROXY_VIEW_TYPE } from './view-type';
 import { runEngineRaw } from '../engine/runner';
 import { seedCacheFromWorkspace } from '../engine/seeder';
 import { ocrImage as runOcrOnBuffer } from '../chat/ocr';
+import { estimateTokens } from '../memory/budget';
 
 // `scanForSecrets` is re-exported for callers that share the secrets module
 // surface with the panel.
@@ -140,6 +141,15 @@ export class PromptProxyViewProvider implements vscode.WebviewViewProvider {
       case 'setTargetModel':
         await setTargetModel(this._context, data.model ?? 'gpt');
         return;
+      case 'setDensity':
+        await setDensity(this._context, data.density ?? 'rich');
+        return;
+      case 'estimateTokens':
+        if (typeof data.text === 'string') {
+          const tok = estimateTokens(data.text);
+          webviewView.webview.postMessage({ type: 'tokenCountResult', fieldId: data.fieldId, tokens: tok });
+        }
+        return;
       case 'agentRun': return this._handleAgentRun(webviewView, data.prompt ?? '');
       case 'analyze': return this._handleAnalyze(webviewView, data.prompt ?? '');
       case 'sendPrompt': await openChatWithPrompt(data.prompt ?? '', false); return;
@@ -218,6 +228,7 @@ export class PromptProxyViewProvider implements vscode.WebviewViewProvider {
     if (state) { this.publishAnalysis(state); }
     webviewView.webview.postMessage({ type: 'modeState', mode: getCurrentMode(this._context) });
     webviewView.webview.postMessage({ type: 'targetModelPattern', model: getTargetModel(this._context) });
+    webviewView.webview.postMessage({ type: 'densityState', density: getDensity(this._context) });
     webviewView.webview.postMessage({ type: 'creditForecastConfig', config: getCreditForecastConfig() });
     // Render immediately, then let activation/bootstrap push fresher counts
     // once the background seeding pass finishes.

@@ -11,9 +11,37 @@ function addAlert(kind, message) {
   document.getElementById('alerts').appendChild(div);
 }
 
+function stripOptimizedAttachments(text) {
+  var out = String(text || '');
+
+  // Strip OCR blocks that may be echoed back by the optimizer.
+  out = out.replace(
+    /(?:^|\n\n)--- OCR text from [^\n]* ---\n[\s\S]*?(?=(?:\n\n--- OCR text from |\n\n# |\n\n## |\n\n### |$))/gi,
+    '',
+  );
+
+  // Strip agent/file attachment sections (header + body).
+  out = out.replace(
+    /(?:^|\n\n)#{1,6}\s*(?:attached|attachment|agent\s*file|referenced\s*file|file\s*content)s?\b[^\n]*\n[\s\S]*?(?=(?:\n\n# |\n\n## |\n\n### |$))/gi,
+    '',
+  );
+
+  // Strip explicit file markers often used by context packers.
+  out = out.replace(
+    /(?:^|\n)(?:---\s*)?(?:begin|start)\s+(?:attached\s+)?file\s*:\s*[^\n]*\n[\s\S]*?(?:\n(?:---\s*)?(?:end|stop)\s+file\s*:?[^\n]*|$)/gi,
+    '',
+  );
+
+  // Normalize excessive blank lines after stripping.
+  out = out.replace(/\n{3,}/g, '\n\n').trim();
+  return out;
+}
+
 // ── renderState — main analysis-result renderer ───────────────────────────────
 
 function renderState(state) {
+  var optimizedSanitized = stripOptimizedAttachments(state.optimized || '');
+  state.optimized = optimizedSanitized;
   currentState = state;
 
   var promptInput     = document.getElementById('promptInput');
@@ -97,19 +125,19 @@ function renderState(state) {
   tokenDelta.textContent       = metrics.raw_input_tokens + ' \u2192 ' + metrics.optimized_input_tokens + ' tokens';
 
   // ── Optimized prompt ───────────────────────────────────────────────────────
-  optimizedPrompt.textContent  = state.optimized;
-  optimizedCard.style.display  = state.optimized ? 'block' : 'none';
+  optimizedPrompt.textContent  = optimizedSanitized;
+  optimizedCard.style.display  = optimizedSanitized ? 'block' : 'none';
 
   // ── Partial cache reuse banner ─────────────────────────────────────────────
   var reused = analysis.cache && analysis.cache.reused_segments;
   if (reused && reused.length) {
     var savedTokens = analysis.cache.reused_tokens_saved || 0;
-    addAlert(
-      'info',
-      '\u267b\ufe0f  ' + reused.length + ' context block' + (reused.length === 1 ? '' : 's') +
-        ' reused from cache (~' + savedTokens + ' tokens saved). Referenced in the optimized prompt instead of resent: ' +
-        reused.map(function(seg) { return seg.label; }).join(', '),
-    );
+    // addAlert(
+    //   'info',
+    //   '\u267b\ufe0f  ' + reused.length + ' context block' + (reused.length === 1 ? '' : 's') +
+    //     ' reused from cache (~' + savedTokens + ' tokens saved). Referenced in the optimized prompt instead of resent: ' +
+    //     reused.map(function(seg) { return seg.label; }).join(', '),
+    // );
   }
 
   // ── Context chips ──────────────────────────────────────────────────────────

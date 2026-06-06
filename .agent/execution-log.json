@@ -177,5 +177,53 @@
     "activeRuleCount": 2,
     "inactiveRuleCount": 0,
     "ruleUsageCount": 2
+  },
+  {
+    "sessionId": "sess-mq233hdf-wezu26",
+    "conversationRef": "instruction-studio-12",
+    "timestamp": "2026-06-06T08:21:24.531Z",
+    "workflowName": "Instruction Studio Starter",
+    "versionIndex": 12,
+    "personasActive": [
+      {
+        "id": "architect",
+        "version": "v12"
+      }
+    ],
+    "activeRuleCount": 1,
+    "inactiveRuleCount": 0,
+    "ruleUsageCount": 1
+  },
+  {
+    "sessionId": "sess-mq237m80-f3xs76",
+    "conversationRef": "instruction-studio-13",
+    "timestamp": "2026-06-06T08:24:37.440Z",
+    "workflowName": "Canvas Generated Workflow",
+    "versionIndex": 13,
+    "personasActive": [
+      {
+        "id": "general",
+        "version": "v13"
+      }
+    ],
+    "activeRuleCount": 1,
+    "inactiveRuleCount": 0,
+    "ruleUsageCount": 1
+  },
+  {
+    "sessionId": "sess-mq27labr-3vpwkq",
+    "conversationRef": "instruction-studio-14",
+    "timestamp": "2026-06-06T10:27:13.671Z",
+    "workflowName": "Instruction Studio Starter",
+    "versionIndex": 14,
+    "personasActive": [
+      {
+        "id": "architect",
+        "version": "v14"
+      }
+    ],
+    "activeRuleCount": 1,
+    "inactiveRuleCount": 0,
+    "ruleUsageCount": 1
   }
 ]

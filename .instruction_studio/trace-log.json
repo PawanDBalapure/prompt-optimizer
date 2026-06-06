@@ -128,5 +128,44 @@
     "versionIndex": 11,
     "activeRuleCount": 2,
     "inactiveRuleCount": 0
+  },
+  {
+    "sessionId": "sess-mq233hde-7ltpzh",
+    "timestamp": "2026-06-06T08:21:24.530Z",
+    "workflowName": "Instruction Studio Starter",
+    "persona": "Architect",
+    "condition": "If Task=Refactor",
+    "priority": "Medium",
+    "agentScope": "Code Generation",
+    "ruleText": "Always run unit tests before completing changes.",
+    "versionIndex": 12,
+    "activeRuleCount": 1,
+    "inactiveRuleCount": 0
+  },
+  {
+    "sessionId": "sess-mq237m7z-0gcm8q",
+    "timestamp": "2026-06-06T08:24:37.439Z",
+    "workflowName": "Canvas Generated Workflow",
+    "persona": "General",
+    "condition": "Always",
+    "priority": "Medium",
+    "agentScope": "Code Generation",
+    "ruleText": "New Rule",
+    "versionIndex": 13,
+    "activeRuleCount": 1,
+    "inactiveRuleCount": 0
+  },
+  {
+    "sessionId": "sess-mq27labq-dhoyak",
+    "timestamp": "2026-06-06T10:27:13.670Z",
+    "workflowName": "Instruction Studio Starter",
+    "persona": "Architect",
+    "condition": "If Task=Refactor",
+    "priority": "Medium",
+    "agentScope": "Code Generation",
+    "ruleText": "Always run unit tests before completing changes.",
+    "versionIndex": 14,
+    "activeRuleCount": 1,
+    "inactiveRuleCount": 0
   }
 ]

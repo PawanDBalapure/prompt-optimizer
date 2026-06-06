@@ -38,6 +38,32 @@ export interface PromptDiagnostic {
   fix_suggestion?: string;
 }
 
+/**
+ * Deterministic, compiler-style view of a prompt.  Produced by the prompt
+ * compiler pipeline (Intent → Requirements → Rules → Exclusions → Output →
+ * Success Criteria) and rendered into the fixed `[CONTEXT]…[SUCCESS CRITERIA]`
+ * schema.  Subjective adjectives are converted to measurable requirements and
+ * soft preferences are hardened into rules, so the resulting prompt is cheaper
+ * and more deterministic to run.
+ */
+export interface PromptCompilerSpec {
+  intent: { task: string; domain: string; output: string };
+  /** Noise-stripped, canonical statement of what the user is asking for. */
+  input: string;
+  /** Measurable, objective requirements (adjectives resolved to metrics). */
+  requirements: string[];
+  /** Hard constraints (preferences hardened into MUST/ALWAYS directives). */
+  rules: string[];
+  /** Things that must not happen / must be absent from the output. */
+  exclusions: string[];
+  /** Exact structure the answer must take. */
+  output_format: string;
+  /** Measurable conditions that define task completion. */
+  success_criteria: string[];
+  /** Task family, carried through so the renderer can pick output discipline. */
+  task_kind?: 'coding' | 'debugging' | 'research' | 'spec-writing' | 'general';
+}
+
 export interface PromptIR {
   role?: string;
   constraints: string[];
@@ -45,6 +71,8 @@ export interface PromptIR {
   output_schema?: string;
   reasoning_policy?: string;
   inferred_task_type?: 'coding' | 'debugging' | 'research' | 'spec-writing' | 'general';
+  /** Compiler-style structured spec; populated by parseToPromptIR. */
+  compiler_spec?: PromptCompilerSpec;
 }
 
 export interface PromptOptimizationRequest {
@@ -74,6 +102,15 @@ export interface PromptOptimizationRequest {
    * graph node count unboundedly.
    */
   seeding?: boolean;
+  /**
+   * Output density for the structured YAML prompt.
+   *   'rich' (default) — context + measurable constraints + output discipline.
+   *   'lean'           — task line + a single combined discipline constraint,
+   *                      dropping the context line and metric expansions for
+   *                      maximum raw-vs-output token savings.
+   * Falls back to the PROMPT_OPT_DENSITY env var when omitted.
+   */
+  density?: 'rich' | 'lean';
 }
 
 export interface PromptCacheCandidate {

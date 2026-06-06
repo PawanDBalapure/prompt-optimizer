@@ -38,6 +38,36 @@ let extensionVersion = 'unknown';
 let bugsEmail: string | undefined;
 
 /**
+ * Checks if an error is a benign cancellation or originated from another extension.
+ * Since all VS Code extensions share the same process, we don't want to show
+ * error toasts for unhandled rejections thrown by GitLens or others.
+ */
+function isForeignOrCancellationError(error: unknown): boolean {
+  if (!error) return false;
+  
+  // 1. Check for Cancellation cancellation errors
+  const name = error instanceof Error ? error.name : (error as any).name;
+  const message = error instanceof Error ? error.message : (error as any).message;
+  if (name === 'CancellationError' || name === 'Canceled' || message === 'Canceled' || message === 'Operation cancelled') {
+    return true;
+  }
+  
+  // 2. Safely inspect the stack trace to ensure it's not clearly from another extension.
+  const stack = error instanceof Error ? error.stack : (error as any).stack;
+  if (typeof stack === 'string') {
+    // If the stack contains ".vscode/extensions/" or ".vscode-server/extensions/" ...
+    if (stack.includes('.vscode') || stack.includes('extensions/')) {
+      // ... but DOES NOT contain our extension name, ignore it.
+      if (!stack.includes('prompt-optimizer') && !stack.includes('promptProxy')) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
  * Wire the reporter into the extension lifecycle.  Must be called once
  * from `activate`.  Installs `process.on('unhandledRejection')` and
  * `uncaughtException` listeners so background failures still reach the
@@ -57,11 +87,13 @@ export function initErrorReporter(context: vscode.ExtensionContext): void {
   }
 
   const onUnhandled = (reason: unknown) => {
+    if (isForeignOrCancellationError(reason)) return;
     void reportError('An unexpected background error occurred in Prompt Optimizer.', reason, {
       scope: 'unhandledRejection',
     });
   };
   const onUncaught = (err: Error) => {
+    if (isForeignOrCancellationError(err)) return;
     void reportError('Prompt Optimizer encountered an uncaught exception.', err, {
       scope: 'uncaughtException',
     });

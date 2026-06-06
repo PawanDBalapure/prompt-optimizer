@@ -1258,6 +1258,10 @@
       if (button.tagName === 'SELECT') return; 
       const action = button.getAttribute('data-action');
       if (!action) { return; }
+      if (action === 'loadCopilotInstructions') {
+        vscode.postMessage({ type: 'loadCopilotInstructions' });
+        return;
+      }
       if (action === 'createStarterScaffold' || action === 'compileFormGraph') {
         send(action, buildGraphFromForm());
         return;
@@ -1407,18 +1411,22 @@
         requestInstructionsOverview();
       }
     }
+    if (data.type === 'canvasGraph') {
+      applyCanvasGraph(data);
+    }
   });
 
   // --- VCanvas Engine ---
   var CANVAS_HISTORY_LIMIT = 240;
   var CANVAS_HISTORY_STORAGE_KEY = 'instructionStudioCanvasHistoryV1';
   var vNodes = [
-    { id: 'v_1', type: 'persona', text: 'Architect', priority: 'High', x: 20, y: 50 },
-    { id: 'v_2', type: 'condition', text: 'If Task=Refactor', priority: 'Medium', x: 250, y: 50 },
-    { id: 'v_3', type: 'rule', text: 'Always run unit tests.', priority: 'Medium', x: 500, y: 50 }
+    { id: 'v_1', type: 'persona', text: 'SDLC Architect', priority: 'High', x: 20, y: 50 },
+    { id: 'v_2', type: 'condition', text: 'If writing code', priority: 'High', x: 250, y: 50 },
+    { id: 'v_3', type: 'rule', text: 'Read .promptoptimizer/skills/sdlc-architect.md. Follow everything written there. Do not write any code until you have read and understood the entire file.', priority: 'Critical', x: 500, y: 50 }
   ];
   var vEdges = [{ from: 'v_1', to: 'v_2' }, { from: 'v_2', to: 'v_3' }];
   var vPan = { x: 0, y: 0, scale: 1 };
+  var vMinimap = null;
   var vSelectedNode = null;
   var vDraggingNode = null;
   var vDragStartX = 0, vDragStartY = 0, vOrigX = 0, vOrigY = 0;
@@ -1448,6 +1456,105 @@
   function snapshotsEqual(a, b) {
     return JSON.stringify(a || null) === JSON.stringify(b || null);
   }
+
+  /**
+   * Applies a canvasGraph message (nodes + edges from copilot-instructions.md)
+   * onto the live canvas, resets pan/selection, and records history.
+   * Called both on first load and when the user clicks "From Copilot Instructions".
+   */
+  function applyCanvasGraph(data) {
+    var incoming = Array.isArray(data.nodes) ? data.nodes : [];
+    if (incoming.length === 0) {
+      setCanvasNotice(data.notice || 'No instructions to draw.', 'error');
+      return;
+    }
+    vNodes = incoming.map(function (n) {
+      return {
+        id: String(n.id || 'ci_' + Math.random().toString(36).slice(2, 8)),
+        type: String(n.type || 'rule'),
+        text: String(n.text || ''),
+        priority: String(n.priority || 'Medium'),
+        collapsed: !!n.collapsed,
+        x: Number(n.x) || 20,
+        y: Number(n.y) || 50,
+      };
+    });
+    vEdges = Array.isArray(data.edges) ? data.edges.map(function (e) {
+      return { from: String(e.from || ''), to: String(e.to || '') };
+    }) : [];
+    vPan = { x: 0, y: 0, scale: 1 };
+    vSelectedNode = null;
+    vSelectedEdge = null;
+    updateVInspector();
+    updateSelectedLinkInspector();
+    renderVCanvas();
+    recordCanvasHistory();
+    if (data.notice) {
+      setCanvasNotice(data.notice, 'ok');
+    }
+  }
+
+  function updateVNodeRules() {
+    var nodeRulesContainer = document.getElementById('vSelectedNodeRules');
+    var nodeRulesCard = document.getElementById('vSelectedNodeRulesCard');
+    if (!nodeRulesContainer || !nodeRulesCard) return;
+    
+    if (!vSelectedNode) {
+      nodeRulesCard.style.display = 'none';
+      return;
+    }
+    // vSelectedNode holds the selected node object (see mousedown handler), so
+    // resolve its id before looking it up in vNodes.
+    var selectedId = (vSelectedNode && typeof vSelectedNode === 'object')
+      ? vSelectedNode.id
+      : vSelectedNode;
+    var n = vNodes.find(function(nn) { return nn.id === selectedId; });
+    if (!n) {
+      nodeRulesCard.style.display = 'none';
+      return;
+    }
+    
+    nodeRulesCard.style.display = 'block';
+    var childRulesHtml = '<div style="font-weight: 600; margin-bottom: 4px;">Node Rules</div><ul style="padding-left:16px; margin: 0; font-size: 11px; word-break: break-word;">';
+    var hasRules = false;
+    
+    var findRules = function(parentId) {
+      var children = vEdges.filter(function(e) { return e.from === parentId; }).map(function(e) { return e.to; });
+      for (var i = 0; i < children.length; i++) {
+        var childId = children[i];
+        var childNode = vNodes.find(function(nn) { return nn.id === childId; });
+        if (childNode) {
+          if (childNode.type === 'rule' || childNode.type === 'file') {
+            var safeText = (childNode.text || childNode.label || '').replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            var itemCls = childNode.type === 'file' ? 'font-weight: 600; list-style-type: none; margin-top: 6px; margin-left: -10px; color: var(--vscode-focusBorder, #007fd4);' : 'margin-bottom: 4px;';
+            childRulesHtml += '<li style="' + itemCls + '">' + safeText + '</li>';
+            hasRules = true;
+          }
+          findRules(childId);
+        }
+      }
+    };
+    
+    if (n.type === 'rule') {
+      var safeText = (n.text || n.label || '').replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      childRulesHtml += '<li style="margin-bottom: 4px;">' + safeText + '</li>';
+      hasRules = true;
+    } else {
+      findRules(n.id);
+    }
+    
+    childRulesHtml += '</ul>';
+    if (!hasRules) {
+      childRulesHtml = '<div style="font-weight: 600; margin-bottom: 4px;">Node Rules</div><p class="muted-hint" style="margin:0;">No rules found.</p>';
+    }
+    
+    // Only update if changed to avoid breaking selection/scroll
+    if (nodeRulesContainer.innerHTML !== childRulesHtml) {
+       nodeRulesContainer.innerHTML = childRulesHtml;
+    }
+  }
+
+  setInterval(updateVNodeRules, 250);
 
   function readPersistedCanvasState() {
     var state = vscode.getState();
@@ -1654,6 +1761,7 @@
     if (!node.priority) {
       node.priority = 'Medium';
     }
+    node.collapsed = !!node.collapsed;
   }
 
   function createsDirectedCycle(fromId, toId) {
@@ -1788,14 +1896,58 @@
     if (!viewport) return;
     viewport.style.transform = 'translate(' + vPan.x + 'px, ' + vPan.y + 'px) scale(' + vPan.scale + ')';
 
+    var memo = {};
+    var checkVisible = function(nid, visited) {
+      if (memo[nid] !== undefined) return memo[nid];
+      if (visited[nid]) return false;
+      visited[nid] = true;
+      var incoming = vEdges.filter(function(e) { return e.to === nid; });
+      if (incoming.length === 0) {
+        var finalAns = true;
+        memo[nid] = finalAns;
+        return finalAns;
+      }
+      var ans = incoming.some(function(e) {
+        var pNode = vNodes.find(function(rn) { return rn.id === e.from; });
+        if (!pNode || pNode.collapsed) return false;
+        var newObj = {};
+        for (var k in visited) newObj[k] = visited[k];
+        return checkVisible(e.from, newObj);
+      });
+      memo[nid] = ans;
+      return ans;
+    };
+    
+    var childCountCache = {};
+    vEdges.forEach(function(e) {
+      childCountCache[e.from] = (childCountCache[e.from] || 0) + 1;
+    });
+
     viewport.innerHTML = '';
     vNodes.forEach(function (n) {
+      n.__visible = checkVisible(n.id, {});
+      if (!n.__visible) return;
+
       ensureNodeDefaults(n);
       var el = document.createElement('div');
-      el.className = 'vcanvas-node ' + (vSelectedNode && vSelectedNode.id === n.id ? 'selected' : '');
+      var typeClass = String(n.type || '').trim();
+      el.className = 'vcanvas-node ' + typeClass + (vSelectedNode && vSelectedNode.id === n.id ? ' selected' : '');
       el.dataset.nodeid = n.id;
       el.style.left = n.x + 'px';
       el.style.top = n.y + 'px';
+
+      if (childCountCache[n.id] > 0) {
+        var collapseBtn = document.createElement('button');
+        collapseBtn.type = 'button';
+        collapseBtn.className = 'vcanvas-collapse-btn';
+        collapseBtn.setAttribute('data-collapse-toggle', n.id);
+        collapseBtn.textContent = n.collapsed ? '+' : '-';
+        collapseBtn.title = n.collapsed ? 'Expand children' : 'Collapse children';
+        collapseBtn.setAttribute('aria-label', n.collapsed ? 'Expand children' : 'Collapse children');
+        collapseBtn.addEventListener('mousedown', function(e) { e.stopPropagation(); });
+        collapseBtn.addEventListener('pointerdown', function(e) { e.stopPropagation(); });
+        el.appendChild(collapseBtn);
+      }
 
       if (n.type !== 'persona') {
         var inPort = document.createElement('div');
@@ -1835,6 +1987,12 @@
 
     syncPresetSelectionUi();
 
+    // Sync minimap overlay component bounds
+    if (vMinimap) {
+      var container = document.getElementById('vCanvasContainer');
+      vMinimap.synchronize(vNodes, vPan, container, vEdges);
+    }
+
     // Update dynamic node geometry before drawing edges
     setTimeout(function() {
       var elements = document.querySelectorAll('.vcanvas-node');
@@ -1857,7 +2015,7 @@
     vEdges.forEach(function(e, index) {
       var fromN = vNodes.find(function(x) { return x.id === e.from; });
       var toN = vNodes.find(function(x) { return x.id === e.to; });
-      if (fromN && toN) {
+      if (fromN && toN && fromN.__visible && toN.__visible) {
         var fromW = fromN.w || 100;
         var fromH = fromN.h || 30;
         var toH = toN.h || 30;
@@ -1977,6 +2135,7 @@
     });
 
     container.addEventListener('mouseup', function(e) {
+      var wasActionActive = vIsLinking || vIsPanning || vDraggingNode;
       if (vIsLinking) {
         var targetPort = e.target && e.target.closest ? e.target.closest('.vcanvas-port.in') : null;
         var targetNodeEl = e.target && e.target.closest ? e.target.closest('.vcanvas-node') : null;
@@ -2008,7 +2167,9 @@
       vDraggedNodeChanged = false;
       vIsLinking = false;
       vLinkFrom = null;
-      renderVCanvas();
+      if (wasActionActive) {
+        renderVCanvas();
+      }
     });
 
     container.addEventListener('wheel', function(e) {
@@ -2018,6 +2179,21 @@
       renderVCanvas();
       persistCanvasState();
     });
+
+    container.addEventListener('click', function(event) {
+      var toggle = event.target && event.target.closest ? event.target.closest('[data-collapse-toggle]') : null;
+      if (!toggle) { return; }
+      var nodeId = String(toggle.getAttribute('data-collapse-toggle') || '').trim();
+      if (!nodeId) { return; }
+      var node = vNodes.find(function (item) { return item.id === nodeId; });
+      if (!node) { return; }
+      node.collapsed = !node.collapsed;
+      renderVCanvas();
+      recordCanvasHistory();
+      setCanvasNotice(node.collapsed ? 'Children hidden.' : 'Children shown.', 'ok');
+      event.preventDefault();
+      event.stopPropagation();
+    }, true);
 
     var btnAddPersona = document.getElementById('vBtnAddPersona');
     if (btnAddPersona) btnAddPersona.addEventListener('click', function() { addVNode('persona', 'New Persona'); });
@@ -2029,6 +2205,101 @@
     if (btnUndo) btnUndo.addEventListener('click', undoCanvas);
     var btnRedo = document.getElementById('vBtnRedo');
     if (btnRedo) btnRedo.addEventListener('click', redoCanvas);
+
+    var btnCollapseAll = document.getElementById('vBtnCollapseAll');
+    var btnExpandAll = document.getElementById('vBtnExpandAll');
+    if (btnCollapseAll) {
+      btnCollapseAll.addEventListener('click', function() {
+        var hasChildren = {};
+        vEdges.forEach(function(e) { hasChildren[e.from] = true; });
+        vNodes.forEach(function(n) {
+          if (hasChildren[n.id]) { n.collapsed = true; }
+        });
+        btnCollapseAll.style.display = 'none';
+        if (btnExpandAll) btnExpandAll.style.display = 'inline-block';
+        renderVCanvas();
+        recordCanvasHistory();
+      });
+    }
+    if (btnExpandAll) {
+      btnExpandAll.addEventListener('click', function() {
+        vNodes.forEach(function(n) { n.collapsed = false; });
+        btnExpandAll.style.display = 'none';
+        if (btnCollapseAll) btnCollapseAll.style.display = 'inline-block';
+        renderVCanvas();
+        recordCanvasHistory();
+      });
+    }
+
+    var btnFitCanvas = document.getElementById('vBtnFitCanvas');
+    if (btnFitCanvas) {
+      btnFitCanvas.addEventListener('click', function() {
+        var host = document.getElementById('vCanvasContainer');
+        if (!host || vNodes.length === 0) { return; }
+        
+        // Find visible nodes
+        var visibleNodes = vNodes.filter(function(n) { return n.__visible !== false; });
+        if (visibleNodes.length === 0) { visibleNodes = vNodes; }
+
+        var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        visibleNodes.forEach(function(n) {
+          if (n.x < minX) minX = n.x;
+          if (n.x > maxX) maxX = n.x;
+          if (n.y < minY) minY = n.y;
+          if (n.y > maxY) maxY = n.y;
+        });
+
+        // Add padding around elements
+        var extraPad = 40;
+        var graphW = (maxX - minX) + extraPad * 2;
+        var graphH = (maxY - minY) + extraPad * 2;
+        if (graphW <= 0) graphW = 100;
+        if (graphH <= 0) graphH = 100;
+
+        var viewW = host.clientWidth;
+        var viewH = host.clientHeight;
+        if (viewW <= 0) viewW = 800; // sensible fallback
+        if (viewH <= 0) viewH = 500;
+
+        var scaleX = viewW / graphW;
+        var scaleY = viewH / graphH;
+        var nextScale = Math.max(0.15, Math.min(scaleX, scaleY, 1.2)); // cap max zoom for singular elements to 1.2
+        
+        // Center the scaled bounding box inside viewport
+        var graphCenterX = minX + (maxX - minX) / 2;
+        var graphCenterY = minY + (maxY - minY) / 2;
+        
+        vPan.scale = nextScale;
+        vPan.x = (viewW / 2) - graphCenterX * nextScale;
+        vPan.y = (viewH / 2) - graphCenterY * nextScale;
+
+        renderVCanvas();
+        persistCanvasState();
+      });
+    }
+
+    var btnToggleFullscreen = document.getElementById('vBtnToggleFullscreen');
+    if (btnToggleFullscreen) {
+      btnToggleFullscreen.addEventListener('click', function() {
+        var layout = document.querySelector('.vscode-layout');
+        if (!layout) { return; }
+        var isFS = layout.classList.contains('canvas-fullscreen');
+        if (isFS) {
+          layout.classList.remove('canvas-fullscreen');
+          btnToggleFullscreen.textContent = '⛶ Fullscreen';
+          btnToggleFullscreen.title = 'Switch to fullscreen view';
+        } else {
+          layout.classList.add('canvas-fullscreen');
+          btnToggleFullscreen.textContent = '🗗 Restore View';
+          btnToggleFullscreen.title = 'Restore standard layout state';
+        }
+        
+        // Trigger responsive layout/minimap adjustments
+        setTimeout(function() {
+          renderVCanvas();
+        }, 100);
+      });
+    }
 
     var btnDelNode = document.getElementById('vBtnDeleteNode');
     if (btnDelNode) btnDelNode.addEventListener('click', function() {
@@ -2301,6 +2572,34 @@
   initializeCanvasHistory();
   setupInstructionsManager();
   setupVCanvas();
+  
+  // Setup the Graph Minimap focusing mechanics
+  if (globalThis.MinimapEngine) {
+    var minContainer = document.getElementById('vMinimapContainer');
+    if (minContainer) {
+      minContainer.style.display = 'block';
+      vMinimap = new globalThis.MinimapEngine({
+        minimapContainerId: 'vMinimapContainer',
+        focusRectId: 'vMinimapFocus',
+        viewportLayerId: 'vNodesLayer',
+        minimapSize: { width: 150, height: 150 },
+        onViewportChange: function(vx, vy) {
+          vPan.x = vx;
+          vPan.y = vy;
+          
+          // Re-render coordinate viewport
+          var viewport = document.getElementById('vNodesLayer');
+          if (viewport) {
+            viewport.style.transform = 'translate(' + vPan.x + 'px, ' + vPan.y + 'px) scale(' + vPan.scale + ')';
+          }
+          drawVEdges(0,0);
+        }
+      });
+      // Initial render sync
+      vMinimap.synchronize(vNodes, vPan, document.getElementById('vCanvasContainer'), vEdges);
+    }
+  }
+
   setupResizableLayout();
   setupBottomPanelToggle();
   setupCanvasKeyboardShortcuts();

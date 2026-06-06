@@ -148,17 +148,25 @@ export function activate(context: vscode.ExtensionContext) {
   // memory is primed before the very first user prompt.
   setTimeout(() => {
     void (async () => {
-      // ProgressLocation.Window renders as a tiny spinner + label in the
-      // bottom status bar — exactly the minimalist treatment we want for
-      // background indexing (no notification toast, no panel pill).
-      await vscode.window.withProgress(
-        {
-          location: vscode.ProgressLocation.Window,
-          title: 'Prompt Optimizer: indexing workspace…',
-        },
-        async () => { await seedCacheFromWorkspace(context); },
-      );
-      provider.refreshStatusOverview();
+      try {
+        // ProgressLocation.Window renders as a tiny spinner + label in the
+        // bottom status bar — exactly the minimalist treatment we want for
+        // background indexing (no notification toast, no panel pill).
+        await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Window,
+            title: 'Prompt Optimizer: indexing workspace…',
+          },
+          async () => { await seedCacheFromWorkspace(context); },
+        );
+        provider.refreshStatusOverview();
+      } catch (error) {
+        // Log silently; seeding failures are non-critical and should not
+        // block extension activation or surface error dialogs to the user.
+        // GitLens or other extensions may emit CancellationErrors which are
+        // transient and expected during IDE initialization.
+        console.debug('[Prompt Optimizer] Workspace seeding failed (non-critical)', error);
+      }
     })();
   }, 3000);
 
@@ -166,14 +174,19 @@ export function activate(context: vscode.ExtensionContext) {
   // new prompts from the Copilot chat database into the knowledge graph.
   const enrichTimer = setInterval(() => {
     void (async () => {
-      await vscode.window.withProgress(
-        {
-          location: vscode.ProgressLocation.Window,
-          title: 'Prompt Optimizer: refreshing index…',
-        },
-        async () => { await enrichFromChatHistory(context); },
-      );
-      provider.refreshStatusOverview();
+      try {
+        await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Window,
+            title: 'Prompt Optimizer: refreshing index…',
+          },
+          async () => { await enrichFromChatHistory(context); },
+        );
+        provider.refreshStatusOverview();
+      } catch (error) {
+        // Log silently; enrichment failures are non-critical background work.
+        console.debug('[Prompt Optimizer] Chat history enrichment failed (non-critical)', error);
+      }
     })();
   }, ENRICH_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(enrichTimer) });
@@ -184,25 +197,33 @@ const ONBOARDING_LAST_VERSION_KEY = 'promptProxy.onboarding.lastShownVersion';
 async function maybeAutoOpenOnboarding(
   context: vscode.ExtensionContext,
 ): Promise<void> {
-  // User opt-out — honour `promptProxy.onboarding.autoOpen` (default true).
-  const enabled = vscode.workspace
-    .getConfiguration('promptProxy')
-    .get<boolean>('onboarding.autoOpen', true);
-  if (!enabled) { return; }
+  try {
+    // User opt-out — honour `promptProxy.onboarding.autoOpen` (default true).
+    const enabled = vscode.workspace
+      .getConfiguration('promptProxy')
+      .get<boolean>('onboarding.autoOpen', true);
+    if (!enabled) { return; }
 
-  const currentVersion = String(
-    (context.extension.packageJSON as { version?: string } | undefined)?.version ?? '0.0.0',
-  );
-  const lastShown = context.globalState.get<string>(ONBOARDING_LAST_VERSION_KEY);
-  if (lastShown === currentVersion) { return; }
-
-  // Defer slightly so VS Code finishes restoring editors first — opening a
-  // webview during activation can otherwise race with workbench layout.
-  setTimeout(() => {
-    void openOnboardingGuide(context).then(
-      () => context.globalState.update(ONBOARDING_LAST_VERSION_KEY, currentVersion),
+    const currentVersion = String(
+      (context.extension.packageJSON as { version?: string } | undefined)?.version ?? '0.0.0',
     );
-  }, 1200);
+    const lastShown = context.globalState.get<string>(ONBOARDING_LAST_VERSION_KEY);
+    if (lastShown === currentVersion) { return; }
+
+    // Defer slightly so VS Code finishes restoring editors first — opening a
+    // webview during activation can otherwise race with workbench layout.
+    setTimeout(() => {
+      void openOnboardingGuide(context).then(
+        () => context.globalState.update(ONBOARDING_LAST_VERSION_KEY, currentVersion),
+      ).catch((error) => {
+        // Onboarding failures are non-critical; log and continue.
+        console.debug('[Prompt Optimizer] Onboarding guide failed to open (non-critical)', error);
+      });
+    }, 1200);
+  } catch (error) {
+    // Configuration read or state access failures should not block activation.
+    console.debug('[Prompt Optimizer] Onboarding initialization failed (non-critical)', error);
+  }
 }
 
 export function deactivate() {

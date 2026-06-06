@@ -116,9 +116,14 @@ function byteBudget(): number {
  */
 const CURATED_MEMORY_HEADER =
   /^#\s+Workspace memory — (?:project memory|project knowledge|AGENTS\.md|CLAUDE)/i;
+const ARCHITECTURE_MAP_HEADER = /^\[PROJECT ARCHITECTURE SUMMARY\]/i;
 
 export function isCuratedMemorySection(section: string): boolean {
   return CURATED_MEMORY_HEADER.test(section);
+}
+
+function isPinnedArchitectureSection(section: string): boolean {
+  return ARCHITECTURE_MAP_HEADER.test(section.trimStart());
 }
 
 function sectionBody(section: string): string {
@@ -183,6 +188,7 @@ export function selectAndRankAugmentedSections(
 
   const relevance = options.relevance;
   const minScore = relevanceThreshold();
+  const pinned: string[] = [];
   const curated: string[] = [];
   const scored: Array<DiverseItem<string>> = [];
 
@@ -196,6 +202,10 @@ export function selectAndRankAugmentedSections(
 
   for (const section of sections) {
     if (isLowValueAugmentedSection(section)) { continue; }
+    if (isPinnedArchitectureSection(section)) {
+      pinned.push(section);
+      continue;
+    }
     if (isCuratedMemorySection(section)) {
       curated.push(section);
       continue;
@@ -220,7 +230,7 @@ export function selectAndRankAugmentedSections(
   } else {
     orderedNonCurated = [...scored].sort((a, b) => b.score - a.score).map((entry) => entry.item);
   }
-  const ranked = [...curated, ...orderedNonCurated];
+  const ranked = [...pinned, ...curated, ...orderedNonCurated];
 
   const maxTokens = tokenBudget(options.modelContextTokens);
   const maxBytes = byteBudget();

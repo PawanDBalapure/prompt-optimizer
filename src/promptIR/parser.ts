@@ -1,4 +1,5 @@
 import { PromptIR } from '../contracts.js';
+import { buildCompilerSpec } from './promptCompiler.js';
 
 /** Heuristically parses a raw prompt into a Structured Prompt IR. */
 export function parseToPromptIR(rawPrompt: string): PromptIR {
@@ -33,7 +34,7 @@ export function parseToPromptIR(rawPrompt: string): PromptIR {
     inferred_task_type = 'debugging';
   } else if (/\b(spec|specification|rfc|requirements|design document|architecture|use case)\b/.test(lowerPrompt)) {
     inferred_task_type = 'spec-writing';
-  } else if (/\b(research|explain|study|compare|difference|what is|how does|why does)\b/.test(lowerPrompt)) {
+  } else if (/\b(research|explain|study|compare|difference|what is|how does|why does|what does|where is|where are|where can i find|located|locate|purpose of)\b/.test(lowerPrompt)) {
     inferred_task_type = 'research';
   } else if (/\b(write|implement|build|code|create|refactor|function|class|develop)\b/.test(lowerPrompt)) {
     inferred_task_type = 'coding';
@@ -109,7 +110,7 @@ export function parseToPromptIR(rawPrompt: string): PromptIR {
     }
   }
 
-  return {
+  const ir: PromptIR = {
     role,
     constraints: constraints.length > 0 ? constraints : ['Execute user request as accurately as possible.'],
     examples: examples.slice(0, 5),
@@ -117,4 +118,6 @@ export function parseToPromptIR(rawPrompt: string): PromptIR {
     reasoning_policy: reasoningPolicy || undefined,
     inferred_task_type,
   };
+  ir.compiler_spec = buildCompilerSpec(rawPrompt, ir);
+  return ir;
 }

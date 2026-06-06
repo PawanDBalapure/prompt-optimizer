@@ -12,7 +12,8 @@
  *   PROMPT_DATASET   Path to a JSONL of {input, output} pairs.
  *                    Default: <extension>/training-data/training-pairs.jsonl
  *   PYTHON           Python interpreter to invoke. Default: "python".
- *   PROMPT_BASE      HF base model id. Default: google/flan-t5-small.
+ *   PROMPT_BASE      HF base model id.
+ *                    Default: microsoft/llmlingua-2-bert-base-multilingual-cased-meetingbank.
  *
  * After this script finishes, `vsce package` will pick up
  * models/distilled-rewriter automatically and the runtime will prefer it.
@@ -30,7 +31,7 @@ const dataset = process.env.PROMPT_DATASET
 const workdir = path.join(extRoot, '.distill-work');
 const outModel = path.join(extRoot, 'models', 'distilled-rewriter');
 const py = process.env.PYTHON || 'python';
-const base = process.env.PROMPT_BASE || 'google/flan-t5-small';
+const base = process.env.PROMPT_BASE || 'microsoft/llmlingua-2-bert-base-multilingual-cased-meetingbank';
 
 if (!fs.existsSync(dataset)) {
   console.error(`Dataset not found: ${dataset}`);

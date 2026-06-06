@@ -48,6 +48,11 @@
                <button id="vBtnAddPersona">➕ Persona</button>
                <button id="vBtnAddCond">➕ Condition</button>
                <button id="vBtnAddRule">➕ Rule</button>
+               <button data-action="loadCopilotInstructions" title="Draw .github/copilot-instructions.md as a graph">📄 Copilot Instructions</button>
+               <button id="vBtnCollapseAll" type="button" title="Collapse all parent nodes">Collapse All</button>
+               <button id="vBtnExpandAll" type="button" title="Expand all nodes" style="display:none;">Expand All</button>
+               <button id="vBtnFitCanvas" type="button" title="Fit all visible nodes in the screen center">🎯 Center Graph</button>
+               <button id="vBtnToggleFullscreen" type="button" title="Toggle Fullscreen Canvas">⛶ Fullscreen</button>
                <button data-action="compileCanvasGraph">Compile Canvas</button>
              </div>
           </div>
@@ -62,6 +67,12 @@
                  </defs>
                </svg>
                <div id="vNodesLayer" class="vcanvas-viewport"></div>
+               
+               <!-- Graph Minimap System overlay wrapper -->
+               <div id="vMinimapContainer" style="display: none;">
+                 <canvas id="vMinimapCanvas" style="position: absolute; top:0; left:0; width:100%; height:100%; pointer-events:none;"></canvas>
+                 <div id="vMinimapFocus"></div>
+               </div>
             </div>
           </div>
           <p class="muted-hint" style="margin-top:8px;">Drag nodes to pan. Use mouse wheel to zoom. Drag from right edges to left edges to connect nodes. Select a node to edit in the right panel.</p>
@@ -79,23 +90,25 @@
           <summary><h2>Node Inspector</h2></summary>
           <div class="form-grid">
              <label>Text / Label:
-               <textarea id="vInspectText" rows="4"></textarea>
+               <textarea id="vInspectText" rows="1"></textarea>
              </label>
-             <label>Type:
-               <select id="vInspectType" disabled>
-                 <option value="persona">Persona</option>
-                 <option value="condition">Condition</option>
-                 <option value="rule">Rule</option>
-               </select>
-             </label>
-             <label>Priority:
-               <select id="vInspectPriority">
-                 <option value="Critical">Critical</option>
-                 <option value="High">High</option>
-                 <option value="Medium">Medium</option>
-                 <option value="Low">Low</option>
-               </select>
-             </label>
+             <div class="inspector-inline-row">
+               <label class="inspector-inline-field">Type:
+                 <select id="vInspectType" disabled>
+                   <option value="persona">Persona</option>
+                   <option value="condition">Condition</option>
+                   <option value="rule">Rule</option>
+                 </select>
+               </label>
+               <label class="inspector-inline-field">Priority:
+                 <select id="vInspectPriority">
+                   <option value="Critical">Critical</option>
+                   <option value="High">High</option>
+                   <option value="Medium">Medium</option>
+                   <option value="Low">Low</option>
+                 </select>
+               </label>
+             </div>
              <div id="vPersonaToggleWrap" class="persona-toggle-wrap" style="display:none;">
                <label class="persona-toggle-label">
                  <input id="vInspectPersonaEnabled" type="checkbox" />
@@ -104,22 +117,30 @@
                <div id="vInspectPersonaMeta" class="selected-link-text"></div>
              </div>
              <div class="actions compact-actions">
-                <button id="vBtnDeleteNode">Delete Node</button>
+                <button class="primary" id="vBtnDeleteNode">Delete Node</button>
              </div>
-             <hr style="border:none; border-top: 1px solid var(--border); margin:12px 0;">
-             <div id="conflictWarnings" class="conflict-warnings"></div>
-             <hr style="border:none; border-top: 1px solid var(--border); margin:12px 0;">
-             <div class="link-inspector">
+              <div class="link-inspector">
                <div id="vSelectedLinkText" class="selected-link-text">No link selected.</div>
                <div class="actions compact-actions">
                  <button id="vBtnDeleteLink" type="button" disabled>Remove Link</button>
                </div>
              </div>
+             <hr style="border:none; border-top: 1px solid var(--border); margin:12px 0;">
+             <div id="conflictWarnings" class="conflict-warnings"></div>
+             <hr style="border:none; border-top: 1px solid var(--border); margin:12px 0;">
+            
           </div>
           </details>
         </section>
 
-        <section class="card sidebar-card">
+        <section class="card sidebar-card" id="vSelectedNodeRulesCard" style="display:none;">
+          <details open>
+          <summary><h2>Node Rules</h2></summary>
+          <div id="vSelectedNodeRules" class="selected-node-rules"></div>
+          </details>
+        </section>
+
+        <!-- <section class="card sidebar-card">
           <details open>
           <summary><h2>AI Rule Assistant</h2></summary>
           <p class="muted-hint">Refine one rule at a time.</p>
@@ -133,7 +154,7 @@
           </div>
           <div id="aiSuggestion" class="ai-suggestion" style="margin-top:8px;"></div>
           </details>
-        </section>
+        </section> -->
 
         <section class="card sidebar-card">
           <details open>
@@ -159,7 +180,7 @@
           </details>
         </section>
 
-        <section class="card sidebar-card">
+        <!-- <section class="card sidebar-card">
           <details open>
           <summary><h2>Custom Personas</h2></summary>
           <div class="form-grid">
@@ -172,9 +193,9 @@
             <button data-action="deleteCustomPersona">Delete</button>
           </div>
           </details>
-        </section>
+        </section> -->
 
-        <section class="card sidebar-card">
+        <!-- <section class="card sidebar-card">
           <details open>
           <summary><h2>Instruction Manager</h2></summary>
           <div class="instr-toolbar">
@@ -225,7 +246,7 @@
             </div>
           </div>
           </details>
-        </section>
+        </section> -->
         
         <section class="card sidebar-card" style="display:none;">
           <h2>Graph Editor (Minimal)</h2>

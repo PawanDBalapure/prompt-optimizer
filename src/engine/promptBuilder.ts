@@ -45,15 +45,9 @@ export function buildOptimizedPrompt(rawPrompt: string, contextSections: string[
     .replace(/(?:^|\n\n)# Prompt (?:Proxy|Optimizer)[^\n]*\n[\s\S]*?(?=\n\n#|$)/g, '')
     .trim();
 
-  const optimizedRequest = optimizePromptText(cleanPrompt);
-  const sections = [`# Request\n${optimizedRequest}`];
-
-  for (const section of contextSections) {
-    if (isInternalPromptSection(section)) { continue; }
-    sections.push(section);
-  }
-
-  return sections.filter((section) => section.trim() !== '').join('\n\n').trim();
+  // We no longer append IDE context files or code blocks to the optimized prompt.
+  // We simply return the optimized compiler structure directly.
+  return cleanPrompt;
 }
 
 export function selectImprovementSuggestions(

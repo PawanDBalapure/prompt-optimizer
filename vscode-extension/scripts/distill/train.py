@@ -2,13 +2,14 @@
 
 Inputs:
   --data   Path to a JSONL file. Each line: {"input": "...", "output": "..."}.
-  --base   Hugging Face base model id (default: google/flan-t5-small).
+  --base   Hugging Face base model id
+           (default: microsoft/llmlingua-2-bert-base-multilingual-cased-meetingbank).
   --out    Output directory for the trained model.
 
 Example:
   python train.py \\
       --data ../../training-data/training-pairs.jsonl \\
-      --base google/flan-t5-small \\
+      --base microsoft/llmlingua-2-bert-base-multilingual-cased-meetingbank \\
       --out  ../../.distill-work
 """
 from __future__ import annotations
@@ -52,7 +53,7 @@ def load_jsonl(path: Path) -> Dataset:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", required=True, type=Path)
-    parser.add_argument("--base", default="google/flan-t5-small")
+    parser.add_argument("--base", default="microsoft/llmlingua-2-bert-base-multilingual-cased-meetingbank")
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--bs", type=int, default=8)

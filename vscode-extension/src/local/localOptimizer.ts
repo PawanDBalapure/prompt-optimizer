@@ -3,27 +3,37 @@ import * as path from 'path';
 import * as fs from 'fs';
 
 /**
- * Local on-device prompt rewriter.
+ * Local on-device prompt compressor.
  *
- * Loads a quantized seq2seq model from <extensionPath>/models via
- * @xenova/transformers (ONNX Runtime Web under the hood). Prefers the
- * Phase 2 distilled model when present, falls back to the Phase 1
- * Flan-T5-Small bundle. Runs fully offline.
+ * Loads the INT4-quantized LLMLingua-2 BERT-Base model from
+ * <extensionPath>/models via @xenova/transformers (ONNX Runtime Web).
+ * Prefers the Phase 2 distilled model when present, falls back to the
+ * Phase 1 LLMLingua-2 bundle. Runs fully offline.
+ *
+ * LLMLingua-2 performs prompt compression through BERT-based token
+ * classification: each token is scored for relevance and tokens below
+ * the keep threshold are dropped, reducing size while preserving context.
  */
 
 const DISTILLED_DIR = 'distilled-rewriter';
-const FALLBACK_DIR = 'flan-t5-small-q4';
+const FALLBACK_DIR = 'llmlingua-2-bert-q4';
 
-const INSTRUCTION =
-  'Rewrite this prompt to be clearer, more specific, and structured ' +
-  'with explicit constraints:\n\n';
+/** Fraction of tokens to retain during compression (0 < ratio ≤ 1). */
+const COMPRESSION_RATIO = 0.5;
 
 const MAX_INPUT_CHARS = 8000;
 
-interface GeneratedItem { generated_text: string }
-type Generator = (input: string, options?: Record<string, unknown>) => Promise<GeneratedItem[]>;
+interface TokenResult {
+  entity: string;  // 'LABEL_0' = discard, 'LABEL_1' = keep
+  score: number;
+  index: number;
+  word: string;
+  start: number;
+  end: number;
+}
+type TokenClassifier = (input: string, options?: Record<string, unknown>) => Promise<TokenResult[]>;
 
-let cached: Generator | null = null;
+let cached: TokenClassifier | null = null;
 
 function pickModelDir(extensionPath: string): { id: string; absolute: string } {
   const distilled = path.join(extensionPath, 'models', DISTILLED_DIR);
@@ -48,20 +58,20 @@ export function isLocalModelAvailable(ctx: vscode.ExtensionContext): boolean {
 }
 
 async function loadTransformers(): Promise<{
-  pipeline: (task: string, model: string, opts?: Record<string, unknown>) => Promise<Generator>;
+  pipeline: (task: string, model: string, opts?: Record<string, unknown>) => Promise<TokenClassifier>;
   env: Record<string, unknown>;
 }> {
   // Dynamic require so the extension still compiles / loads when the
   // optional ML dependency is not installed (e.g. fast dev iterations).
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const mod = require('@xenova/transformers') as {
-    pipeline: (task: string, model: string, opts?: Record<string, unknown>) => Promise<Generator>;
+    pipeline: (task: string, model: string, opts?: Record<string, unknown>) => Promise<TokenClassifier>;
     env: Record<string, unknown>;
   };
   return mod;
 }
 
-async function getOptimizer(ctx: vscode.ExtensionContext): Promise<Generator> {
+async function getOptimizer(ctx: vscode.ExtensionContext): Promise<TokenClassifier> {
   if (cached) { return cached; }
 
   const { pipeline, env } = await loadTransformers();
@@ -87,11 +97,29 @@ async function getOptimizer(ctx: vscode.ExtensionContext): Promise<Generator> {
     env.backends = backends;
   }
 
-  cached = await pipeline('text2text-generation', picked.id, { quantized: true });
+  // LLMLingua-2 is a token-classification model (BERT-Base INT4).
+  cached = await pipeline('token-classification', picked.id, { quantized: true });
   return cached;
 }
 
-/** Run the local model on a single prompt and return the rewrite. */
+/**
+ * Reconstruct a compressed string from a filtered list of BERT tokens.
+ * Handles BERT wordpiece subword tokens (those prefixed with '##').
+ */
+function reconstructFromTokens(tokens: TokenResult[]): string {
+  let result = '';
+  for (const t of tokens) {
+    const word = t.word ?? '';
+    if (word.startsWith('##')) {
+      result += word.slice(2);
+    } else {
+      result += (result ? ' ' : '') + word;
+    }
+  }
+  return result.trim();
+}
+
+/** Run LLMLingua-2 on a prompt and return the compressed version. */
 export async function optimizeLocally(
   ctx: vscode.ExtensionContext,
   prompt: string,
@@ -103,23 +131,29 @@ export async function optimizeLocally(
   }
   if (!isLocalModelAvailable(ctx)) {
     throw new Error(
-      'No local model is bundled. Run `npm run distill` to build the distilled model ' +
-      'or ship the Flan-T5-Small fallback under models/flan-t5-small-q4.',
+      'No local model is bundled. Run `npm run fetch-model` to download the ' +
+      'LLMLingua-2 BERT-Base INT4 fallback under models/llmlingua-2-bert-q4, ' +
+      'or run `npm run distill` to build a custom distilled model.',
     );
   }
 
   const model = await getOptimizer(ctx);
-  const out = await model(INSTRUCTION + trimmed, {
-    max_new_tokens: 256,
-    temperature: 0.3,
-    repetition_penalty: 1.1,
-  });
+  // aggregation_strategy: 'none' keeps per-subword-token scores for accurate reconstruction.
+  const tokens = await model(trimmed, { aggregation_strategy: 'none' });
 
-  const text = out?.[0]?.generated_text?.trim() ?? '';
-  return text === '' ? trimmed : text;
+  // LABEL_1 = keep, LABEL_0 = discard.
+  // Sort by score descending and retain the top COMPRESSION_RATIO fraction.
+  const keepCount = Math.max(1, Math.ceil(tokens.length * COMPRESSION_RATIO));
+  const byScore = [...tokens].sort((a, b) => b.score - a.score).slice(0, keepCount);
+  // Re-order by original index to preserve sentence structure.
+  byScore.sort((a, b) => a.index - b.index);
+
+  const compressed = reconstructFromTokens(byScore);
+  return compressed === '' ? trimmed : compressed;
 }
 
 /** Drop the cached pipeline so the next call reloads weights. */
 export function resetLocalOptimizer(): void {
   cached = null;
 }
+

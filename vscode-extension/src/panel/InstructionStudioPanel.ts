@@ -54,6 +54,8 @@ interface InstructionStudioReplaySession {
 const STUDIO_DIR = '.instruction_studio';
 const AGENT_DIR = '.agent';
 
+import { parseCopilotInstructionsCanvas } from './canvasGraphParser';
+
 export class InstructionStudioPanel {
   private static current: InstructionStudioPanel | undefined;
 
@@ -117,6 +119,10 @@ export class InstructionStudioPanel {
         await this.postInsights();
         await this.postReplay();
         await this.postInstructionsOverview();
+        this.postCopilotInstructionsCanvas();
+        return;
+      case 'loadCopilotInstructions':
+        this.postCopilotInstructionsCanvas();
         return;
       case 'openMemoryFile':
         await vscode.commands.executeCommand('prompt-proxy.openMemoryFile');
@@ -272,6 +278,22 @@ export class InstructionStudioPanel {
         error: err instanceof Error ? err.message : 'Could not read instructions.',
       });
     }
+  }
+
+  /**
+   * Reads the workspace copilot-instructions.md (or variants), strips the
+   * auto-managed block, parses headings/bullets/sentences into canvas nodes
+   * and edges, then posts a `canvasGraph` message to the webview.
+   */
+  private postCopilotInstructionsCanvas(): void {
+    const wsRoot = this.workspaceRoot();
+    const result = parseCopilotInstructionsCanvas(wsRoot);
+    void this.panel.webview.postMessage({
+      type: 'canvasGraph',
+      nodes: result.nodes,
+      edges: result.edges,
+      notice: result.notice,
+    });
   }
 
   private resolveInstructionPath(relPath: string): { wsRoot: string; abs: string } | null {
@@ -634,19 +656,19 @@ export class InstructionStudioPanel {
     }
 
     const fallbackGraph = {
-      workflowName: 'Instruction Studio Starter',
+      workflowName: 'Copilot Instructions Starter',
       nodes: [
-        { id: 'persona-architect', type: 'persona', label: 'Architect' },
-        { id: 'condition-refactor', type: 'condition', label: 'If Task=Refactor' },
+        { id: 'persona-architect', type: 'persona', label: 'SDLC Architect' },
+        { id: 'condition-code', type: 'condition', label: 'If writing code' },
         { id: 'priority-critical', type: 'priority', label: 'Critical' },
-        { id: 'scope-testing', type: 'agentScope', label: 'Testing' },
-        { id: 'rule-tests', type: 'rule', text: 'Always run unit tests before completing changes.' },
+        { id: 'scope-generation', type: 'agentScope', label: 'Code Generation' },
+        { id: 'rule-architect', type: 'rule', text: 'Read .promptoptimizer/skills/sdlc-architect.md. Follow everything written there. Do not write any code until you have read and understood the entire file.' },
       ],
       edges: [
-        { from: 'persona-architect', to: 'condition-refactor' },
-        { from: 'condition-refactor', to: 'priority-critical' },
-        { from: 'priority-critical', to: 'scope-testing' },
-        { from: 'scope-testing', to: 'rule-tests' },
+        { from: 'persona-architect', to: 'condition-code' },
+        { from: 'condition-code', to: 'priority-critical' },
+        { from: 'priority-critical', to: 'scope-generation' },
+        { from: 'scope-generation', to: 'rule-architect' },
       ],
     };
     const graph = graphFromWebview ?? fallbackGraph;

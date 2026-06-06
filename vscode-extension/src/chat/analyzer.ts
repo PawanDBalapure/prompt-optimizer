@@ -3,14 +3,16 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 
 import { scanForSecrets } from '../security/secret-patterns';
-import { getDbPath, getPricingConfig, getProcessingMode, getTargetModel } from '../state/config';
+import { getDbPath, getPricingConfig, getProcessingMode, getTargetModel, getDensity } from '../state/config';
 import { getLastAnalysis, addToSessionBuffer, getSessionBuffer } from '../state/session';
 import { runEngine } from '../engine/runner';
 import { getIdeContext } from '../engine/context';
 import { computeWorkspaceId } from '../util/workspace';
+import { isLocalModelAvailable, optimizeLocally } from '../local/localOptimizer';
 import type {
   PromptProxyPanelState,
   PromptSource,
+  PromptProxyResponse,
   RuntimeSnapshot,
 } from '../types';
 
@@ -24,6 +26,64 @@ const STRIP_PROMPT_BLOCK_RE = /(?:^|\n\n)# Prompt (?:Proxy|Optimizer)[^\n]*\n[\s
 // or chat-history sections that older builds wrote into the optimized prompt.
 // Both formats start with a deterministic header we can match.
 const STRIP_LEGACY_HISTORY_RE = /(?:^|\n\n)# (?:Prompt Optimizer Session Buffer|Prompt Optimizer Chat History|Knowledge graph \u2014|Peer workspace \()[\s\S]*?(?=\n\n#|\s*$)/gi;
+
+function isSqliteNativeLoadFailure(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return /better_sqlite3\.node/i.test(message)
+    && /(not a valid win32 application|NODE_MODULE_VERSION|was compiled against|invalid ELF header|wrong architecture)/i.test(message);
+}
+
+function estimateTokens(text: string): number {
+  // Stable, dependency-free heuristic used only for degraded fallback metrics.
+  return Math.max(1, Math.ceil((text ?? '').length / 4));
+}
+
+function buildDegradedResponse(rawPrompt: string, optimizedPrompt: string, reason: string): PromptProxyResponse {
+  const rawTokens = estimateTokens(rawPrompt);
+  const optimizedTokens = estimateTokens(optimizedPrompt);
+  return {
+    metrics: {
+      raw_input_tokens: rawTokens,
+      optimized_input_tokens: optimizedTokens,
+      tokens_saved: Math.max(0, rawTokens - optimizedTokens),
+      estimated_output_tokens: Math.ceil(optimizedTokens * 1.8),
+      estimated_cost_usd: 0,
+    },
+    optimized_prompt: optimizedPrompt,
+    improvements: [
+      `[DEGRADED_MODE]: ${reason}`,
+      '[DEGRADED_MODE]: Semantic cache and graph augmentation were temporarily disabled for this run.',
+    ],
+    analysis: {
+      cache: {
+        status: 'miss',
+        confidence: 0,
+        candidates: [],
+      },
+      context: {
+        selected_files: [],
+        selected_logs: [],
+        log_sources: [],
+        open_file_count: 0,
+        total_log_count: 0,
+      },
+      cost: {
+        input_cost_usd: 0,
+        output_cost_usd: 0,
+        total_cost_usd: 0,
+        input_cost_per_1k_tokens: 0,
+        output_cost_per_1k_tokens: 0,
+      },
+    },
+    diagnostics: [
+      {
+        id: 'engine.sqlite_native_load_failed',
+        severity: 'warning',
+        message: reason,
+      },
+    ],
+  };
+}
 
 export async function analyzePrompt(
   context: vscode.ExtensionContext,
@@ -54,9 +114,27 @@ export async function analyzePrompt(
     ide_context: getIdeContext(context, chatContext),
     workspace_id: computeWorkspaceId(workspaceRoot),
     target_model: getTargetModel(context),
+    density: getDensity(context),
   };
 
-  const response = runEngine(request, dbPath);
+  let response: PromptProxyResponse;
+  try {
+    response = runEngine(request, dbPath);
+  } catch (error) {
+    if (!isSqliteNativeLoadFailure(error)) { throw error; }
+
+    const reason = 'SQLite native binding failed to load; using local degraded analyzer fallback.';
+    let optimized = rawPrompt;
+    try {
+      if (isLocalModelAvailable(context)) {
+        optimized = await optimizeLocally(context, rawPrompt);
+      }
+    } catch {
+      // Keep passthrough prompt fallback if the local model is unavailable.
+      optimized = rawPrompt;
+    }
+    response = buildDegradedResponse(rawPrompt, optimized, reason);
+  }
 
   // Belt-and-suspenders: strip diagnostics/prompt-optimizer blocks that may
   // have leaked back into the optimized prompt via a stale cache row.

@@ -14,6 +14,7 @@ var btnPrimary      = document.getElementById('btnPrimary');
 var optimizedCard   = document.getElementById('optimizedCard');
 var optimizedPrompt = document.getElementById('optimizedPrompt');
 var targetModelSelect = document.getElementById('targetModelSelect');
+var densitySelect   = document.getElementById('densitySelect');
 var btnSettingsMenu = document.getElementById('btnSettingsMenu');
 var settingsMenu    = document.getElementById('settingsMenu');
 var btnRefreshOverview = document.getElementById('btnRefreshOverview');
@@ -40,6 +41,32 @@ function setSettingsMenuOpen(isOpen) {
 
 // ── Event wiring ─────────────────────────────────────────────────────────────
 
+(function setupRealtimeTokenCounters() {
+  var prevInputText = '';
+  var prevOptimizedText = '';
+  var timer = null;
+
+  function runCheck() {
+    if (promptInput) {
+      var currInput = promptInput.value;
+      if (currInput !== prevInputText) {
+        prevInputText = currInput;
+        vscode.postMessage({ type: 'estimateTokens', fieldId: 'inputTokenCount', text: currInput });
+      }
+    }
+    if (optimizedPrompt) {
+      var currOptimized = optimizedPrompt.textContent || '';
+      if (currOptimized !== prevOptimizedText) {
+        prevOptimizedText = currOptimized;
+        vscode.postMessage({ type: 'estimateTokens', fieldId: 'optimizedTokenCount', text: currOptimized });
+      }
+    }
+  }
+
+  // Poll for text box modifications in panel
+  setInterval(runCheck, 300);
+})();
+
 modeSelect.addEventListener('change', function() {
   applyMode(modeSelect.value);
   vscode.postMessage({ type: 'setMode', mode: modeSelect.value });
@@ -55,10 +82,18 @@ if (btnRefreshOverview) {
   });
 }
 
-targetModelSelect.addEventListener('change', function() {
-  vscode.postMessage({ type: 'setTargetModel', model: targetModelSelect.value });
-  if (typeof renderCostForecast === 'function') { renderCostForecast(); }
-});
+if (targetModelSelect) {
+  targetModelSelect.addEventListener('change', function() {
+    vscode.postMessage({ type: 'setTargetModel', model: targetModelSelect.value });
+    if (typeof renderCostForecast === 'function') { renderCostForecast(); }
+  });
+}
+
+if (densitySelect) {
+  densitySelect.addEventListener('change', function() {
+    vscode.postMessage({ type: 'setDensity', density: densitySelect.value });
+  });
+}
 
 btnPrimary.addEventListener('click', function() {
   var text = promptInput.value.trim();
@@ -329,8 +364,15 @@ window.addEventListener('message', function(event) {
       applyMode(msg.mode);
       break;
     case 'targetModelPattern':
-      targetModelSelect.value = msg.model;
+      if (targetModelSelect) {
+        targetModelSelect.value = msg.model;
+      }
       if (typeof renderCostForecast === 'function') { renderCostForecast(); }
+      break;
+    case 'densityState':
+      if (densitySelect && msg.density) {
+        densitySelect.value = msg.density;
+      }
       break;
     case 'creditForecastConfig':
       if (typeof setCreditForecastConfig === 'function') { setCreditForecastConfig(msg.config); }
@@ -387,6 +429,15 @@ window.addEventListener('message', function(event) {
         secretMgrOverlay.setAttribute('aria-hidden', 'true');
         secretMgrOverlay.style.display = 'none';
       }, 1200);
+      break;
+    case 'tokenCountResult':
+      if (msg.fieldId === 'inputTokenCount') {
+        var countEl = document.getElementById('inputTokenCount');
+        if (countEl) { countEl.textContent = String(msg.tokens); }
+      } else if (msg.fieldId === 'optimizedTokenCount') {
+        var countEl = document.getElementById('optimizedTokenCount');
+        if (countEl) { countEl.textContent = String(msg.tokens); }
+      }
       break;
     case 'statusOverview':
       renderStatusOverview(msg.payload);
