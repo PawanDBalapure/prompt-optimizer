@@ -5,78 +5,15 @@ import type {
   PromptOptimizationAnalysis,
 } from '../contracts.js';
 import { LocalSemanticVectorizer } from '../localSemanticVectorizer.js';
+import { MAX_CONTEXT_FILES, MAX_CONTEXT_LOGS } from './constants.js';
 import {
-  MAX_CONTEXT_FILES,
-  MAX_CONTEXT_LOGS,
-  MAX_FILE_LINES,
-  MAX_LOG_LINES,
-  SMALL_FILE_LINES,
-} from './constants.js';
-import { compressLogStack, isCodeLanguage, preFilterCode } from './contentPipelines.js';
+  extractRelevantFileSnippet,
+  extractRelevantLogSnippet,
+  extractSalientTerms,
+  formatFileSection,
+  formatLogSection,
+} from './contextPacker.helpers.js';
 import type { RelevantContextPack } from './types.js';
-
-const LANGUAGE_BY_EXT: Record<string, string> = {
-  ts: 'ts',
-  tsx: 'ts',
-  js: 'js',
-  jsx: 'js',
-  py: 'python',
-  java: 'java',
-  kt: 'kotlin',
-  json: 'json',
-  md: 'md',
-  xml: 'xml',
-};
-
-function detectLanguageFromPath(filePath: string): string {
-  const ext = filePath.split('.').pop()?.toLowerCase();
-  return (ext && LANGUAGE_BY_EXT[ext]) ?? '';
-}
-
-function lineMatchesQuery(line: string, queryTerms: Set<string>): boolean {
-  for (const term of queryTerms) {
-    if (term !== '' && line.includes(term.toLowerCase())) { return true; }
-  }
-  return false;
-}
-
-function buildSnippetFromLineIndexes(
-  lines: string[],
-  indexes: number[],
-  maxLines: number,
-): string {
-  const includedIndexes = new Set<number>();
-  for (const index of indexes) {
-    for (let cursor = Math.max(0, index - 2); cursor <= Math.min(lines.length - 1, index + 2); cursor++) {
-      includedIndexes.add(cursor);
-    }
-  }
-
-  const sortedIndexes = Array.from(includedIndexes)
-    .sort((left, right) => left - right)
-    .slice(0, maxLines);
-
-  const snippetLines: string[] = [];
-  let previousIndex = -2;
-  for (const index of sortedIndexes) {
-    if (previousIndex >= 0 && index > previousIndex + 1) {
-      snippetLines.push('...');
-    }
-    snippetLines.push(lines[index]);
-    previousIndex = index;
-  }
-  return snippetLines.join('\n');
-}
-
-function formatFileSection(file: IdeContextFile, snippet: string): string {
-  const language = file.language ?? detectLanguageFromPath(file.path);
-  const fenceStart = language === '' ? '```' : `\`\`\`${language}`;
-  return [`# ${file.path}`, fenceStart, snippet, '```'].join('\n');
-}
-
-function formatLogSection(log: IdeContextLog, snippet: string): string {
-  return [`# ${log.source}`, '```text', snippet, '```'].join('\n');
-}
 
 export class ContextPacker {
   private readonly vectorizer = new LocalSemanticVectorizer();
@@ -135,130 +72,66 @@ export class ContextPacker {
       .map((entry) => entry.log);
   }
 
-  extractRelevantFileSnippet(file: IdeContextFile, queryTerms: Set<string>): string {
-    const language = file.language ?? detectLanguageFromPath(file.path);
-
-    // 1. An explicit user selection is the most relevant, slimmest context.
-    if ((file.selection ?? '').trim() !== '') {
-      return this.stripCodeBoilerplate((file.selection as string).trim(), language);
-    }
-
-    const lines = file.content.split(/\r?\n/);
-
-    // 2. Tiny files carry little noise — keep them whole.
-    if (lines.length <= SMALL_FILE_LINES) {
-      return this.stripCodeBoilerplate(file.content.trim(), language);
-    }
-
-    // 3. Larger files: extract only the query-relevant region so the optimized
-    //    prompt stays slim instead of embedding the full file text.
-    const matchingLineIndexes: number[] = [];
-    for (let index = 0; index < lines.length; index++) {
-      if (lineMatchesQuery(lines[index].toLowerCase(), queryTerms)) {
-        matchingLineIndexes.push(index);
-      }
-    }
-
-    if (matchingLineIndexes.length > 0) {
-      const region = buildSnippetFromLineIndexes(lines, matchingLineIndexes, MAX_FILE_LINES).trim();
-      return this.stripCodeBoilerplate(region, language);
-    }
-
-    // 4. No relevant lines: only the active file is worth a short head excerpt;
-    //    background files are dropped entirely to avoid noise.
-    return file.is_active
-      ? this.stripCodeBoilerplate(lines.slice(0, SMALL_FILE_LINES).join('\n').trim(), language)
-      : '';
-  }
-
-  /**
-   * Pipeline 1 entry point: run the code-boilerplate stripper on snippets whose
-   * language is a recognised programming language. The `...` snippet separators
-   * inserted by {@link buildSnippetFromLineIndexes} are preserved so the model
-   * still sees where regions were elided. Non-empty results are guaranteed; an
-   * over-eager strip that empties the snippet falls back to the original text.
-   */
-  private stripCodeBoilerplate(snippet: string, language: string): string {
-    if (snippet === '' || !isCodeLanguage(language)) { return snippet; }
-    const stripped = preFilterCode(snippet, language);
-    return stripped === '' ? snippet : stripped;
-  }
-
-  extractRelevantLogSnippet(log: IdeContextLog, queryTerms: Set<string>): string {
-    // Collect every relevant line *including duplicates* so Pipeline 3 can
-    // report accurate `(Nx)` occurrence multipliers when it clusters them.
-    const relevantLines: string[] = [];
-    for (const line of log.content.split(/\r?\n/)) {
-      const trimmedLine = line.trim();
-      if (trimmedLine === '') { continue; }
-      if (lineMatchesQuery(trimmedLine.toLowerCase(), queryTerms)
-        || /error|exception|failed|warning|stack/i.test(trimmedLine)) {
-        relevantLines.push(trimmedLine);
-      }
-    }
-
-    if (relevantLines.length === 0) { return ''; }
-
-    // Pipeline 3: deduplicate and frequency-cluster the noisy log stack.
-    return compressLogStack(relevantLines.join('\n'), { maxClusters: MAX_LOG_LINES });
-  }
-
-  collectRelevantContext(rawPrompt: string, ideContext?: PromptIDEContext): RelevantContextPack {
-    const emptyInsight: PromptOptimizationAnalysis['context'] = {
+  private buildInsight(
+    ideContext: PromptIDEContext | undefined,
+    selectedFiles: IdeContextFile[],
+    selectedLogs: IdeContextLog[],
+    snippets: PromptOptimizationAnalysis['context']['context_snippets'],
+  ): PromptOptimizationAnalysis['context'] {
+    return {
       workspace_root: ideContext?.workspace_root,
       active_file: ideContext?.active_file?.path,
-      selected_files: [],
-      selected_logs: [],
+      selected_files: selectedFiles.map((file) => file.path),
+      selected_logs: selectedLogs.map((log) => log.source),
       log_sources: (ideContext?.logs ?? []).map((log) => log.source),
       open_file_count: this.countDistinctFiles(ideContext),
       total_log_count: ideContext?.logs?.length ?? 0,
+      context_snippets: snippets,
     };
+  }
 
+  collectRelevantContext(rawPrompt: string, ideContext?: PromptIDEContext): RelevantContextPack {
     if (!ideContext) {
-      return { files: [], logs: [], sections: [], insight: emptyInsight };
+      return { files: [], logs: [], sections: [], insight: this.buildInsight(undefined, [], [], undefined) };
     }
 
     const queryTerms = this.buildQueryTerms(rawPrompt);
+    const salientTerms = extractSalientTerms(rawPrompt);
     const sections: string[] = [];
     const seenSections = new Set<string>();
     const selectedFiles: IdeContextFile[] = [];
     const selectedLogs: IdeContextLog[] = [];
+    const contextSnippets: NonNullable<PromptOptimizationAnalysis['context']['context_snippets']> = [];
 
     for (const file of this.selectRelevantFiles(ideContext, queryTerms)) {
-      const snippet = this.extractRelevantFileSnippet(file, queryTerms);
-      if (snippet === '') { continue; }
-      const section = formatFileSection(file, snippet);
-      if (!seenSections.has(section)) {
-        seenSections.add(section);
-        selectedFiles.push(file);
-        sections.push(section);
-      }
+      const snippet = extractRelevantFileSnippet(file, queryTerms, salientTerms);
+      if (snippet.text === '') { continue; }
+      const section = formatFileSection(file, snippet.text);
+      if (seenSections.has(section)) { continue; }
+      seenSections.add(section);
+      selectedFiles.push(file);
+      sections.push(section);
+      contextSnippets.push({
+        path: file.path,
+        ranges: snippet.ranges.map((r) => ({ start_line: r.start, end_line: r.end })),
+      });
     }
 
     for (const log of this.selectRelevantLogs(ideContext.logs ?? [], queryTerms)) {
-      const snippet = this.extractRelevantLogSnippet(log, queryTerms);
+      const snippet = extractRelevantLogSnippet(log, queryTerms);
       if (snippet === '') { continue; }
       const section = formatLogSection(log, snippet);
-      if (!seenSections.has(section)) {
-        seenSections.add(section);
-        selectedLogs.push(log);
-        sections.push(section);
-      }
+      if (seenSections.has(section)) { continue; }
+      seenSections.add(section);
+      selectedLogs.push(log);
+      sections.push(section);
     }
 
     return {
       files: selectedFiles,
       logs: selectedLogs,
       sections,
-      insight: {
-        workspace_root: ideContext.workspace_root,
-        active_file: ideContext.active_file?.path,
-        selected_files: selectedFiles.map((file) => file.path),
-        selected_logs: selectedLogs.map((log) => log.source),
-        log_sources: (ideContext.logs ?? []).map((log) => log.source),
-        open_file_count: this.countDistinctFiles(ideContext),
-        total_log_count: ideContext.logs?.length ?? 0,
-      },
+      insight: this.buildInsight(ideContext, selectedFiles, selectedLogs, contextSnippets),
     };
   }
 }

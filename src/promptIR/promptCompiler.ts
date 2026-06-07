@@ -19,6 +19,13 @@ import { PromptIR, PromptCompilerSpec } from '../contracts.js';
 /* Lexicons                                                            */
 /* ------------------------------------------------------------------ */
 
+/**
+ * The non-informative stack summary `inferRepoStack` returns when no workspace
+ * (or no recognised stack) is present. It carries zero signal, so it is never
+ * emitted as a `context:` line — doing so only wastes tokens and misleads.
+ */
+const GENERIC_CONTEXT = 'Standard codebase structure';
+
 /** Subjective adjective → measurable requirement (ambiguity resolution). */
 const REQUIREMENT_LEXICON: Array<{ test: RegExp; requirement: string }> = [
   { test: /\bmodern\b/i, requirement: 'Use a current, consistent design system: system font stack, an 8px spacing scale, and responsive breakpoints' },
@@ -144,7 +151,7 @@ export function renderStructuredSpec(
   }
 
   const ctx = (contextValue ?? '').trim();
-  if (ctx !== '' && ctx !== '[CONTEXT]') {
+  if (ctx !== '' && ctx !== '[CONTEXT]' && ctx !== GENERIC_CONTEXT) {
     lines.push(`context: ${yamlInline(ctx)}`);
   }
 
@@ -289,18 +296,24 @@ function extractIntent(rawPrompt: string, ir: PromptIR): PromptCompilerSpec['int
  */
 function synthesizeTask(rawPrompt: string, ir: PromptIR, intent: PromptCompilerSpec['intent']): string {
   const lower = rawPrompt.toLowerCase();
-  const subject = detectSubject(rawPrompt);
+  const subj = detectSubject(rawPrompt);
+  const subject = subj.text;
 
   const asksWhere = /\b(where (?:is|are|can i find)|located|location of)\b/.test(lower);
   const asksWhat = /\b(what (?:does|is|are|do)|purpose of|what's)\b/.test(lower);
   const asksHow = /\bhow (?:does|do|is|are)\b/.test(lower);
+  const asksWhy = /\bwhy (?:does|do|is|are|did)\b/.test(lower);
 
-  if (subject !== '' && (asksWhere || asksWhat || asksHow)) {
-    if (asksWhere && (asksWhat || asksHow)) {
-      return `Locate and explain the purpose of \`${subject}\` within the repository.`;
+  if (subject !== '' && (asksWhere || asksWhat || asksHow || asksWhy)) {
+    const scopeFile = detectScopeFile(rawPrompt, subject);
+    const inScope = scopeFile === '' ? ' within the repository' : ` in ${scopeFile}`;
+    // Backtick genuine code identifiers; describe plain phrases in prose.
+    const label = subj.code ? `\`${subject}\`` : `the ${subject}`;
+    if (asksWhere && (asksWhat || asksHow || asksWhy)) {
+      return `Locate and explain the purpose of ${label}${inScope}.`;
     }
-    if (asksWhere) { return `Locate \`${subject}\` within the repository.`; }
-    return `Explain the purpose of \`${subject}\`.`;
+    if (asksWhere) { return `Locate ${label}${inScope}.`; }
+    return `Explain the purpose of ${label}${inScope}.`;
   }
 
   // Imperative restatement from the first sentence (faithful, original case).
@@ -340,15 +353,63 @@ function clampWords(text: string, max: number): string {
   return (lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trim();
 }
 
-/** Best-effort extraction of the code subject a question is about. */
-function detectSubject(raw: string): string {
+/** A question's subject: either a concrete code identifier (`code: true`,
+ *  rendered in backticks) or a natural-language noun phrase (`code: false`). */
+interface SubjectMatch { text: string; code: boolean; }
+
+/** Best-effort extraction of the subject a question is about. */
+function detectSubject(raw: string): SubjectMatch {
   const backticked = raw.match(/`([^`]+)`/);
-  if (backticked) { return backticked[1].trim(); }
-  const file = raw.match(/\b([A-Za-z0-9_\-/]+\.[A-Za-z0-9]{1,6})\b/);
-  if (file) { return file[1]; }
+  if (backticked) { return { text: backticked[1].trim(), code: true }; }
+
+  // Everything after the interrogative verb is the subject region, e.g.
+  // "what does X do in Y" → "X do in Y". We first look for a concrete code
+  // symbol there (so "buildModeItems" wins over the containing file); only
+  // when none exists do we fall back to the plain noun phrase the user typed
+  // (so "the promt proxy engine file" is described, not reduced to `promt`).
+  const region =
+    raw.match(/\b(?:what|how|why)\s+(?:does|do|did|is|are|can|should|would)\s+(.+)/i)?.[1]
+    ?? raw.match(/\bwhere\s+(?:is|are|can i find)\s+(.+)/i)?.[1]
+    ?? raw.match(/\bpurpose of\s+(.+)/i)?.[1];
+
+  if (region) {
+    const codeToken =
+      region.match(/\b([A-Za-z0-9]+(?:_[A-Za-z0-9]+)+)\b/)?.[1]          // snake_case
+      ?? region.match(/\b([a-z]+[A-Z][A-Za-z0-9]*)\b/)?.[1]             // camelCase
+      ?? region.match(/\b([A-Z][a-z]+[A-Z][A-Za-z0-9]*)\b/)?.[1]        // PascalCase
+      ?? region.match(/\b([A-Za-z0-9_\-/]+\.[A-Za-z0-9]{1,6})\b/)?.[1]; // filename
+    if (codeToken && !GENERIC_SUBJECT.test(codeToken)) {
+      return { text: codeToken, code: true };
+    }
+
+    let phrase = region
+      .replace(/^(?:the|a|an)\s+/i, '')
+      .replace(/\s+(?:does|do|did|work|works|working|is|are|in|inside|within|from|of|for)\b.*$/i, '')
+      .replace(/[.,;:?!]+$/, '')
+      .trim();
+    phrase = phrase.split(/\s+/).slice(0, 6).join(' ');
+    if (phrase !== '' && !GENERIC_SUBJECT.test(phrase)) {
+      return { text: phrase, code: false };
+    }
+  }
+
   const camel = raw.match(/\b([a-z]+[A-Z][A-Za-z0-9]+|[A-Z][a-z]+[A-Z][A-Za-z0-9]+)\b/);
-  if (camel) { return camel[1]; }
-  return '';
+  if (camel) { return { text: camel[1], code: true }; }
+  const file = raw.match(/\b([A-Za-z0-9_\-/]+\.[A-Za-z0-9]{1,6})\b/);
+  if (file) { return { text: file[1], code: true }; }
+  return { text: '', code: false };
+}
+
+/** Low-signal nouns that should never be treated as a question's subject. */
+const GENERIC_SUBJECT = /^(this|that|it|the|code|file|files|function|method|thing|stuff|part|line|lines|here|there)$/i;
+
+/** A filename the prompt scopes the subject to, e.g. the `extension.ts` in
+ *  "...in extension.ts". Returns '' when absent or identical to the subject. */
+function detectScopeFile(raw: string, subject: string): string {
+  const inFile = raw.match(/\b(?:in|inside|within|from|of)\s+(?:the\s+|file\s+)?([A-Za-z0-9_\-/]+\.[A-Za-z0-9]{1,6})\b/i);
+  const file = inFile?.[1] ?? raw.match(/\b([A-Za-z0-9_\-/]+\.[A-Za-z0-9]{1,6})\b/)?.[1] ?? '';
+  if (file === '' || file.toLowerCase() === subject.toLowerCase()) { return ''; }
+  return file;
 }
 
 /** Trim trailing question/terminal punctuation and end with a period. */

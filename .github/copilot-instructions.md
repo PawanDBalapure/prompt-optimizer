@@ -9,6 +9,8 @@ Read the ../.promptoptimizer/skills/software-building-rules.md before writing an
 
 ### project memory
 
+<!-- prompt-optimizer:tokens: 57 -->
+
 # Prompt Optimizer workspace memory
 
 Notes here are automatically included as long-lived context for every optimization.
@@ -20,7 +22,7 @@ Keep it concise — bullet points and short paragraphs work best.
 
 ### project knowledge
 
-
+<!-- prompt-optimizer:tokens: 10 -->
 
 ### AGENTS.md
 
@@ -44,21 +46,21 @@ Keep it concise — bullet points and short paragraphs work best.
 
 ### Project knowledge graph (auto)
 
-- **c:/Users/Pawan/prompt-optimizer/vscode-extension/src/state/session**: Dependency file: c:/Users/Pawan/prompt-optimizer/vscode-extension/src/state/session
+- **TypeScript/JavaScript**: Language: TypeScript/JavaScript
+- **what does the promt proxy engine file does ?**: what does the promt proxy engine file does ?
+- **buildModeItems in extension.ts what is it ?**: buildModeItems in extension.ts what is it ?
+- **what does buildModeItems does in extension.ts ?**: what does buildModeItems does in extension.ts ?
+- **__workspace_seed__**: Aggregated workspace harvest
 - **c:/Users/Pawan/prompt-optimizer/vscode-extension/src/chat/analyzer**: Dependency file: c:/Users/Pawan/prompt-optimizer/vscode-extension/src/chat/analyzer
-- **raw**: Symbol: raw
-- **c:/Users/Pawan/prompt-optimizer/vscode-extension/src/constants**: Dependency file: c:/Users/Pawan/prompt-optimizer/vscode-extension/src/constants
-- **c:/Users/Pawan/prompt-optimizer/vscode-extension/src/commands/open**: Dependency file: c:/Users/Pawan/prompt-optimizer/vscode-extension/src/commands/open
-- **c:/Users/Pawan/prompt-optimizer/vscode-extension/src/security/secret-help**: Dependency file: c:/Users/Pawan/prompt-optimizer/vscode-extension/src/security/secret-help
-- **c:/Users/Pawan/prompt-optimizer/vscode-extension/src/panel/ProxyS
-... (truncated)
+- **c:/Users/Pawan/prompt-optimizer/vscode-extension/src/engine/seeder**: Dependency file: c:/Users/Pawan/prompt-optimizer/vscode-extension/src/engine/seeder
+- **c:/Users/Pawan/prompt-optimizer/vscode-extension/src/engine/runner**: Dependency file: c:/Users/Pawan/prompt-optimizer/vscode-extension/src/engine/runner
 
 ### Recently studied files (auto)
 
 - `c:\Users\Pawan\prompt-optimizer\src\PromptIRHelper.ts` — /** • * Barrel re-export — preserves the historical import path while the • * implementation lives in focused modules under ./promptIR/. • *…
 - `c:\Users\Pawan\prompt-optimizer\vscode-extension\media\panel.html` — <!DOCTYPE html> • <html lang="en"> • <head> • <meta charset="UTF-8"> • <meta name="viewport" content="width=device-width, initial-scale=1.0"…
-- `c:\Users\Pawan\prompt-optimizer\intellij-plugin\src\main\resources\META-INF\plugin.xml` — <!-- Plugin descriptor — read by IntelliJ Platform at load time --> • <idea-plugin> • <id>com.promptproxy.optimizer</id> • <name>Local Promp…
-- `c:\Users\Pawan\prompt-optimizer\vscode-extension\src\panel\PromptProxyViewProvider.ts` — import * as vscode from 'vscode'; • import * as fs from 'fs'; • import * as path from 'path'; • impor
+- `c:\Users\Pawan\prompt-optimizer\vscode-extension\src\extension.ts` — import * as vscode from 'vscode'; • import * as fs from 'fs'; • import * as path from 'path'; • import { • CHAT_PARTICIPANT_ID, • ENRICH_INT…
+- `c:\Users\Pawan\prompt-optimizer\intellij-plugin\src\main\resources\META-INF\plugin.xml` — <!-- Plugin descriptor — read by IntelliJ Platform at load time --> • <idea-plugin> • <id>com.promptproxy.optimizer</id
 ... (truncated)
 
 <!-- prompt-optimizer:memory:end -->

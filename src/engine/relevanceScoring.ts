@@ -108,6 +108,45 @@ export function semanticComponent(text: string, ctx: RelevanceContext): number {
 }
 
 /**
+ * Enterprise Relevance Scoring Formula (Part 5 of Graph Memory Architecture)
+ * 
+ * FinalScore = RelevanceScore * EvidenceTrust * FreshnessPenalty * ConflictPenalty
+ * RelevanceScore = w_e*ExactMatch + w_s*SymbolMatch + w_f*FileProximity + w_g*GraphDistanceScore + w_u*UsageFrequency + w_r*Recency + w_m*EmbeddingSimilarity
+ */
+export interface EnterpriseScoringParams {
+  exactMatch: number;      // [0, 1]
+  symbolMatch: number;     // [0, 1]
+  fileProximity: number;   // [0, 1]
+  graphDistance: number;   // [0, 1] (e.g., 1 / (1 + hops))
+  usageFrequency: number;  // [0, 1]
+  recency: number;         // [0, 1]
+  embeddingSimilarity: number; // [0, 1]
+  evidenceTrust?: number;      // Default 1.0
+  freshnessPenalty?: number;   // Default 1.0
+  conflictPenalty?: number;    // Default 1.0
+}
+
+export function enterpriseRelevanceScore(params: EnterpriseScoringParams): number {
+  const W_E = 0.24, W_S = 0.20, W_F = 0.14, W_G = 0.14;
+  const W_U = 0.08, W_R = 0.08, W_M = 0.12;
+  
+  const relevance = 
+    (W_E * params.exactMatch) +
+    (W_S * params.symbolMatch) +
+    (W_F * params.fileProximity) +
+    (W_G * params.graphDistance) +
+    (W_U * params.usageFrequency) +
+    (W_R * params.recency) +
+    (W_M * params.embeddingSimilarity);
+    
+  const evidenceTrust = params.evidenceTrust ?? 1.0;
+  const freshnessPenalty = params.freshnessPenalty ?? 1.0;
+  const conflictPenalty = params.conflictPenalty ?? 1.0;
+
+  return relevance * evidenceTrust * freshnessPenalty * conflictPenalty;
+}
+
+/**
  * Generic memory-tier label used for fairness + intent weighting.  Augmentation
  * sees `memory | kg | digest | peer`; recall additionally sees `cache | user`.
  */

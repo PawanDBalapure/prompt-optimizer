@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 
 import { openChatWithPrompt } from '../commands/open';
+import { maybeAutoOpenContextFiles } from '../commands/openContextFiles';
 import { analyzePrompt } from '../chat/analyzer';
 import { getTargetModel, setTargetModel, getDensity, setDensity } from '../state/config';
 import { getLastAnalysis } from '../state/session';
@@ -107,6 +108,7 @@ export class ProxyStatusPanel {
           const state = await analyzePrompt(this._context, prompt, 'panel');
           this.publishAnalysis(state);
           this._provider.publishAnalysis(state);
+          await maybeAutoOpenContextFiles(this._context, state);
         } catch (error) {
           this._panel.webview.postMessage({
             type: 'error',

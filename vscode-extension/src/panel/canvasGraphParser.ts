@@ -12,8 +12,8 @@ export function parseCopilotInstructionsCanvas(wsRoot: string | undefined): Canv
   }
   const MANAGED_BEGIN = '<!-- prompt-optimizer:memory:begin -->';
   const MANAGED_END   = '<!-- prompt-optimizer:memory:end -->';
-  const COL_W = 260;
-  const ROW_H = 72;
+  const COL_W = 180; // Compact width
+  const ROW_H = 34;  // Highly clustered height for maximum density
 
   const candidates = [
     path.join(wsRoot, '.github', 'copilot-instructions.md'),

@@ -6,6 +6,7 @@ import * as childProcess from 'child_process';
 
 import { MODE_KEY } from '../constants';
 import { openChatWithPrompt, openExtensionReadme } from '../commands/open';
+import { maybeAutoOpenContextFiles } from '../commands/openContextFiles';
 import { analyzePrompt } from '../chat/analyzer';
 import {
   SECRET_PATTERNS,
@@ -255,6 +256,7 @@ export class PromptProxyViewProvider implements vscode.WebviewViewProvider {
     }
     const state = await analyzePrompt(this._context, prompt.trim(), 'panel');
     this.publishAnalysis(state);
+    await maybeAutoOpenContextFiles(this._context, state);
   }
 
   private async _handleAgentRun(webviewView: vscode.WebviewView, prompt: string): Promise<void> {
@@ -273,6 +275,7 @@ export class PromptProxyViewProvider implements vscode.WebviewViewProvider {
       const state = await analyzePrompt(this._context, trimmed, 'panel');
       if (agentToken.isCancellationRequested) { return; }
       this.publishAnalysis(state);
+      await maybeAutoOpenContextFiles(this._context, state);
 
       const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       const wsId = computeWorkspaceId(wsRoot);

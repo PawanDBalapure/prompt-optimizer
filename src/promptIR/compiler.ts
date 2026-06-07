@@ -1,4 +1,4 @@
-import { PromptIR, PromptDiagnostic, PromptCompilerSpec } from '../contracts.js';
+import { PromptIR, PromptDiagnostic } from '../contracts.js';
 import { buildCompilerSpec, renderStructuredSpec } from './promptCompiler.js';
 
 export type PromptTargetModel = 'claude' | 'gpt' | 'gemini' | 'deepseek' | 'grok' | 'local';
@@ -13,7 +13,11 @@ export function compilePromptIR(
   const contextValue = stackSummary?.trim() || '[CONTEXT]';
   const spec = ir.compiler_spec ?? buildCompilerSpec('', ir);
 
-  // We now always output YAML format, ignoring target model preamble wrapper.
+  // We always output the lean deterministic YAML body. Model-family wrapper
+  // framing (XML tags, markdown headers, persona scaffolding) was deliberately
+  // removed: it roughly DOUBLES input tokens and grows output tokens, which is
+  // the opposite of this engine's purpose. Model-tuning lives in the structured
+  // spec content, not in surrounding boilerplate.
   return renderStructuredSpec(spec, contextValue, density);
 }
 

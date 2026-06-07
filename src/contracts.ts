@@ -10,26 +10,10 @@ export interface PromptProxyEngineOptions {
   pricing?: PromptPricingConfig;
 }
 
-export interface IdeContextFile {
-  path: string;
-  content: string;
-  language?: string;
-  is_active?: boolean;
-  selection?: string;
-}
-
-export interface IdeContextLog {
-  source: string;
-  content: string;
-  kind?: 'terminal' | 'debug' | 'problems' | 'general';
-}
-
-export interface PromptIDEContext {
-  workspace_root?: string;
-  active_file?: IdeContextFile;
-  open_files?: IdeContextFile[];
-  logs?: IdeContextLog[];
-}
+// IDE context input shapes live in a focused module; imported for local use
+// and re-exported so the historical `from './contracts.js'` path keeps working.
+import type { IdeContextFile, IdeContextLog, PromptIDEContext } from './contracts.ide.js';
+export type { IdeContextFile, IdeContextLog, PromptIDEContext };
 
 export interface PromptDiagnostic {
   severity: 'warning' | 'error' | 'info';
@@ -119,6 +103,16 @@ export interface PromptCacheCandidate {
   timestamp: number;
 }
 
+/**
+ * Exact line ranges (0-based, inclusive) the optimizer treated as relevant in
+ * a context file. Lets callers re-select the precise text the engine packed,
+ * even though that text is not inlined into the optimized prompt.
+ */
+export interface ContextSnippet {
+  path: string;
+  ranges: Array<{ start_line: number; end_line: number }>;
+}
+
 export interface ReusedCacheSegment {
   /** Section header / file path of the block reused from cache. */
   label: string;
@@ -150,6 +144,8 @@ export interface PromptOptimizationAnalysis {
     log_sources: string[];
     open_file_count: number;
     total_log_count: number;
+    /** Exact line ranges per selected file the optimizer found relevant. */
+    context_snippets?: ContextSnippet[];
   };
   cost: {
     input_cost_usd: number;

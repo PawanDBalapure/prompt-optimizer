@@ -1,3 +1,5 @@
+<!-- prompt-optimizer:tokens: 57 -->
+
 # Prompt Optimizer workspace memory
 
 Notes here are automatically included as long-lived context for every optimization.

@@ -498,6 +498,7 @@ textarea {
 
 .persona-ribbon-section {
   margin-bottom: 4px;
+  position: relative;
 }
 .ribbon-title {
   font-size: 10px;
@@ -528,7 +529,7 @@ textarea {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 4px;
-  cursor: pointer;
+  cursor: grab;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -550,6 +551,59 @@ textarea {
   cursor: pointer;
 }
 .ribbon-btn:hover { background: color-mix(in srgb, var(--bg) 90%, #ffffff 10%); }
+
+.ribbon-btn-primary {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--vscode-focusBorder, #007fd4) 70%, var(--border) 30%);
+}
+
+.persona-overlay {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 1200;
+}
+
+.persona-overlay-panel {
+  position: relative;
+  width: min(980px, calc(100vw - 48px));
+  max-height: min(360px, calc(100vh - 180px));
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.45);
+}
+
+.persona-overlay-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.persona-overlay-header h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.persona-overlay-tabs {
+  display: flex;
+  align-items: center;
+  align-content: flex-start;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 64px;
+  max-height: 180px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg) 94%, #ffffff 6%);
+}
 
 .canvas-header {
   display: flex;
@@ -606,12 +660,12 @@ textarea {
 .vcanvas-node {
   position: absolute;
   width: max-content;
-  max-width: 220px;
-  min-width: 80px;
+  max-width: 170px; /* Reduced from 220px to fit more columns */
+  min-width: 60px;  /* Reduced from 80px */
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 4px;
-  font-size: 10px;
+  font-size: 8.5px;  /* Slightly smaller font for maximum space efficiency */
   font-weight: normal;
   pointer-events: all;
   user-select: none;
@@ -639,7 +693,7 @@ textarea {
   box-shadow: 0 0 0 1px var(--vscode-focusBorder, #007fd4);
 }
 .vcanvas-node-content {
-  padding: 4px 8px;
+  padding: 2px 5px; /* Reduced from 4px 8px to pack rules closer */
   word-wrap: break-word;
   user-select: none;
 }
@@ -702,19 +756,28 @@ details > summary h2 {
 }
 .vcanvas-edge {
   fill: none;
-  stroke: #888;
-  stroke-width: 2px;
+  stroke: var(--muted, rgba(128, 128, 128, 0.4));
+  stroke-width: 1px; /* Thinner links */
   pointer-events: stroke;
   cursor: pointer;
+  transition: stroke 0.15s ease, stroke-width 0.15s ease;
+  opacity: 0.65;
+}
+.vcanvas-edge:hover {
+  stroke: var(--vscode-focusBorder, #007fd4);
+  stroke-width: 1.5px;
+  opacity: 0.9;
 }
 .vcanvas-edge.drawing {
   stroke: #4caf50;
+  stroke-width: 1px;
   stroke-dasharray: 4;
 }
 
 .vcanvas-edge.selected {
   stroke: #d14b4b;
-  stroke-width: 3px;
+  stroke-width: 1.5px;
+  opacity: 0.9;
 }
 
 .link-inspector {

@@ -66,8 +66,19 @@ export const GUARDED_FILE_NAMES = new Set([
   'copilot-instructions.md', '.cursorrules', '.clinerules', 'README.md',
 ]);
 
-export function isGuardedFile(fileName: string): boolean {
-  return GUARDED_FILE_NAMES.has(path.basename(fileName));
+const GUARDED_MD_DIRS = [
+  `${path.sep}.promptoptimizer${path.sep}`,
+  `${path.sep}.instruction_studio${path.sep}`,
+  `${path.sep}vscode-extension${path.sep}media${path.sep}skill-library${path.sep}`,
+];
+
+export function isGuardedFile(filePath: string): boolean {
+  const normalized = path.normalize(filePath).toLowerCase();
+  const isMarkdown = path.extname(normalized) === '.md';
+  if (isMarkdown && GUARDED_MD_DIRS.some((dir) => normalized.includes(dir.toLowerCase()))) {
+    return true;
+  }
+  return GUARDED_FILE_NAMES.has(path.basename(filePath));
 }
 
 export type BudgetStatus = 'ok' | 'warn' | 'over';

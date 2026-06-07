@@ -68,6 +68,10 @@ export interface PromptProxyAnalysis {
     log_sources: string[];
     open_file_count: number;
     total_log_count: number;
+    context_snippets?: Array<{
+      path: string;
+      ranges: Array<{ start_line: number; end_line: number }>;
+    }>;
   };
   cost: {
     input_cost_usd: number;

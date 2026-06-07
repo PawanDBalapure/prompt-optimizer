@@ -4,6 +4,7 @@ import { CONVERSATION_KEY } from '../constants';
 import type { ConversationTurn } from '../types';
 import { computeWorkspaceId } from '../util/workspace';
 import type { PromptProxyViewProvider } from '../panel/PromptProxyViewProvider';
+import { getConversation } from '../state/conversation';
 
 /**
  * Prompt history browser — minimalist two-step UX.
@@ -55,7 +56,7 @@ async function showHistory(
 ): Promise<void> {
   const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const wsId = computeWorkspaceId(wsRoot);
-  const all = context.globalState.get<ConversationTurn[]>(CONVERSATION_KEY) ?? [];
+  const all = getConversation(context);
   const turns = all.filter((t) => t.workspace_id === wsId);
 
   if (turns.length === 0) {
@@ -243,7 +244,7 @@ async function deleteEntry(
     { modal: true }, YES,
   );
   if (pick !== YES) { return; }
-  const all = context.globalState.get<ConversationTurn[]>(CONVERSATION_KEY) ?? [];
+  const all = getConversation(context);
   const remaining = all.filter((t) => t.id !== turn.id);
   await context.globalState.update(CONVERSATION_KEY, remaining);
   vscode.window.setStatusBarMessage('$(check) History entry deleted', 3000);

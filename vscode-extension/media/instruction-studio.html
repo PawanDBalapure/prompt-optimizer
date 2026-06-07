@@ -26,11 +26,21 @@
       
       <section class="persona-ribbon-section">
         <div class="persona-ribbon">
-          <div id="personaRibbonTabs" class="persona-ribbon-tabs"></div>
+          <button id="personaOverlayToggle" class="ribbon-btn ribbon-btn-primary" type="button" title="Browse Personas" aria-label="Browse Personas">👥 Personas</button>
           <button class="ribbon-btn" data-action="ribbonNew" title="New">➕</button>
           <button class="ribbon-btn" data-action="ribbonEdit" title="Edit">✏️</button>
           <button class="ribbon-btn" data-action="ribbonClone" title="Clone">⎘</button>
           <button class="ribbon-btn" data-action="ribbonSync" title="Sync URL">🌐</button>
+        </div>
+        <div id="personaOverlay" class="persona-overlay" hidden>
+          <div class="persona-overlay-panel" role="dialog" aria-modal="false" aria-label="Persona Library">
+            <div class="persona-overlay-header">
+              <h3>Persona Library</h3>
+              <button id="personaOverlayClose" class="ribbon-btn" type="button" title="Close Personas" aria-label="Close Personas">✕</button>
+            </div>
+            <p class="muted-hint">Drag any persona from here and drop it onto the canvas to create a linked persona node.</p>
+            <div id="personaRibbonTabs" class="persona-ribbon-tabs persona-overlay-tabs"></div>
+          </div>
         </div>
       </section>
     </header>
@@ -43,17 +53,17 @@
           <div class="canvas-header" style="display:inline-flex; align-items:center; width:calc(100% - 20px);">
              <h2>Visual Rule Canvas</h2>
              <div class="canvas-actions actions compact-actions" style="margin-left:auto;">
-               <button id="vBtnUndo" type="button" title="Undo canvas change" disabled>Undo</button>
-               <button id="vBtnRedo" type="button" title="Redo canvas change" disabled>Redo</button>
-               <button id="vBtnAddPersona">➕ Persona</button>
-               <button id="vBtnAddCond">➕ Condition</button>
-               <button id="vBtnAddRule">➕ Rule</button>
-               <button data-action="loadCopilotInstructions" title="Draw .github/copilot-instructions.md as a graph">📄 Copilot Instructions</button>
-               <button id="vBtnCollapseAll" type="button" title="Collapse all parent nodes">Collapse All</button>
-               <button id="vBtnExpandAll" type="button" title="Expand all nodes" style="display:none;">Expand All</button>
-               <button id="vBtnFitCanvas" type="button" title="Fit all visible nodes in the screen center">🎯 Center Graph</button>
-               <button id="vBtnToggleFullscreen" type="button" title="Toggle Fullscreen Canvas">⛶ Fullscreen</button>
-               <button data-action="compileCanvasGraph">Compile Canvas</button>
+               <button id="vBtnUndo" type="button" title="Undo" aria-label="Undo" disabled>↶</button>
+               <button id="vBtnRedo" type="button" title="Redo" aria-label="Redo" disabled>↷</button>
+               <button id="vBtnAddPersona" title="Add Persona" aria-label="Add Persona">👤</button>
+               <button id="vBtnAddCond" title="Add Condition" aria-label="Add Condition">◇</button>
+               <button id="vBtnAddRule" title="Add Rule" aria-label="Add Rule">⚑</button>
+               <button data-action="loadCopilotInstructions" title="Copilot Instructions" aria-label="Copilot Instructions">📄</button>
+               <button id="vBtnCollapseAll" type="button" title="Collapse All" aria-label="Collapse All">▾</button>
+               <button id="vBtnExpandAll" type="button" title="Expand All" aria-label="Expand All" style="display:none;">▴</button>
+               <button id="vBtnFitCanvas" type="button" title="Center Graph" aria-label="Center Graph">🎯</button>
+               <button id="vBtnToggleFullscreen" type="button" title="Fullscreen" aria-label="Fullscreen">⛶</button>
+               <button data-action="compileCanvasGraph" title="Compile Canvas" aria-label="Compile Canvas">⚙</button>
              </div>
           </div>
           </summary>

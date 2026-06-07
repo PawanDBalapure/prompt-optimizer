@@ -94,9 +94,15 @@ export async function runCoreScenarios(dbFile: string): Promise<void> {
   assertSchema(compilerResp);
   const compiled = compilerResp.optimized_prompt;
   // Compact, high-density schema headers are present.
-  for (const header of ['context:', 'task:', 'constraints:']) {
+  for (const header of ['task:', 'constraints:']) {
     assert.ok(compiled.includes(header), `structured prompt should contain ${header}`);
   }
+  // Context is now conditional: with no workspace stack detected the engine
+  // omits the non-informative "Standard codebase structure" placeholder line.
+  assert.ok(
+    !compiled.includes('context:'),
+    'generic placeholder context line should be omitted when no real stack is detected',
+  );
   // Empty-section placeholders from the old verbose schema must be gone.
   for (const legacy of ['requirements:', 'rules:', 'exclusions:', 'success_criteria:', 'input: >', 'context: >']) {
     assert.ok(!compiled.includes(legacy), `compact prompt should not contain legacy header ${legacy}`);

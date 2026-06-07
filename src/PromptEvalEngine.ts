@@ -56,16 +56,19 @@ export class PromptEvalEngine {
       const variantScores: TestResult['variantScores'] = [];
 
       for (const variant of variants) {
-        // Run optimization request through the engine
+        // Run optimization request through the engine. We score the lean
+        // optimized output that the engine actually ships — no model-family
+        // framing wrapper (that doubles tokens, defeating the optimizer).
         const response = await this.engine.processRequest({
           raw_prompt: `${test.input}\nExpected criteria: ${test.expected}`,
           target_model: variant.target_model,
         });
 
         const compiled = response.optimized_prompt;
-        
-        // Empirically score the compiled prompt for this variant
-        const evalScore = this.scoreQuality(compiled, test, variant.target_model, response.diagnostics ?? []);
+
+        // Score the genuine optimizer value: token reduction + structure
+        // preservation + intent fidelity (NOT cosmetic per-model markers).
+        const evalScore = this.scoreQuality(compiled, test, response.metrics);
         totalScore += evalScore.score;
         totalVariants++;
 
@@ -97,84 +100,53 @@ export class PromptEvalEngine {
   private scoreQuality(
     compiled: string,
     test: TestCase,
-    targetModel: string,
-    diagnostics: any[]
+    metrics: { raw_input_tokens: number; optimized_input_tokens: number; tokens_saved: number },
   ): { score: number; passed: boolean; reason: string } {
-    let score = 100;
     const reasons: string[] = [];
+    const lower = compiled.toLowerCase();
+    let score = 0;
 
-    // 1. Deduct for diagnostic problems found during compilation
-    if (diagnostics.length > 0) {
-      const deduct = Math.min(30, diagnostics.length * 15);
-      score -= deduct;
-      reasons.push(`Lint warnings deducted ${deduct}pts`);
+    // (A) Token efficiency — 35 pts. This is the engine's core value: the
+    // optimized prompt must not be larger than the raw input. Full marks when
+    // it is the same size or smaller; partial credit otherwise.
+    const raw = Math.max(1, metrics.raw_input_tokens);
+    const opt = metrics.optimized_input_tokens;
+    if (opt <= raw) {
+      score += 35;
+    } else {
+      const overshoot = (opt - raw) / raw; // fraction larger than raw
+      const credit = Math.max(0, 35 * (1 - Math.min(1, overshoot)));
+      score += Math.round(credit);
+      reasons.push(`Optimized prompt larger than raw (${opt} > ${raw} tokens)`);
     }
 
-    // 2. Validate model-specific format rules compliance
-    if (targetModel === 'claude') {
-      if (compiled.includes('<instructions>') && compiled.includes('</instructions>')) {
-        score += 5; // bonus points
-      } else {
-        score -= 20;
-        reasons.push('Missing Claude XML tags (-20pts)');
-      }
-    } else if (targetModel === 'gpt') {
-      if (compiled.includes('# SYSTEM PRESET') || compiled.includes('# CORE OBJECTIVE')) {
-        score += 5;
-      } else {
-        score -= 15;
-        reasons.push('Missing GPT markdown headers (-15pts)');
-      }
-    } else if (targetModel === 'gemini') {
-      if (compiled.includes('Core Goal:') || compiled.includes('[EXAMPLE]')) {
-        score += 5;
-      } else {
-        score -= 15;
-        reasons.push('Missing Gemini highlights (-15pts)');
-      }
-    } else if (targetModel === 'deepseek') {
-      if (compiled.includes('Logical Constraints:') || compiled.includes('Persona:')) {
-        score += 5;
-      } else {
-        score -= 15;
-        reasons.push('Missing DeepSeek logical-constraint blocks (-15pts)');
-      }
-    } else if (targetModel === 'grok') {
-      if (compiled.includes('Output Requirements:') || compiled.includes('Be brutally direct and concise.')) {
-        score += 5;
-      } else {
-        score -= 15;
-        reasons.push('Missing Grok direct-output requirements (-15pts)');
-      }
-    } else if (targetModel === 'local') {
-      if (compiled.includes('[ROLE]') || compiled.includes('[RULES]')) {
-        score += 5;
-      } else {
-        score -= 15;
-        reasons.push('Missing local model tags (-15pts)');
-      }
-      // Ensure compactness for local models
-      if (compiled.length > 1500) {
-        score -= 15;
-        reasons.push('Prompt is too verbose for small local reasoning window (-15pts)');
-      }
+    // (B) Structured task line present — 20 pts. The lean YAML must name the
+    // task deterministically.
+    if (/(^|\n)task:/i.test(compiled)) {
+      score += 20;
+    } else {
+      reasons.push('No structured task line (-20pts)');
     }
 
-    // 3. Keyword/Assertion criteria validation
-    const lowerCompiled = compiled.toLowerCase();
-    const keywords = test.keywords ?? test.expected.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-    let matchedKeywordsNum = 0;
+    // (C) Output discipline / constraints present — 25 pts.
+    if (/(^|\n)constraints:/i.test(compiled) || /output:/i.test(compiled)) {
+      score += 25;
+    } else {
+      reasons.push('No output-discipline constraints (-25pts)');
+    }
+
+    // (D) Intent fidelity — 20 pts (scaled). The optimized prompt must still
+    // carry the key task terms so meaning is preserved.
+    const keywords = test.keywords
+      ?? test.expected.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
+    let matched = 0;
     for (const kw of keywords) {
-      if (lowerCompiled.includes(kw.toLowerCase())) {
-        matchedKeywordsNum++;
-      }
+      if (lower.includes(kw.toLowerCase())) { matched++; }
     }
-
-    const keywordPercentage = keywords.length > 0 ? (matchedKeywordsNum / keywords.length) : 1;
-    if (keywordPercentage < 1) {
-      const deduct = Math.round((1 - keywordPercentage) * 30);
-      score -= deduct;
-      reasons.push(`Missed criteria keywords: checked ${matchedKeywordsNum}/${keywords.length} (-${deduct}pts)`);
+    const coverage = keywords.length > 0 ? matched / keywords.length : 1;
+    score += Math.round(coverage * 20);
+    if (coverage < 1) {
+      reasons.push(`Intent keyword coverage ${matched}/${keywords.length}`);
     }
 
     score = Math.max(0, Math.min(100, score));
@@ -183,7 +155,7 @@ export class PromptEvalEngine {
     return {
       score,
       passed,
-      reason: reasons.length > 0 ? reasons.join(', ') : 'Exceeded all compliance standards',
+      reason: reasons.length > 0 ? reasons.join(', ') : 'Token-efficient, structured, intent-preserving',
     };
   }
 }

@@ -14,6 +14,7 @@ import {
   openOnboardingGuide,
   openPromptProxyPanel,
 } from './commands/open';
+import { maybeAutoOpenContextFiles, openContextFilesAndSelect } from './commands/openContextFiles';
 import { seedCacheFromWorkspace, enrichFromChatHistory, ingestMemoryFiles } from './engine/seeder';
 import { runEngineRaw } from './engine/runner';
 import { registerMemoryFeatures } from './memory';
@@ -122,22 +123,34 @@ export function activate(context: vscode.ExtensionContext) {
   participant.iconPath = vscode.Uri.joinPath(context.extensionUri, 'images', 'icon.png');
   participant.followupProvider = {
     provideFollowups: () => {
-      const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-      const wsId = computeWorkspaceId(wsRoot);
-      const hist = getConversation(context, wsId);
-      const followups: vscode.ChatFollowup[] = [];
-      if (hist.length > 0) {
+      try {
+        const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const wsId = computeWorkspaceId(wsRoot);
+        const hist = getConversation(context, wsId);
+        const historyCount = Array.isArray(hist) ? hist.length : 0;
+
+        const followups: vscode.ChatFollowup[] = [];
+        if (historyCount > 0) {
+          followups.push({
+            prompt: '/memory',
+            label: `View memory (${historyCount} turn${historyCount === 1 ? '' : 's'})`,
+          });
+          followups.push({ prompt: '/clear', label: 'Clear conversation memory' });
+        }
         followups.push({
-          prompt: '/memory',
-          label: `View memory (${hist.length} turn${hist.length === 1 ? '' : 's'})`,
+          prompt: '/context Show what local context Prompt Optimizer can read right now.',
+          label: 'Show workspace context',
         });
-        followups.push({ prompt: '/clear', label: 'Clear conversation memory' });
+        return followups;
+      } catch (error) {
+        // Never let followup-provider failures bubble into the Copilot host.
+        // Returning a minimal static array keeps chat stable.
+        console.debug('[Prompt Optimizer] followupProvider failed (non-critical)', error);
+        return [{
+          prompt: '/context Show what local context Prompt Optimizer can read right now.',
+          label: 'Show workspace context',
+        }];
       }
-      followups.push({
-        prompt: '/context Show what local context Prompt Optimizer can read right now.',
-        label: 'Show workspace context',
-      });
-      return followups;
     },
   };
   context.subscriptions.push(participant);
@@ -288,6 +301,7 @@ function registerCommands(
     try {
       const state = await analyzePrompt(context, clipboardText, 'clipboard');
       provider.publishAnalysis(state);
+      await maybeAutoOpenContextFiles(context, state);
       await openPromptProxyPanel();
       await vscode.env.clipboard.writeText(state.optimized);
       vscode.window.showInformationMessage(
@@ -414,6 +428,7 @@ function registerCommands(
 
       restoreStatusBar();
       provider.publishAnalysis(state);
+      await maybeAutoOpenContextFiles(context, state);
       await vscode.env.clipboard.writeText(state.optimized);
 
       if (autoOpenChat) {
@@ -726,6 +741,20 @@ function registerCommands(
     }
     const doc = await vscode.workspace.openTextDocument(memoryUri);
     await vscode.window.showTextDocument(doc);
+  }));
+
+  push(vscode.commands.registerCommand('prompt-proxy.openContextFiles', async () => {
+    await openContextFilesAndSelect(context);
+  }));
+
+  push(vscode.commands.registerCommand('prompt-proxy.toggleAutoOpenContextFiles', async () => {
+    const cfg = vscode.workspace.getConfiguration('promptProxy');
+    const current = cfg.get<boolean>('optimize.autoOpenContextFiles', false);
+    const next = !current;
+    await cfg.update('optimize.autoOpenContextFiles', next, vscode.ConfigurationTarget.Global);
+    vscode.window.showInformationMessage(
+      `Prompt Optimizer: auto-open context files ${next ? 'enabled' : 'disabled'}.`,
+    );
   }));
 
   push(vscode.commands.registerCommand('prompt-proxy.peerWorkspaces', async () => {

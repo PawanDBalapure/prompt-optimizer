@@ -499,17 +499,27 @@ function applySdlcMode(
 ): string {
   const withoutOldMode = stripSdlcModeSections(prompt, mode !== null);
   if (!mode) { return withoutOldMode; }
+  // Proportional framing. We emit the full role paragraph + quality checklist
+  // when the persona is an explicit opt-in:
+  //   - a slash trigger (e.g. /code, /review), or
+  //   - a user-authored custom skill (workspace/global) — they wrote that
+  //     guidance deliberately and expect it applied.
+  // A built-in mode reached only by weak intent/keyword inference gets a
+  // compact one-line role label and no checklist, avoiding ~90 tokens of
+  // boilerplate the user never asked for, repeated on every turn.
+  const isCustomSkill = mode.source === 'workspace' || mode.source === 'global';
+  const explicit = Boolean(mode.trigger) || isCustomSkill;
   return [
-    renderRoleSection(mode),
+    renderRoleSection(mode, !explicit),
     withoutOldMode,
-    renderChecklistSection(mode),
+    explicit ? renderChecklistSection(mode) : '',
   ].filter((s) => s.trim() !== '').join('\n\n');
 }
 
 function stripSdlcModeSections(prompt: string, forceChecklist = false): string {
   // Strip out previous role: and quality_checklist: blocks if present
   let clean = prompt;
-  clean = clean.replace(/(?:^|\n)role: >[\s\S]*?(?=\ncontext:|\ninput:|\nrequirements:|$)/g, '\n');
+  clean = clean.replace(/(?:^|\n)role: >[\s\S]*?(?=\ncontext:|\ninput:|\nrequirements:|\ntask:|$)/g, '\n');
   if (forceChecklist || clean.includes('quality_checklist:')) {
     clean = clean.replace(/(?:^|\n)quality_checklist:[\s\S]*?(?=\n[a-z_]+:|$)/g, '\n');
   }

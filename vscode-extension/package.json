@@ -347,6 +347,11 @@
           "default": false,
           "description": "When true, the Optimize action automatically opens Copilot Chat with the optimized prompt pre-filled (legacy behaviour). When false (default), the success toast offers a 'Send to Copilot Chat' button so chat only opens when you ask."
         },
+        "promptProxy.optimize.autoOpenContextFiles": {
+          "type": "boolean",
+          "default": true,
+          "description": "When true, after local analysis completes, Prompt Optimizer automatically opens the context files it selected and highlights the exact ranges used for optimization."
+        },
         "promptProxy.optimize.sourcePicker": {
           "type": "string",
           "enum": ["auto", "ask", "selection-first", "clipboard-first"],
@@ -446,12 +451,7 @@
         "command": "prompt-proxy.openOnboarding",
         "title": "Prompt Optimizer: Open Guide",
         "icon": "$(rocket)"
-      },
-      {
-        "command": "prompt-proxy.openInstructionStudio",
-        "title": "Prompt Optimizer: Open Instruction Studio",
-        "icon": "$(symbol-structure)"
-      },
+      },      
       {
         "command": "prompt-proxy.cacheStats",
         "title": "Prompt Optimizer: Show Cache Statistics"
@@ -472,6 +472,15 @@
       {
         "command": "prompt-proxy.openMemoryFile",
         "title": "Prompt Optimizer: Open Workspace Memory File"
+      },
+      {
+        "command": "prompt-proxy.openContextFiles",
+        "title": "Prompt Optimizer: Open Context Files & Select Related Text",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "prompt-proxy.toggleAutoOpenContextFiles",
+        "title": "Prompt Optimizer: Toggle Auto-Open Context Files"
       },
       {
         "command": "prompt-proxy.peerWorkspaces",

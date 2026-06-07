@@ -250,13 +250,9 @@
     host.textContent = text || '';
   }
 
-  function computeVisiblePresets() {
-    var meta = selectedAgentPersonaMeta();
+  function resolvePersonaRuleEntries(meta) {
     if (!meta || !meta.personaId || !lastInstructionsOverview) {
-      return {
-        presets: [],
-        hint: 'Select an agent persona to show rules from its definition file.',
-      };
+      return { entries: [], sourceLabel: '', fallbackSource: '' };
     }
     var source = sourceForPersona(lastInstructionsOverview, {
       id: meta.personaId,
@@ -283,6 +279,32 @@
         fallbackSource = String(entries[0].source || 'bundled');
       }
     }
+    var sourceLabel = '';
+    if (entries.length > 0) {
+      if (source && source.relPath) {
+        sourceLabel = String(source.relPath);
+      } else {
+        sourceLabel = String((entries[0] && entries[0].relPath) || (meta.personaId + '.md'));
+      }
+    }
+    return {
+      entries: entries,
+      sourceLabel: sourceLabel,
+      fallbackSource: fallbackSource,
+    };
+  }
+
+  function computeVisiblePresets() {
+    var meta = selectedAgentPersonaMeta();
+    if (!meta || !meta.personaId || !lastInstructionsOverview) {
+      return {
+        presets: [],
+        hint: 'Select an agent persona to show rules from its definition file.',
+      };
+    }
+    var resolved = resolvePersonaRuleEntries(meta);
+    var entries = resolved.entries;
+    var fallbackSource = resolved.fallbackSource;
     if (entries.length === 0) {
       return {
         presets: [],
@@ -301,12 +323,7 @@
       };
     });
     if (presets.length > 0) {
-      var sourceLabel = '';
-      if (source && source.relPath) {
-        sourceLabel = String(source.relPath);
-      } else {
-        sourceLabel = String((entries[0] && entries[0].relPath) || (meta.personaId + '.md'));
-      }
+      var sourceLabel = resolved.sourceLabel;
       var mode = (fallbackSource && fallbackSource !== 'workspace') ? ' (bundled fallback)' : '';
       return {
         presets: presets,
@@ -1117,12 +1134,6 @@
       var on = String(tab.getAttribute('data-persona') || '').trim() === activeRibbonPersona;
       tab.classList.toggle('active', on);
     });
-    var pNode = vNodes.find(function (n) { return n.type === 'persona'; });
-    if (pNode) {
-      pNode.text = activeRibbonPersona;
-      renderVCanvas();
-      recordCanvasHistory();
-    }
     refreshPresetLibrary();
   }
 
@@ -1190,8 +1201,20 @@
 
   function setupPersonaRibbon() {
     var ribbon = document.querySelector('.persona-ribbon');
-    if (!ribbon) { return; }
-    ribbon.addEventListener('dragstart', function (event) {
+    var tabsHost = document.getElementById('personaRibbonTabs');
+    var overlay = document.getElementById('personaOverlay');
+    var overlayToggle = document.getElementById('personaOverlayToggle');
+    var overlayClose = document.getElementById('personaOverlayClose');
+    if (!ribbon || !tabsHost || !overlay) { return; }
+
+    function setPersonaOverlayOpen(open) {
+      overlay.hidden = !open;
+      if (open) {
+        setCanvasNotice('Drag persona cards from overlay and drop onto canvas.', 'ok');
+      }
+    }
+
+    tabsHost.addEventListener('dragstart', function (event) {
       var tab = event.target && event.target.closest ? event.target.closest('.ribbon-tab[data-action="selectRibbonPersona"]') : null;
       if (!tab || !event.dataTransfer) { return; }
       var payload = {
@@ -1204,13 +1227,32 @@
       event.dataTransfer.setData('text/plain', payload.label || 'Persona');
       event.dataTransfer.effectAllowed = 'copy';
       setCanvasNotice('Drop persona into canvas to add a persona node.', 'ok');
+      document.body.classList.add('dragging-persona-active');
     });
-    ribbon.addEventListener('click', function (event) {
+
+    tabsHost.addEventListener('dragend', function (event) {
+      document.body.classList.remove('dragging-persona-active');
+    });
+
+    tabsHost.addEventListener('click', function (event) {
       var tab = event.target.closest ? event.target.closest('.ribbon-tab[data-action="selectRibbonPersona"]') : null;
-      if (tab) {
-        selectRibbonPersona(String(tab.getAttribute('data-persona') || tab.textContent || ''));
-        return;
-      }
+      if (!tab) { return; }
+      event.preventDefault();
+      setCanvasNotice('Personas are drag-only here. Drag a persona card and drop it onto the canvas.', 'ok');
+    });
+
+    if (overlayToggle) {
+      overlayToggle.addEventListener('click', function () {
+        setPersonaOverlayOpen(true);
+      });
+    }
+    if (overlayClose) {
+      overlayClose.addEventListener('click', function () {
+        setPersonaOverlayOpen(false);
+      });
+    }
+
+    ribbon.addEventListener('click', function (event) {
       var btn = event.target.closest ? event.target.closest('.ribbon-btn') : null;
       if (!btn) { return; }
       var action = btn.getAttribute('data-action');
@@ -1462,6 +1504,50 @@
    * onto the live canvas, resets pan/selection, and records history.
    * Called both on first load and when the user clicks "From Copilot Instructions".
    */
+  function fitCanvasToViewport() {
+    var host = document.getElementById('vCanvasContainer');
+    if (!host || vNodes.length === 0) { return; }
+    
+    // Find visible nodes
+    var visibleNodes = vNodes.filter(function(n) { return n.__visible !== false; });
+    if (visibleNodes.length === 0) { visibleNodes = vNodes; }
+
+    var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    visibleNodes.forEach(function(n) {
+      if (n.x < minX) minX = n.x;
+      if (n.x > maxX) maxX = n.x;
+      if (n.y < minY) minY = n.y;
+      if (n.y > maxY) maxY = n.y;
+    });
+
+    // Add padding around elements
+    var extraPad = 40;
+    var graphW = (maxX - minX) + extraPad * 2;
+    var graphH = (maxY - minY) + extraPad * 2;
+    if (graphW <= 0) graphW = 100;
+    if (graphH <= 0) graphH = 100;
+
+    var viewW = host.clientWidth;
+    var viewH = host.clientHeight;
+    if (viewW <= 0) viewW = 800; // sensible fallback
+    if (viewH <= 0) viewH = 500;
+
+    var scaleX = viewW / graphW;
+    var scaleY = viewH / graphH;
+    var nextScale = Math.max(0.15, Math.min(scaleX, scaleY, 1.2)); // cap max zoom for singular elements to 1.2
+    
+    // Center the scaled bounding box inside viewport
+    var graphCenterX = minX + (maxX - minX) / 2;
+    var graphCenterY = minY + (maxY - minY) / 2;
+    
+    vPan.scale = nextScale;
+    vPan.x = (viewW / 2) - graphCenterX * nextScale;
+    vPan.y = (viewH / 2) - graphCenterY * nextScale;
+
+    renderVCanvas();
+    persistCanvasState();
+  }
+
   function applyCanvasGraph(data) {
     var incoming = Array.isArray(data.nodes) ? data.nodes : [];
     if (incoming.length === 0) {
@@ -1517,6 +1603,32 @@
     nodeRulesCard.style.display = 'block';
     var childRulesHtml = '<div style="font-weight: 600; margin-bottom: 4px;">Node Rules</div><ul style="padding-left:16px; margin: 0; font-size: 11px; word-break: break-word;">';
     var hasRules = false;
+
+    if (n.type === 'persona') {
+      var personaMeta = personaFromNode(n);
+      var personaResolved = resolvePersonaRuleEntries(personaMeta);
+      if (personaResolved.entries.length > 0) {
+        var sourceSuffix = personaResolved.sourceLabel
+          ? ' <span style="opacity:.7;">(' + esc(personaResolved.sourceLabel) + ')</span>'
+          : '';
+        childRulesHtml = '<div style="font-weight: 600; margin-bottom: 4px;">Persona Rules' + sourceSuffix + '</div><ul style="padding-left:16px; margin: 0; font-size: 11px; word-break: break-word;">';
+        personaResolved.entries.forEach(function (entry) {
+          var txt = String(entry.text || '').trim();
+          if (!txt) { return; }
+          var disabled = entry.disabled === true;
+          childRulesHtml += '<li style="margin-bottom: 4px;' + (disabled ? ' opacity:.6; text-decoration: line-through;' : '') + '">' + esc(txt) + '</li>';
+          hasRules = true;
+        });
+        childRulesHtml += '</ul>';
+      }
+    }
+
+    if (hasRules) {
+      if (nodeRulesContainer.innerHTML !== childRulesHtml) {
+         nodeRulesContainer.innerHTML = childRulesHtml;
+      }
+      return;
+    }
     
     var findRules = function(parentId) {
       var children = vEdges.filter(function(e) { return e.from === parentId; }).map(function(e) { return e.to; });
@@ -2024,7 +2136,7 @@
         var x2 = toN.x * vPan.scale + vPan.x;
         var y2 = (toN.y + toH / 2) * vPan.scale + vPan.y;
         var isSelected = vSelectedEdge && vSelectedEdge.from === e.from && vSelectedEdge.to === e.to;
-        html += '<path data-edge-index="' + index + '" class="vcanvas-edge' + (isSelected ? ' selected' : '') + '" marker-end="url(#arrow)" d="M ' + x1 + ' ' + y1 + ' C ' + (x1+40) + ' ' + y1 + ', ' + (x2-40) + ' ' + y2 + ', ' + x2 + ' ' + y2 + '" />';
+        html += '<path data-edge-index="' + index + '" class="vcanvas-edge' + (isSelected ? ' selected' : '') + '" marker-end="url(#arrow)" d="M ' + x1 + ' ' + y1 + ' C ' + (x1+15) + ' ' + y1 + ', ' + (x2-15) + ' ' + y2 + ', ' + x2 + ' ' + y2 + '" />';
       }
     });
     if (vIsLinking && vLinkFrom) {
@@ -2034,7 +2146,7 @@
         var fromH = fromN.h || 30;
         var x1 = (fromN.x + fromW) * vPan.scale + vPan.x;
         var y1 = (fromN.y + fromH / 2) * vPan.scale + vPan.y;
-        html += '<path class="vcanvas-edge drawing" marker-end="url(#arrow)" d="M ' + x1 + ' ' + y1 + ' C ' + (x1+40) + ' ' + y1 + ', ' + (mouseX-40) + ' ' + mouseY + ', ' + mouseX + ' ' + mouseY + '" />';
+        html += '<path class="vcanvas-edge drawing" marker-end="url(#arrow)" d="M ' + x1 + ' ' + y1 + ' C ' + (x1+15) + ' ' + y1 + ', ' + (mouseX-15) + ' ' + mouseY + ', ' + mouseX + ' ' + mouseY + '" />';
       }
     }
     svg.innerHTML = html;
@@ -2188,7 +2300,7 @@
       var node = vNodes.find(function (item) { return item.id === nodeId; });
       if (!node) { return; }
       node.collapsed = !node.collapsed;
-      renderVCanvas();
+      fitCanvasToViewport(); // Auto fit viewport to max nodes on click toggle
       recordCanvasHistory();
       setCanvasNotice(node.collapsed ? 'Children hidden.' : 'Children shown.', 'ok');
       event.preventDefault();
@@ -2217,7 +2329,7 @@
         });
         btnCollapseAll.style.display = 'none';
         if (btnExpandAll) btnExpandAll.style.display = 'inline-block';
-        renderVCanvas();
+        fitCanvasToViewport(); // Auto fit viewport to max nodes on collapse all
         recordCanvasHistory();
       });
     }
@@ -2226,56 +2338,14 @@
         vNodes.forEach(function(n) { n.collapsed = false; });
         btnExpandAll.style.display = 'none';
         if (btnCollapseAll) btnCollapseAll.style.display = 'inline-block';
-        renderVCanvas();
+        fitCanvasToViewport(); // Auto fit viewport to max nodes on expand all
         recordCanvasHistory();
       });
     }
 
     var btnFitCanvas = document.getElementById('vBtnFitCanvas');
     if (btnFitCanvas) {
-      btnFitCanvas.addEventListener('click', function() {
-        var host = document.getElementById('vCanvasContainer');
-        if (!host || vNodes.length === 0) { return; }
-        
-        // Find visible nodes
-        var visibleNodes = vNodes.filter(function(n) { return n.__visible !== false; });
-        if (visibleNodes.length === 0) { visibleNodes = vNodes; }
-
-        var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-        visibleNodes.forEach(function(n) {
-          if (n.x < minX) minX = n.x;
-          if (n.x > maxX) maxX = n.x;
-          if (n.y < minY) minY = n.y;
-          if (n.y > maxY) maxY = n.y;
-        });
-
-        // Add padding around elements
-        var extraPad = 40;
-        var graphW = (maxX - minX) + extraPad * 2;
-        var graphH = (maxY - minY) + extraPad * 2;
-        if (graphW <= 0) graphW = 100;
-        if (graphH <= 0) graphH = 100;
-
-        var viewW = host.clientWidth;
-        var viewH = host.clientHeight;
-        if (viewW <= 0) viewW = 800; // sensible fallback
-        if (viewH <= 0) viewH = 500;
-
-        var scaleX = viewW / graphW;
-        var scaleY = viewH / graphH;
-        var nextScale = Math.max(0.15, Math.min(scaleX, scaleY, 1.2)); // cap max zoom for singular elements to 1.2
-        
-        // Center the scaled bounding box inside viewport
-        var graphCenterX = minX + (maxX - minX) / 2;
-        var graphCenterY = minY + (maxY - minY) / 2;
-        
-        vPan.scale = nextScale;
-        vPan.x = (viewW / 2) - graphCenterX * nextScale;
-        vPan.y = (viewH / 2) - graphCenterY * nextScale;
-
-        renderVCanvas();
-        persistCanvasState();
-      });
+      btnFitCanvas.addEventListener('click', fitCanvasToViewport);
     }
 
     var btnToggleFullscreen = document.getElementById('vBtnToggleFullscreen');
@@ -2310,7 +2380,7 @@
         vSelectedEdge = null;
         updateVInspector();
         updateSelectedLinkInspector();
-        renderVCanvas();
+        fitCanvasToViewport(); // Auto fit viewport to max nodes on remove
         recordCanvasHistory();
       }
     });
@@ -2503,7 +2573,7 @@
       x: -vPan.x / vPan.scale + 50,
       y: -vPan.y / vPan.scale + 50
     });
-    renderVCanvas();
+    fitCanvasToViewport(); // Auto fit viewport to max nodes on add
     recordCanvasHistory();
   }
 

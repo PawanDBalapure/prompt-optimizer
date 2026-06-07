@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 
 import { CONVERSATION_KEY } from '../constants';
 import { openChatWithPrompt, openPromptProxyPanel, openExtensionReadme } from '../commands/open';
+import { maybeAutoOpenContextFiles } from '../commands/openContextFiles';
 import {
   addConversationTurn,
   buildLMMessages,
@@ -179,6 +180,7 @@ export async function handleChatRequest(
   }
 
   sinks.publishAnalysis(state);
+  await maybeAutoOpenContextFiles(context, state);
 
   const savedPct = state.metrics.raw_input_tokens > 0
     ? Math.round((state.metrics.tokens_saved / state.metrics.raw_input_tokens) * 100)

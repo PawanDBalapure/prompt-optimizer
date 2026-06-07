@@ -2,12 +2,32 @@ import * as vscode from 'vscode';
 
 import { CONVERSATION_KEY, MAX_CONVERSATION_TURNS } from '../constants';
 import type { ConversationTurn, PromptProxyPanelState } from '../types';
+ 
+function isConversationTurn(value: unknown): value is ConversationTurn {
+  const v = value as Partial<ConversationTurn> | null;
+  return Boolean(
+    v
+    && typeof v === 'object'
+    && typeof v.id === 'string'
+    && typeof v.timestamp === 'number'
+    && typeof v.user_raw === 'string'
+    && typeof v.user_optimized === 'string'
+    && typeof v.assistant === 'string'
+    && typeof v.workspace_id === 'string',
+  );
+}
+
+function readConversationStore(context: vscode.ExtensionContext): ConversationTurn[] {
+  const raw = context.globalState.get<unknown>(CONVERSATION_KEY);
+  if (!Array.isArray(raw)) { return []; }
+  return raw.filter((entry): entry is ConversationTurn => isConversationTurn(entry));
+}
 
 export function getConversation(
   context: vscode.ExtensionContext,
   workspaceId?: string,
 ): ConversationTurn[] {
-  const all = context.globalState.get<ConversationTurn[]>(CONVERSATION_KEY) ?? [];
+  const all = readConversationStore(context);
   if (!workspaceId) { return all; }
   return all.filter((t) => t.workspace_id === workspaceId || t.workspace_id === 'global');
 }
@@ -17,7 +37,7 @@ export async function addConversationTurn(
   workspaceId: string,
   turn: { user_raw: string; user_optimized: string; assistant: string },
 ): Promise<void> {
-  const all = context.globalState.get<ConversationTurn[]>(CONVERSATION_KEY) ?? [];
+  const all = readConversationStore(context);
   all.push({
     id: Date.now().toString(36),
     timestamp: Date.now(),
@@ -33,7 +53,7 @@ export async function clearConversationForWorkspace(
   context: vscode.ExtensionContext,
   workspaceId: string,
 ): Promise<void> {
-  const all = context.globalState.get<ConversationTurn[]>(CONVERSATION_KEY) ?? [];
+  const all = readConversationStore(context);
   const kept = all.filter((t) => t.workspace_id !== workspaceId);
   await context.globalState.update(CONVERSATION_KEY, kept);
 }

@@ -56,6 +56,8 @@ export interface SdlcModeDescriptor {
   rolePreface: string;
   /** Quality checklist appended after the optimized request. */
   checklist: string[];
+  /** Origin of the spec — built-in vs. user-authored custom skill. */
+  source: 'builtin' | 'workspace' | 'global';
 }
 
 interface ModeSpec {
@@ -946,14 +948,23 @@ function buildDescriptor(id: string, spec: ModeSpec, trigger: string | null): Sd
     readOnly: spec.readOnly,
     rolePreface: spec.rolePreface,
     checklist: spec.checklist.slice(),
+    source: spec.source ?? 'builtin',
   };
 }
 
 /**
  * Render the role preface block (`# Role`) prepended to the optimized prompt.
+ *
+ * @param compact When true, emit only the single role-label line and omit the
+ *   verbose role-preface paragraph. Used for intent-detected modes, where the
+ *   user has not explicitly opted into a heavyweight workflow persona, so the
+ *   repeated boilerplate paragraph would just inflate tokens.
  */
-export function renderRoleSection(mode: SdlcModeDescriptor): string {
+export function renderRoleSection(mode: SdlcModeDescriptor, compact = false): string {
   const readOnlyLine = mode.readOnly ? ' (READ-ONLY — do not modify files)' : '';
+  if (compact) {
+    return `role: >\n  ${mode.label}${readOnlyLine}`;
+  }
   return `role: >\n  ${mode.label}${readOnlyLine}\n  ${mode.rolePreface.replace(/\n/g, '\n  ')}`;
 }
 
