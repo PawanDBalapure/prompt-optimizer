@@ -115,11 +115,41 @@ export async function runCoreScenarios(dbFile: string): Promise<void> {
   assert.ok(/Do not use jQuery/i.test(compiled), 'negative preference should appear as a constraint');
   // Conversational filler is removed from the task line.
   assert.ok(!/\bplease\b/i.test(compiled), 'filler ("please") should be stripped');
+  const taskMatch = compiled.match(/^task:\s+"([^"]+)"/m);
+  assert.ok(taskMatch, 'structured prompt should include a task line');
+  assert.ok(
+    /easy to use/i.test(taskMatch?.[1] ?? ''),
+    'task should preserve multiline intent instead of using only the first line',
+  );
   // Standing output-discipline constraints suppress verbose responses.
   assert.ok(/No conversational filler, preamble, or sign-offs\./.test(compiled), 'discipline constraint should be appended');
   // Structured spec is also exposed on the IR for downstream consumers.
   assert.ok(compilerResp.structured_ir?.compiler_spec, 'compiler_spec should be attached to structured_ir');
   assert.ok((compilerResp.structured_ir?.compiler_spec?.requirements.length ?? 0) >= 3);
+
+  const multilineQuestionResp = await engine.processRequest({
+    raw_prompt: [
+      'panel html input prompt text area to support multi-line support.',
+      'what are the scenarios that are matching to preserve this ?',
+    ].join('\n'),
+    workspace_id: 'compiler-multiline-question-demo',
+  });
+  assertSchema(multilineQuestionResp);
+  const multilineCompiled = multilineQuestionResp.optimized_prompt;
+  const multilineTaskMatch = multilineCompiled.match(/^task:\s+"([^"]+)"/m);
+  assert.ok(multilineTaskMatch, 'multiline question prompt should include task line');
+  assert.ok(
+    /panel html input prompt text area/i.test(multilineTaskMatch?.[1] ?? ''),
+    'task should preserve first multiline statement',
+  );
+  assert.ok(
+    /scenarios/i.test(multilineTaskMatch?.[1] ?? ''),
+    'task should preserve question line instead of collapsing to single-line rewrite',
+  );
+  assert.ok(
+    !/Explain the purpose of/i.test(multilineTaskMatch?.[1] ?? ''),
+    'multiline prompts should not be forced into single-question rewrite template',
+  );
 
   engine.close();
 }

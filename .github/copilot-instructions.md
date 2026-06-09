@@ -47,13 +47,14 @@ Keep it concise — bullet points and short paragraphs work best.
 ### Project knowledge graph (auto)
 
 - **TypeScript/JavaScript**: Language: TypeScript/JavaScript
-- **what does the promt proxy engine file does ?**: what does the promt proxy engine file does ?
-- **buildModeItems in extension.ts what is it ?**: buildModeItems in extension.ts what is it ?
-- **what does buildModeItems does in extension.ts ?**: what does buildModeItems does in extension.ts ?
+- **panel html input prompt text area to support multi-line s...**: panel html input prompt text area to support multi-line support. what are the scenarios that are matching to preserve this ?
 - **__workspace_seed__**: Aggregated workspace harvest
-- **c:/Users/Pawan/prompt-optimizer/vscode-extension/src/chat/analyzer**: Dependency file: c:/Users/Pawan/prompt-optimizer/vscode-extension/src/chat/analyzer
-- **c:/Users/Pawan/prompt-optimizer/vscode-extension/src/engine/seeder**: Dependency file: c:/Users/Pawan/prompt-optimizer/vscode-extension/src/engine/seeder
-- **c:/Users/Pawan/prompt-optimizer/vscode-extension/src/engine/runner**: Dependency file: c:/Users/Pawan/prompt-optimizer/vscode-extension/src/engine/runner
+- **c:/Users/Pawan/prompt-optimizer/src/tests/harness.js**: Dependency file: c:/Users/Pawan/prompt-optimizer/src/tests/harness.js
+- **c:/Users/Pawan/prompt-optimizer/src/contracts.js**: Dependency file: c:/Users/Pawan/prompt-optimizer/src/contracts.js
+- **runContentPipelineScenario**: Symbol: runContentPipelineScenario
+- **c:/Users/Pawan/prompt-optimizer/src/PromptProxyEngine.js**: Dependency file: c:/Users/Pawan/prompt-optimizer/src/PromptProxyEngine.js
+- **c:/Users/Pawan/prompt-optimizer/src/tests/instructionStudio.test.js**: Dependency file: c:/Users/Pawan/prompt-optimi
+... (truncated)
 
 ### Recently studied files (auto)
 

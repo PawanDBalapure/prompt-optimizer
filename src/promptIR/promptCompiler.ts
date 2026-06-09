@@ -290,21 +290,25 @@ function extractIntent(rawPrompt: string, ir: PromptIR): PromptCompilerSpec['int
 
 /**
  * Condense the raw prompt into a single imperative task line. Questions about
- * where/what a symbol is become "Locate/Explain …"; everything else is the
- * first sentence with filler, pronouns, and politeness stripped (original case
- * preserved so identifiers like `CI` survive), clamped on a word boundary.
+ * where/what a symbol is become "Locate/Explain …"; everything else uses the
+ * first few normalized sentences (newlines merged to spaces) with filler,
+ * pronouns, and politeness stripped (original case preserved so identifiers
+ * like `CI` survive), then clamped on a word boundary.
  */
 function synthesizeTask(rawPrompt: string, ir: PromptIR, intent: PromptCompilerSpec['intent']): string {
   const lower = rawPrompt.toLowerCase();
   const subj = detectSubject(rawPrompt);
   const subject = subj.text;
+  const normalizedPrompt = rawPrompt.replace(/\r?\n+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  const leadingSentences = splitSentences(normalizedPrompt).slice(0, 3);
 
   const asksWhere = /\b(where (?:is|are|can i find)|located|location of)\b/.test(lower);
   const asksWhat = /\b(what (?:does|is|are|do)|purpose of|what's)\b/.test(lower);
   const asksHow = /\bhow (?:does|do|is|are)\b/.test(lower);
   const asksWhy = /\bwhy (?:does|do|is|are|did)\b/.test(lower);
+  const isQuestionOnlyPrompt = leadingSentences.length <= 1;
 
-  if (subject !== '' && (asksWhere || asksWhat || asksHow || asksWhy)) {
+  if (isQuestionOnlyPrompt && subject !== '' && (asksWhere || asksWhat || asksHow || asksWhy)) {
     const scopeFile = detectScopeFile(rawPrompt, subject);
     const inScope = scopeFile === '' ? ' within the repository' : ` in ${scopeFile}`;
     // Backtick genuine code identifiers; describe plain phrases in prose.
@@ -316,10 +320,11 @@ function synthesizeTask(rawPrompt: string, ir: PromptIR, intent: PromptCompilerS
     return `Explain the purpose of ${label}${inScope}.`;
   }
 
-  // Imperative restatement from the first sentence (faithful, original case).
-  const firstSentence = splitSentences(rawPrompt)[0] ?? rawPrompt;
-  let t = stripLeadingFiller(stripNoise(firstSentence));
-  if (t.length < 4) { t = stripLeadingFiller(stripNoise(rawPrompt)); }
+  // Normalize multiline prompts to one flow so task synthesis preserves
+  // combined intent instead of collapsing to a single question line.
+  const leadingSentencesText = leadingSentences.join(' ');
+  let t = stripLeadingFiller(stripNoise(leadingSentencesText || normalizedPrompt));
+  if (t.length < 4) { t = stripLeadingFiller(stripNoise(normalizedPrompt)); }
   if (t.length < 4) { t = ensureSentence(intent.task); }
   // Drop a stranded "<verb> me/us" object ("Build me a page" → "Build a page").
   t = t.replace(/^(\w+)\s+(?:me|us)\s+/i, '$1 ');
