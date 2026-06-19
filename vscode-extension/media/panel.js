@@ -137,6 +137,11 @@ document.getElementById('btnCopyOptimized').addEventListener('click', function()
   vscode.postMessage({ type: 'copyPrompt', prompt: currentState.optimized });
 });
 
+document.getElementById('btnOpenContextFiles').addEventListener('click', function() {
+  if (!currentState || !currentState.analysis) { clearAlerts(); addAlert('warning', 'Run Optimize or Agent first.'); return; }
+  vscode.postMessage({ type: 'openContextFiles' });
+});
+
 btnSettingsMenu.addEventListener('click', function(event) {
   event.stopPropagation();
   setSettingsMenuOpen(settingsMenu.hidden);

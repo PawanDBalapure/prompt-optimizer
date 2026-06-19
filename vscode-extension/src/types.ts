@@ -72,6 +72,11 @@ export interface PromptProxyAnalysis {
       path: string;
       ranges: Array<{ start_line: number; end_line: number }>;
     }>;
+    deterministic_routing?: {
+      status: 'resolved' | 'ambiguous' | 'unresolved';
+      strategy: 'path-symbol' | 'semantic-fallback' | 'active-file-fallback' | 'none';
+      reason: string;
+    };
   };
   cost: {
     input_cost_usd: number;

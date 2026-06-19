@@ -46,22 +46,22 @@ Keep it concise — bullet points and short paragraphs work best.
 
 ### Project knowledge graph (auto)
 
-- **TypeScript/JavaScript**: Language: TypeScript/JavaScript
-- **panel html input prompt text area to support multi-line s...**: panel html input prompt text area to support multi-line support. what are the scenarios that are matching to preserve this ?
 - **__workspace_seed__**: Aggregated workspace harvest
-- **c:/Users/Pawan/prompt-optimizer/src/tests/harness.js**: Dependency file: c:/Users/Pawan/prompt-optimizer/src/tests/harness.js
-- **c:/Users/Pawan/prompt-optimizer/src/contracts.js**: Dependency file: c:/Users/Pawan/prompt-optimizer/src/contracts.js
-- **runContentPipelineScenario**: Symbol: runContentPipelineScenario
-- **c:/Users/Pawan/prompt-optimizer/src/PromptProxyEngine.js**: Dependency file: c:/Users/Pawan/prompt-optimizer/src/PromptProxyEngine.js
-- **c:/Users/Pawan/prompt-optimizer/src/tests/instructionStudio.test.js**: Dependency file: c:/Users/Pawan/prompt-optimi
-... (truncated)
+- **TypeScript/JavaScript**: Language: TypeScript/JavaScript
+- **is there a prompt ir helper and wht does it do ?**: is there a prompt ir helper and wht does it do ?
+- **c:/Users/Pawan/prompt-optimizer/src/engine/insights.js**: Dependency file: c:/Users/Pawan/prompt-optimizer/src/engine/insights.js
+- **c:/Users/Pawan/prompt-optimizer/src/promptIR/promptCompiler.js**: Dependency file: c:/Users/Pawan/prompt-optimizer/src/promptIR/promptCompiler.js
+- **originalRaw**: Symbol: originalRaw
+- **c:/Users/Pawan/prompt-optimizer/src/SemanticCacheManager.js**: Dependency file: c:/Users/Pawan/prompt-optimizer/src/SemanticCacheManager.js
+- **c:/Users/Pawan/prompt-optimizer/src/RepoAwareness.js**: Dependency file: c:/Users/Pawan/prompt-optimizer/src/RepoAwareness.js
 
 ### Recently studied files (auto)
 
 - `c:\Users\Pawan\prompt-optimizer\src\PromptIRHelper.ts` — /** • * Barrel re-export — preserves the historical import path while the • * implementation lives in focused modules under ./promptIR/. • *…
 - `c:\Users\Pawan\prompt-optimizer\vscode-extension\media\panel.html` — <!DOCTYPE html> • <html lang="en"> • <head> • <meta charset="UTF-8"> • <meta name="viewport" content="width=device-width, initial-scale=1.0"…
 - `c:\Users\Pawan\prompt-optimizer\vscode-extension\src\extension.ts` — import * as vscode from 'vscode'; • import * as fs from 'fs'; • import * as path from 'path'; • import { • CHAT_PARTICIPANT_ID, • ENRICH_INT…
-- `c:\Users\Pawan\prompt-optimizer\intellij-plugin\src\main\resources\META-INF\plugin.xml` — <!-- Plugin descriptor — read by IntelliJ Platform at load time --> • <idea-plugin> • <id>com.promptproxy.optimizer</id
+- `c:\Users\Pawan\prompt-optimizer\src\PromptProxyEngine.ts` — import { SemanticCacheManager, CacheQueryResult } from './SemanticCacheManager.js'; • import type { • PromptCacheCandidate, • ProcessPromptR…
+- `c:
 ... (truncated)
 
 <!-- prompt-optimizer:memory:end -->

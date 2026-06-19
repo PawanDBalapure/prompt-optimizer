@@ -86,6 +86,217 @@ export function lineMatchesLiteral(lineLower: string, terms: Set<string>): boole
   return false;
 }
 
+const FENCE_BLOCK = /```[^\n]*\n([\s\S]*?)```/g;
+const INLINE_CODE = /`([^`\n]+)`/g;
+const QUOTED_SPAN = /"([^"\n]{6,})"|'([^'\n]{6,})'/g;
+
+/**
+ * Pull the verbatim code/text *lines* a prompt quotes so they can be matched
+ * exactly against a file: fenced-code block lines, inline-backtick spans, and
+ * quoted strings. Single bare identifiers are intentionally excluded (those
+ * flow through {@link extractSalientTerms}); a literal here is a multi-token
+ * fragment worth pinpointing to an exact line. Returned trimmed, de-duplicated,
+ * and ordered longest-first so the most specific fragment wins a tie.
+ */
+export function extractPromptLiterals(rawPrompt: string): string[] {
+  const out = new Set<string>();
+  const add = (value: string): void => {
+    const literal = value.trim();
+    // Keep only fragments specific enough to pin a line: length >= 6 and either
+    // multiple tokens or an operator/punctuation character (real code/text),
+    // never a lone word that would match too loosely.
+    if (literal.length < 6) { return; }
+    const multiToken = /\s/.test(literal);
+    const hasSymbol = /[=(){}\[\].;:<>+\-*/%&|!?]/.test(literal);
+    if (!multiToken && !hasSymbol) { return; }
+    out.add(literal);
+  };
+
+  for (const match of rawPrompt.matchAll(FENCE_BLOCK)) {
+    for (const line of match[1].split(/\r?\n/)) { add(line); }
+  }
+  for (const match of rawPrompt.matchAll(INLINE_CODE)) { add(match[1]); }
+  for (const match of rawPrompt.matchAll(QUOTED_SPAN)) { add(match[1] ?? match[2] ?? ''); }
+
+  return [...out].sort((left, right) => right.length - left.length);
+}
+
+const WHITESPACE_RUN = /\s+/g;
+
+/** Word/identifier tokens of a line, lowercased, for overlap scoring. */
+function tokenize(text: string): string[] {
+  return text.toLowerCase().match(/[a-z0-9_$]+/g) ?? [];
+}
+
+/**
+ * Jaccard token-overlap similarity in [0, 1]. Order-independent so reflowed or
+ * lightly-edited code still scores high; used only as a gated last-resort
+ * fallback and as the primary tiebreak between equally-strong candidates.
+ */
+function tokenSimilarity(a: string, b: string): number {
+  const ta = new Set(tokenize(a));
+  const tb = new Set(tokenize(b));
+  if (ta.size === 0 || tb.size === 0) { return 0; }
+  let intersection = 0;
+  for (const token of ta) { if (tb.has(token)) { intersection++; } }
+  return intersection / (ta.size + tb.size - intersection);
+}
+
+const REGEX_META = /[.*+?^${}()|[\]\\]/g;
+
+/**
+ * Build a whitespace-flexible, anchor-free regex from a literal so a quoted
+ * fragment still matches a file line whose indentation or inner spacing drifted
+ * (e.g. `if (x===5)` vs `if (x === 5)`). Regex metacharacters are escaped first,
+ * then runs of whitespace are relaxed to `\s+`. Returns null on an un-compilable
+ * pattern so callers degrade gracefully instead of throwing.
+ */
+function buildFlexibleRegex(literal: string): RegExp | null {
+  const escaped = literal.trim().replace(REGEX_META, '\\$&').replace(/\s+/g, '\\s*');
+  try {
+    return new RegExp(escaped, 'i');
+  } catch {
+    return null;
+  }
+}
+
+/** Minimum token-overlap for the fuzzy fallback tier to accept a line. */
+const FUZZY_MIN_SIMILARITY = 0.7;
+
+/**
+ * Tiered exact-match strength of a literal against a single file line, from
+ * strongest to a gated fuzzy fallback:
+ *   5 exact · 4 whitespace-normalized · 3 containment · 2 regex-flexible ·
+ *   1 fuzzy token-overlap (>= {@link FUZZY_MIN_SIMILARITY}). 0 = no match.
+ */
+function literalMatchTier(lineTrimmed: string, literal: string): number {
+  if (lineTrimmed === literal) { return 5; }                                   // exact
+  const lineWs = lineTrimmed.replace(WHITESPACE_RUN, ' ');
+  const litWs = literal.replace(WHITESPACE_RUN, ' ');
+  if (lineWs === litWs) { return 4; }                                          // whitespace-normalized
+  if (literal.length >= 8 && lineWs.includes(litWs)) { return 3; }             // containment
+  if (literal.length >= 8) {                                                   // regex-flexible
+    const flexible = buildFlexibleRegex(literal);
+    if (flexible && flexible.test(lineTrimmed)) { return 2; }
+  }
+  if (tokenSimilarity(lineTrimmed, literal) >= FUZZY_MIN_SIMILARITY) { return 1; } // fuzzy fallback
+  return 0;
+}
+
+/**
+ * Resolve each quoted prompt literal to the single most-likely file line,
+ * disambiguating ties deterministically:
+ *   1. strongest match tier (exact → … → fuzzy);
+ *   2. highest token-overlap with the literal (most similar content wins —
+ *      this is what finalizes "confusing" near-duplicate lines);
+ *   3. nearest to a salient-symbol anchor line (tight clustering wins);
+ *   4. nearest to lines already claimed by other literals (context cohesion);
+ *   5. lowest line index (stable final tiebreak).
+ * Lines whose only candidates are weak/ambiguous and cannot be narrowed are
+ * dropped rather than guessed — callers stay exact and never hallucinate.
+ */
+export function resolveLiteralLineIndexes(
+  lines: string[],
+  literals: string[],
+  anchorIndexes: number[],
+): number[] {
+  if (literals.length === 0) { return []; }
+  const trimmed = lines.map((line) => line.trim());
+  const resolved: number[] = [];
+  const claimed = new Set<number>();
+
+  const nearest = (index: number, others: number[]): number => {
+    let best = Number.POSITIVE_INFINITY;
+    for (const other of others) { best = Math.min(best, Math.abs(index - other)); }
+    return best;
+  };
+
+  for (const literal of literals) {
+    let bestTier = 0;
+    const candidates: number[] = [];
+    for (let index = 0; index < trimmed.length; index++) {
+      const tier = literalMatchTier(trimmed[index], literal);
+      if (tier === 0) { continue; }
+      if (tier > bestTier) { bestTier = tier; candidates.length = 0; }
+      if (tier === bestTier) { candidates.push(index); }
+    }
+    if (candidates.length === 0) { continue; }
+
+    let winner = candidates[0];
+    if (candidates.length > 1) {
+      const cohesion = [...claimed, ...anchorIndexes];
+      winner = candidates
+        .map((index) => ({
+          index,
+          similarity: tokenSimilarity(trimmed[index], literal),
+          anchor: nearest(index, anchorIndexes),
+          cohere: nearest(index, cohesion),
+        }))
+        .sort((a, b) =>
+          b.similarity - a.similarity
+          || a.anchor - b.anchor
+          || a.cohere - b.cohere
+          || a.index - b.index)[0]
+        .index;
+    }
+    if (!claimed.has(winner)) {
+      claimed.add(winner);
+      resolved.push(winner);
+    }
+  }
+  return resolved.sort((left, right) => left - right);
+}
+
+/**
+ * Locate a user's editor selection inside the file so the IDE can re-highlight
+ * the exact lines it came from. Anchors on the first non-blank selection line
+ * (via the tiered exact → fuzzy matcher), then matches each following line as a
+ * bounded-gap subsequence so file lines the selection skipped (blank lines,
+ * intervening statements) don't break alignment. The best-scoring placement
+ * wins; returns the covering range, or `[]` when no placement clears a 60%
+ * line-match confidence bar (so a drifted selection never highlights the wrong
+ * block).
+ */
+export function locateSelectionRanges(lines: string[], selection: string): LineRange[] {
+  const selectionLines = selection
+    .replace(/\r/g, '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
+  if (selectionLines.length === 0 || lines.length === 0) { return []; }
+
+  const trimmed = lines.map((line) => line.trim());
+  const first = selectionLines[0];
+  // Tolerate a few unrelated file lines between consecutive selection lines.
+  const MAX_GAP = 3;
+
+  let best: { start: number; end: number; score: number } | null = null;
+  for (let start = 0; start < trimmed.length; start++) {
+    if (literalMatchTier(trimmed[start], first) === 0) { continue; }
+
+    let matched = 1;
+    let cursor = start + 1;
+    for (let s = 1; s < selectionLines.length; s++) {
+      const limit = Math.min(trimmed.length, cursor + MAX_GAP + 1);
+      let found = -1;
+      for (let probe = cursor; probe < limit; probe++) {
+        if (literalMatchTier(trimmed[probe], selectionLines[s]) > 0) { found = probe; break; }
+      }
+      if (found !== -1) {
+        matched++;
+        cursor = found + 1;
+      }
+    }
+    const end = Math.min(Math.max(start, cursor - 1), trimmed.length - 1);
+    if (!best || matched > best.score) { best = { start, end, score: matched }; }
+  }
+
+  if (best && best.score >= Math.ceil(selectionLines.length * 0.6)) {
+    return [{ start: best.start, end: best.end }];
+  }
+  return [];
+}
+
 /**
  * Expand the matched line indexes by ±2 lines of context, cap at `maxLines`,
  * and emit both the rendered snippet (with `...` gap separators) and the
@@ -153,12 +364,20 @@ export function extractRelevantFileSnippet(
   file: IdeContextFile,
   queryTerms: Set<string>,
   salientTerms?: Set<string>,
+  promptLiterals?: string[],
 ): FileSnippet {
   const language = file.language ?? detectLanguageFromPath(file.path);
 
   // 1. An explicit user selection is the most relevant, slimmest context.
+  //    Locate it inside the file (exact → normalized → regex → fuzzy) so the
+  //    IDE can re-highlight the exact lines; emit no range only when no
+  //    confident placement exists rather than guessing.
   if ((file.selection ?? '').trim() !== '') {
-    return { text: stripCodeBoilerplate((file.selection as string).trim(), language), ranges: [] };
+    const selectionText = (file.selection as string).trim();
+    const selectionRanges = file.content
+      ? locateSelectionRanges(file.content.split(/\r?\n/), selectionText)
+      : [];
+    return { text: stripCodeBoilerplate(selectionText, language), ranges: selectionRanges };
   }
 
   const lines = file.content.split(/\r?\n/);
@@ -174,17 +393,29 @@ export function extractRelevantFileSnippet(
   // 3a. Prefer literal symbol hits when the prompt names a concrete symbol.
   //     Matching the whole identifier (word-boundary) keeps the snippet tight
   //     and on-topic instead of every line sharing a generic split fragment.
+  const symbolLineIndexes: number[] = [];
   if (salientTerms && salientTerms.size > 0) {
-    const symbolLineIndexes: number[] = [];
     for (let index = 0; index < lines.length; index++) {
       if (lineMatchesLiteral(lines[index].toLowerCase(), salientTerms)) {
         symbolLineIndexes.push(index);
       }
     }
-    if (symbolLineIndexes.length > 0) {
-      const region = buildSnippetFromLineIndexes(lines, symbolLineIndexes, MAX_FILE_LINES);
+  }
+
+  // 3a-exact. When the prompt quotes verbatim code/text, pin those exact lines
+  //     via regex/string match and disambiguate ties against the symbol anchors
+  //     above. This is the most precise signal, so it wins outright.
+  if (promptLiterals && promptLiterals.length > 0) {
+    const literalIndexes = resolveLiteralLineIndexes(lines, promptLiterals, symbolLineIndexes);
+    if (literalIndexes.length > 0) {
+      const region = buildSnippetFromLineIndexes(lines, literalIndexes, MAX_FILE_LINES);
       return { text: stripCodeBoilerplate(region.text.trim(), language), ranges: region.ranges };
     }
+  }
+
+  if (symbolLineIndexes.length > 0) {
+    const region = buildSnippetFromLineIndexes(lines, symbolLineIndexes, MAX_FILE_LINES);
+    return { text: stripCodeBoilerplate(region.text.trim(), language), ranges: region.ranges };
   }
 
   // 3b. Larger files: extract only the query-relevant region so the optimized

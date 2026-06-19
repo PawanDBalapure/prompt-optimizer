@@ -1,4 +1,5 @@
 import { PromptIR, PromptCompilerSpec } from '../contracts.js';
+import { correctSpelling } from '../engine/textOptimizer.js';
 
 /**
  * Compiler-style prompt pipeline.
@@ -300,7 +301,7 @@ function synthesizeTask(rawPrompt: string, ir: PromptIR, intent: PromptCompilerS
   const subj = detectSubject(rawPrompt);
   const subject = subj.text;
   const normalizedPrompt = rawPrompt.replace(/\r?\n+/g, ' ').replace(/\s{2,}/g, ' ').trim();
-  const leadingSentences = splitSentences(normalizedPrompt).slice(0, 3);
+  const leadingSentences = dedupeSentences(splitSentences(normalizedPrompt)).slice(0, 3);
 
   const asksWhere = /\b(where (?:is|are|can i find)|located|location of)\b/.test(lower);
   const asksWhat = /\b(what (?:does|is|are|do)|purpose of|what's)\b/.test(lower);
@@ -328,6 +329,7 @@ function synthesizeTask(rawPrompt: string, ir: PromptIR, intent: PromptCompilerS
   if (t.length < 4) { t = ensureSentence(intent.task); }
   // Drop a stranded "<verb> me/us" object ("Build me a page" → "Build a page").
   t = t.replace(/^(\w+)\s+(?:me|us)\s+/i, '$1 ');
+  t = correctSpelling(t);
   t = clampWords(t, 160);
   return ensureSentence(capitalize(t));
 }
@@ -486,6 +488,23 @@ function splitSentences(text: string): string[] {
     .split(/(?<=[.!?])\s+|\n+/)
     .map((s) => s.replace(/^[-*\d.\s]+/, '').trim())
     .filter((s) => s.length > 0 && !s.startsWith('```'));
+}
+
+/**
+ * Drop repeated sentences (case/whitespace-insensitive) so a doubled
+ * instruction does not inflate the synthesized task line. Pure deletion —
+ * order of first occurrence is preserved and tokens can only decrease.
+ */
+function dedupeSentences(sentences: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const sentence of sentences) {
+    const key = sentence.toLowerCase().replace(/\s+/g, ' ').replace(/[.!?]+$/, '').trim();
+    if (key === '' || seen.has(key)) { continue; }
+    seen.add(key);
+    out.push(sentence);
+  }
+  return out;
 }
 
 function stripNoise(text: string): string {

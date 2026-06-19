@@ -39,6 +39,11 @@ data class OptimizationResult(
     val requestId: String?,
     val reusedSegments: List<ReusedSegment> = emptyList(),
     val reusedTokensSaved: Int = 0,
+    val contextWorkspaceRoot: String? = null,
+    val contextActiveFile: String? = null,
+    val contextSelectedFiles: List<String> = emptyList(),
+    val contextSnippets: List<ContextSnippet> = emptyList(),
+    val deterministicRouting: DeterministicRouting? = null,
 )
 
 /** A context block served from the local cache instead of resent. */
@@ -46,6 +51,22 @@ data class ReusedSegment(
     val label: String,
     val ref: String,
     val tokensSaved: Int,
+)
+
+data class ContextSnippetRange(
+    val startLine: Int,
+    val endLine: Int,
+)
+
+data class ContextSnippet(
+    val path: String,
+    val ranges: List<ContextSnippetRange>,
+)
+
+data class DeterministicRouting(
+    val status: String,
+    val strategy: String,
+    val reason: String,
 )
 
 data class StatusOverview(
@@ -133,6 +154,7 @@ class PromptProxyService {
         val json = runJson(listOf("--stdin", "--db", dbPath), gson.toJson(request))
         val metrics = json.obj("metrics")
         val analysis = json.obj("analysis")
+        val analysisContext = analysis?.obj("context")
         val cache = analysis?.obj("cache") ?: json.obj("cache")
         val optimized = cleanOptimizedPrompt(json.str("optimized_prompt") ?: prompt)
         val sdlc = json.obj("sdlc_mode")?.str("label") ?: json.obj("sdlc_mode")?.str("id")
@@ -146,6 +168,35 @@ class PromptProxyService {
                 )
             }
         } ?: emptyList()
+
+        val contextSnippets = analysisContext?.arr("context_snippets")?.mapNotNull { element ->
+            if (!element.isJsonObject) return@mapNotNull null
+            val snippet = element.asJsonObject
+            val snippetPath = snippet.str("path") ?: return@mapNotNull null
+            val ranges = snippet.arr("ranges")?.mapNotNull { rangeEl ->
+                if (!rangeEl.isJsonObject) return@mapNotNull null
+                val range = rangeEl.asJsonObject
+                val start = range.int("start_line") ?: return@mapNotNull null
+                val end = range.int("end_line") ?: return@mapNotNull null
+                ContextSnippetRange(startLine = start, endLine = end)
+            } ?: emptyList()
+            ContextSnippet(path = snippetPath, ranges = ranges)
+        } ?: emptyList()
+
+        val deterministicRouting = analysisContext?.obj("deterministic_routing")?.let { routing ->
+            val status = routing.str("status")
+            val strategy = routing.str("strategy")
+            val reason = routing.str("reason")
+            if (status.isNullOrBlank() || strategy.isNullOrBlank() || reason.isNullOrBlank()) {
+                null
+            } else {
+                DeterministicRouting(status = status, strategy = strategy, reason = reason)
+            }
+        }
+
+        val contextSelectedFiles = analysisContext?.arr("selected_files")
+            ?.mapNotNull { it.takeIf { el -> el.isJsonPrimitive }?.asString }
+            ?: emptyList()
 
         return OptimizationResult(
             optimizedPrompt = optimized,
@@ -164,6 +215,11 @@ class PromptProxyService {
             requestId = json.str("request_id"),
             reusedSegments = reusedSegments,
             reusedTokensSaved = cache?.int("reused_tokens_saved") ?: reusedSegments.sumOf { it.tokensSaved },
+            contextWorkspaceRoot = analysisContext?.str("workspace_root"),
+            contextActiveFile = analysisContext?.str("active_file"),
+            contextSelectedFiles = contextSelectedFiles,
+            contextSnippets = contextSnippets,
+            deterministicRouting = deterministicRouting,
         )
     }
 

@@ -113,6 +113,12 @@ export interface ContextSnippet {
   ranges: Array<{ start_line: number; end_line: number }>;
 }
 
+export interface DeterministicRoutingDecision {
+  status: 'resolved' | 'ambiguous' | 'unresolved';
+  strategy: 'path-symbol' | 'semantic-fallback' | 'active-file-fallback' | 'none';
+  reason: string;
+}
+
 export interface ReusedCacheSegment {
   /** Section header / file path of the block reused from cache. */
   label: string;
@@ -146,6 +152,8 @@ export interface PromptOptimizationAnalysis {
     total_log_count: number;
     /** Exact line ranges per selected file the optimizer found relevant. */
     context_snippets?: ContextSnippet[];
+    /** Deterministic routing outcome for file selection. */
+    deterministic_routing?: DeterministicRoutingDecision;
   };
   cost: {
     input_cost_usd: number;

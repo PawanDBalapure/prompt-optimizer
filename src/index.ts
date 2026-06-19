@@ -19,6 +19,8 @@ export { VSCodePromptProxyAdapter } from './adapters/VSCodePromptProxyAdapter.js
 export { IntelliJPromptProxyAdapter } from './adapters/IntelliJPromptProxyAdapter.js';
 export { evaluateBestPractices, findingsToDiagnostics } from './engine/bestPractices.js';
 export type { BestPracticeFinding } from './engine/bestPractices.js';
+export { preservesMeaning, refineTextPreservingMeaning } from './engine/meaningGuard.js';
+export type { SentenceRefiner } from './engine/meaningGuard.js';
 export {
 	readWorkspaceMemory,
 	formatMemorySections,
@@ -81,3 +83,16 @@ export type {
 	InstructionStudioReplaySession,
 	InstructionStudioReplayStep,
 } from './engine/instructionStudioInsights.js';
+export {
+	RepositoryIntelligenceBuilder,
+	buildRepositoryGraphSchema,
+} from './engine/repositoryIntelligence.js';
+export type {
+	RepositoryGraphSchema,
+	DiscoveryResult,
+	IngestionStats,
+	ImpactAnalysisRequest,
+	ImpactAnalysisResult,
+	GraphNode,
+	GraphEdge,
+} from './engine/repositoryIntelligence.js';

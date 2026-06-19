@@ -6,9 +6,10 @@ import { scanForSecrets } from '../security/secret-patterns';
 import { getDbPath, getPricingConfig, getProcessingMode, getTargetModel, getDensity } from '../state/config';
 import { getLastAnalysis, addToSessionBuffer, getSessionBuffer } from '../state/session';
 import { runEngine } from '../engine/runner';
-import { getIdeContext } from '../engine/context';
+import { augmentContextWithReferencedFiles, getIdeContext } from '../engine/context';
 import { computeWorkspaceId } from '../util/workspace';
 import { isLocalModelAvailable, optimizeLocally } from '../local/localOptimizer';
+import { refineOptimizedPrompt } from '../local/grammarRefiner';
 import type {
   PromptProxyPanelState,
   PromptSource,
@@ -107,11 +108,15 @@ export async function analyzePrompt(
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const ideContext = getIdeContext(context, chatContext);
+  // Pull in files the prompt names but that aren't open, so the engine can
+  // route to and re-open them with the exact referenced region selected.
+  await augmentContextWithReferencedFiles(ideContext, rawPrompt);
   const request = {
     raw_prompt: rawPrompt,
     mode: getProcessingMode(),
     pricing: getPricingConfig(),
-    ide_context: getIdeContext(context, chatContext),
+    ide_context: ideContext,
     workspace_id: computeWorkspaceId(workspaceRoot),
     target_model: getTargetModel(context),
     density: getDensity(context),
@@ -144,9 +149,14 @@ export async function analyzePrompt(
     .replace(STRIP_LEGACY_HISTORY_RE, '')
     .trim();
 
+  // Optional model-based grammar polish. No-op unless a grammar model is
+  // bundled AND enabled; every rewrite is meaning-guarded, so the worst case
+  // is the deterministic output is returned unchanged.
+  const optimizedFinal = await refineOptimizedPrompt(context, optimizedClean);
+
   const state: PromptProxyPanelState = {
     original: rawPrompt,
-    optimized: optimizedClean,
+    optimized: optimizedFinal,
     source,
     generated_at: Date.now(),
     metrics: response.metrics,

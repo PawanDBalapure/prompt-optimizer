@@ -25,10 +25,11 @@
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-assets.mjs",
     "cli": "node dist/cli.js",
     "start": "node dist/cli.js --help",
-    "test": "node dist/test.js"
+    "test": "node dist/test.js",
+    "inspect:graph": "node scripts/inspect-graph.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^11.8.0",

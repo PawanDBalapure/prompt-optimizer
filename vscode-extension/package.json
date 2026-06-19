@@ -294,6 +294,11 @@
           "default": true,
           "description": "Scan prompts for potential secrets (API keys, tokens, passwords) before sending and show a warning in the panel."
         },
+        "promptProxy.enableGrammarModel": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use the bundled on-device grammar model to polish the optimized prompt's wording, in addition to the always-on deterministic corrector. Every model rewrite is meaning-guarded (identifiers, numbers, negations and content words are preserved), so it can refine grammar but never change what the prompt asks for. Requires a model under models/grammar-correction (run `npm run fetch-grammar-model`)."
+        },
         "promptProxy.confirmBeforeSend": {
           "type": "boolean",
           "default": true,
@@ -700,6 +705,7 @@
     "sync-versions:check": "node ./scripts/sync-versions.cjs --check",
     "watch": "tsc -watch -p ./",
     "fetch-model": "node scripts/fetch-model.cjs",
+    "fetch-grammar-model": "node scripts/fetch-grammar-model.cjs",
     "distill": "node scripts/distill/run-pipeline.cjs",
     "distill:setup": "pip install transformers datasets \"optimum[onnxruntime]\" onnxruntime sentencepiece accelerate",
     "package:all": "node scripts/package-targets.cjs all",

@@ -3,7 +3,9 @@ package com.promptproxy.intellij
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.editor.ScrollType
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ui.components.JBLabel
@@ -197,6 +199,7 @@ class PromptProxyPanel(private val project: Project) {
             copyText(result.optimizedPrompt, "Agent mode optimized prompt copied.")
             statusLabel.text = "Agent mode copied optimized prompt for chat."
         }
+        openContextFilesWithSelection(result)
         refreshOverview()
     }
 
@@ -215,6 +218,10 @@ class PromptProxyPanel(private val project: Project) {
         }
         if (!result.sdlcMode.isNullOrBlank()) appendLine("Mode detected: ${result.sdlcMode}")
         if (!result.requestId.isNullOrBlank()) appendLine("Request ID: ${result.requestId}")
+        result.deterministicRouting?.let { routing ->
+            appendLine("Deterministic routing: ${routing.status} (${routing.strategy})")
+            appendLine("Routing reason: ${routing.reason}")
+        }
         if (result.reusedSegments.isNotEmpty()) {
             appendLine("Reused from cache (~${result.reusedTokensSaved} tokens saved)")
             appendLine("These context blocks were already sent for this workspace and are referenced in the optimized prompt instead of resent.")
@@ -236,6 +243,88 @@ class PromptProxyPanel(private val project: Project) {
             appendLine(result.explanation)
         }
     }.trim()
+
+    private fun openContextFilesWithSelection(result: OptimizationResult) {
+        val files = buildList {
+            result.contextActiveFile?.let { add(it) }
+            addAll(result.contextSelectedFiles)
+        }.distinct()
+        if (files.isEmpty()) {
+            return
+        }
+
+        val snippetsByPath = result.contextSnippets.associateBy { it.path }
+        val editorManager = FileEditorManager.getInstance(project)
+        val root = result.contextWorkspaceRoot ?: project.basePath
+
+        var opened = 0
+        var selected = 0
+        var unresolved = 0
+
+        for (rawPath in files) {
+            val target = resolveContextFile(root, rawPath)
+            if (target == null) {
+                unresolved++
+                continue
+            }
+            val virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(target)
+            if (virtualFile == null) {
+                unresolved++
+                continue
+            }
+
+            val snippet = snippetsByPath[rawPath]
+            val descriptor = if (snippet?.ranges?.isNotEmpty() == true) {
+                val first = snippet.ranges.first()
+                OpenFileDescriptor(project, virtualFile, first.startLine, 0)
+            } else {
+                OpenFileDescriptor(project, virtualFile)
+            }
+            val editor = editorManager.openTextEditor(descriptor, true)
+            opened++
+
+            val ranges = snippet?.ranges ?: emptyList()
+            if (ranges.isEmpty() || editor == null) {
+                unresolved++
+                continue
+            }
+
+            val first = ranges.first()
+            val document = editor.document
+            val maxLine = (document.lineCount - 1).coerceAtLeast(0)
+            val startLine = first.startLine.coerceIn(0, maxLine)
+            val endLine = first.endLine.coerceIn(startLine, maxLine)
+            val startOffset = document.getLineStartOffset(startLine)
+            val endOffset = document.getLineEndOffset(endLine)
+            editor.selectionModel.setSelection(startOffset, endOffset)
+            editor.caretModel.moveToOffset(startOffset)
+            editor.scrollingModel.scrollToCaret(ScrollType.CENTER)
+            selected++
+        }
+
+        if (opened > 0) {
+            val detail = StringBuilder("Opened $opened file(s)")
+            if (selected > 0) {
+                detail.append("; selected exact ranges in $selected")
+            }
+            if (unresolved > 0) {
+                detail.append("; exact selection unavailable for $unresolved")
+            }
+            result.deterministicRouting?.takeIf { it.status != "resolved" }?.let {
+                detail.append("; routing ${it.status}: ${it.reason}")
+            }
+            statusLabel.text = detail.toString()
+        }
+    }
+
+    private fun resolveContextFile(workspaceRoot: String?, rawPath: String): File? {
+        val file = File(rawPath)
+        if (file.isAbsolute) {
+            return file
+        }
+        val root = workspaceRoot ?: return null
+        return File(root, rawPath)
+    }
 
     private fun refreshOverview() {
         runBackground(

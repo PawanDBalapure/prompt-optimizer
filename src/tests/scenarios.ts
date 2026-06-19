@@ -12,6 +12,7 @@ import { IntelliJPromptProxyAdapter } from '../adapters/IntelliJPromptProxyAdapt
 import { VSCodePromptProxyAdapter } from '../adapters/VSCodePromptProxyAdapter.js';
 import { PromptOptimizationRequest } from '../contracts.js';
 import type { InstructionStudioGraph } from '../engine/instructionStudio.js';
+import { preservesMeaning, refineTextPreservingMeaning } from '../engine/meaningGuard.js';
 import { assertSchema, buildDemoRequest, resetDatabase } from './harness.js';
 
 export async function runCoreScenarios(dbFile: string): Promise<void> {
@@ -150,6 +151,125 @@ export async function runCoreScenarios(dbFile: string): Promise<void> {
     !/Explain the purpose of/i.test(multilineTaskMatch?.[1] ?? ''),
     'multiline prompts should not be forced into single-question rewrite template',
   );
+
+  console.log('\n  Validating symbol-named file routing + opens with selection...');
+  const engineFileContent = [
+    "import { ContextPacker } from './engine/contextPacker.js';",
+    '',
+    'export class PromptProxyEngine {',
+    '  async processRequest(request) {',
+    '    const packer = new ContextPacker();',
+    '    return packer.collectRelevantContext(request);',
+    '  }',
+    '}',
+  ].join('\n');
+  const symbolRoutingResp = await engine.processRequest({
+    raw_prompt: 'promptProxyEngine what exactly does it do and fix if any issues fond.',
+    ide_context: {
+      workspace_root: 'C:/workspace/demo',
+      // The referenced file is provided as an (unselected) open file — exactly
+      // what the extension's workspace-discovery step yields for a file the
+      // prompt names by symbol but that the user has not opened.
+      open_files: [
+        { path: 'src/PromptProxyEngine.ts', language: 'ts', content: engineFileContent },
+        { path: 'src/weather.ts', language: 'ts', content: ['export function weather() {', "  return 'sunny';", '}'].join('\n') },
+      ],
+      logs: [],
+    },
+    workspace_id: 'symbol-routing-demo',
+  });
+  assertSchema(symbolRoutingResp);
+  // The symbol-named file must be routed to deterministically (not weather.ts).
+  assert.ok(
+    symbolRoutingResp.analysis.context.selected_files.includes('src/PromptProxyEngine.ts'),
+    'file referenced by its class symbol should be selected',
+  );
+  assert.ok(
+    !symbolRoutingResp.analysis.context.selected_files.includes('src/weather.ts'),
+    'irrelevant file should not be selected by symbol routing',
+  );
+  assert.equal(
+    symbolRoutingResp.analysis.context.deterministic_routing?.status,
+    'resolved',
+    'symbol-named routing should resolve deterministically',
+  );
+  // It must carry exact snippet ranges so the IDE can open it with selection.
+  const engineSnippet = (symbolRoutingResp.analysis.context.context_snippets ?? [])
+    .find((s) => s.path === 'src/PromptProxyEngine.ts');
+  assert.ok(engineSnippet, 'selected symbol file should have a context snippet');
+  assert.ok((engineSnippet?.ranges.length ?? 0) > 0, 'snippet should carry exact line ranges for selection');
+  // The misspelling "fond" must be corrected to "found" in the generated task.
+  const symbolTask = symbolRoutingResp.optimized_prompt.match(/^task:\s+"([^"]+)"/m)?.[1] ?? '';
+  assert.ok(/\bfound\b/i.test(symbolTask), 'context typo "fond" should be corrected to "found"');
+  assert.ok(!/\bfond\b/i.test(symbolTask), 'task should not retain the misspelling "fond"');
+
+  console.log('\n  Validating context-sensitive spelling corrections...');
+  const spellingChecks: Array<[string, RegExp, RegExp]> = [
+    ['Review the enviroment config and fix any issues fond.', /\benvironment\b/i, /\benviroment\b|\bfond\b/i],
+    ['The fucntion dont retrun the correct responce.', /\bfunction\b.*\bdon't\b.*\breturn\b.*\bresponse\b/i, /\bfucntion\b|\bdont\b|\bretrun\b|\breponse\b/i],
+    ['Seperate the paramters and recieve the arguements.', /\bseparate\b.*\bparameters\b.*\breceive\b.*\barguments\b/i, /\bseperate\b|\bparamters\b|\brecieve\b|\barguements\b/i],
+  ];
+  for (const [input, mustContain, mustNotContain] of spellingChecks) {
+    const resp = await engine.processRequest({ raw_prompt: input, workspace_id: `spelling-${input.length}` });
+    assertSchema(resp);
+    const task = resp.optimized_prompt.match(/^task:\s+"([^"]+)"/m)?.[1] ?? resp.optimized_prompt;
+    assert.ok(mustContain.test(task), `corrected spelling expected in: "${task}"`);
+    assert.ok(!mustNotContain.test(task), `uncorrected typo leaked in: "${task}"`);
+  }
+  // "fond of" idiom must be preserved (never rewritten to "found of").
+  const idiomResp = await engine.processRequest({
+    raw_prompt: 'Explain why the team is fond of this pattern.',
+    workspace_id: 'spelling-idiom',
+  });
+  assertSchema(idiomResp);
+  assert.ok(/fond of/i.test(idiomResp.optimized_prompt), '"fond of" idiom must be preserved');
+
+  console.log('\n  Validating model-refiner meaning-preservation guard...');
+  // Accepted: only grammar-level surface changes (articles, casing, agreement).
+  assert.ok(
+    preservesMeaning('refactor the auth middleware to use async/await',
+      'Refactor the auth middleware to use async/await.'),
+    'pure punctuation/casing fix must be accepted',
+  );
+  assert.ok(
+    preservesMeaning('add unit test for the 401 case', 'Add a unit test for the 401 case'),
+    'adding a neutral article must be accepted',
+  );
+  // Rejected: a hallucinated / dropped content word changes meaning.
+  assert.ok(
+    !preservesMeaning('add unit tests for the happy path',
+      'add integration tests for the happy path'),
+    'substituting a content word (unit->integration) must be rejected',
+  );
+  assert.ok(
+    !preservesMeaning('return a 401 on failure', 'return a 200 on failure'),
+    'changing a number (401->200) must be rejected',
+  );
+  assert.ok(
+    !preservesMeaning('rename promptProxyEngine carefully', 'rename promptEngine carefully'),
+    'altering an identifier must be rejected',
+  );
+  assert.ok(
+    !preservesMeaning('do not delete the cache file', 'delete the cache file'),
+    'dropping a negation must be rejected',
+  );
+  assert.ok(
+    !preservesMeaning('log errors and retry', 'log errors or retry'),
+    'flipping a logical connective (and->or) must be rejected',
+  );
+  // The pipeline keeps a meaning-preserving rewrite and discards a bad one,
+  // and never touches fenced code. (Input is already deterministically spell-
+  // corrected, mirroring production order, so the model only adjusts grammar.)
+  const refinerInput = 'fix the bug\n```ts\nconst x=1;\n```\nadd unit tests';
+  const goodRefiner = async (line: string): Promise<string> => {
+    if (/fix the bug/i.test(line)) { return 'Fix the bug'; }              // casing only — preserving
+    if (/add unit tests/i.test(line)) { return 'Add integration tests'; } // meaning-changing
+    return line;
+  };
+  const refined = await refineTextPreservingMeaning(refinerInput, goodRefiner);
+  assert.ok(/Fix the bug/.test(refined), 'meaning-preserving rewrite should be applied');
+  assert.ok(/add unit tests/.test(refined), 'meaning-changing rewrite should be discarded');
+  assert.ok(/const x=1;/.test(refined), 'fenced code must be left untouched');
 
   engine.close();
 }

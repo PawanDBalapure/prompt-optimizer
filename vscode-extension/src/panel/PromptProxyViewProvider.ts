@@ -166,6 +166,9 @@ export class PromptProxyViewProvider implements vscode.WebviewViewProvider {
       case 'openMemoryFile':
         await vscode.commands.executeCommand('prompt-proxy.openMemoryFile');
         return;
+      case 'openContextFiles':
+        await vscode.commands.executeCommand('prompt-proxy.openContextFiles');
+        return;
       case 'openPeerWorkspaces':
         await vscode.commands.executeCommand('prompt-proxy.peerWorkspaces');
         return;
