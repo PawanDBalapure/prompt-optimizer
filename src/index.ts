@@ -96,3 +96,5 @@ export type {
 	GraphNode,
 	GraphEdge,
 } from './engine/repositoryIntelligence.js';
+export { indexWorkspaceStatic } from './engine/workspaceIndexer.js';
+export type { WorkspaceIndexStats } from './engine/workspaceIndexer.js';

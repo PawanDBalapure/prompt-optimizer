@@ -2,7 +2,7 @@
   "name": "vc-prompt-optimizer--local",
   "displayName": "Prompt Optimizer - Local",
   "description": "Fully local prompt optimization, semantic cache, and token cost forecasting for VS Code. Your prompts and code never leave your machine — no telemetry, no cloud processing. Works with GitHub Copilot.",
-  "version": "2.10.1",
+  "version": "2.10.6",
   "publisher": "PawanBalapure",
   "license": "MIT",
   "icon": "images/icon.png",
@@ -359,7 +359,12 @@
         },
         "promptProxy.optimize.sourcePicker": {
           "type": "string",
-          "enum": ["auto", "ask", "selection-first", "clipboard-first"],
+          "enum": [
+            "auto",
+            "ask",
+            "selection-first",
+            "clipboard-first"
+          ],
           "default": "ask",
           "enumDescriptions": [
             "Use the first non-empty source in this order: selection → full editor → clipboard.",
@@ -456,7 +461,7 @@
         "command": "prompt-proxy.openOnboarding",
         "title": "Prompt Optimizer: Open Guide",
         "icon": "$(rocket)"
-      },      
+      },
       {
         "command": "prompt-proxy.cacheStats",
         "title": "Prompt Optimizer: Show Cache Statistics"

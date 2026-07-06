@@ -3,10 +3,18 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-import { BOOTSTRAP_DONE_KEY, SEEDING_DONE_KEY, SEEDING_INTERVAL_MS } from '../constants';
+import {
+  BOOTSTRAP_DONE_KEY,
+  CONVERSATION_KEY,
+  MAX_CONVERSATION_TURNS,
+  SEEDING_DONE_KEY,
+  SEEDING_INTERVAL_MS,
+} from '../constants';
 import { getDbPath } from '../state/config';
-import { computeWorkspaceId } from '../util/workspace';
-import { runEngineRaw } from './runner';
+import { getConversation } from '../state/conversation';
+import type { ConversationTurn } from '../types';
+import { computeLegacyWorkspaceIds, computeWorkspaceId } from '../util/workspace';
+import { runEngineRaw, runEngineRawAsync } from './runner';
 
 /**
  * Whitelisted seed files inside the workspace.  Restricting harvesting to
@@ -28,6 +36,37 @@ const MAX_SEED_COUNT = 200;
 const README_HEAD_BYTES = 5000;
 const GIT_LOG_COUNT = 80;
 const GIT_TIMEOUT_MS = 5000;
+const MAX_COPILOT_IMPORT_PER_SYNC = 10;
+/** Full seed + static workspace indexing can legitimately take minutes on big repos. */
+const SEED_TIMEOUT_MS = 5 * 60_000;
+const WORKSPACE_ID_MIGRATED_KEY = 'promptProxy.workspaceIdMigrated.v1';
+
+/**
+ * One-time rescue of data stored under legacy workspace ids (pre-
+ * canonicalization, Windows drive-letter casing made the same folder hash to
+ * different ids). Merges each legacy id's rows onto the canonical id.
+ */
+async function migrateLegacyWorkspaceIds(
+  context: vscode.ExtensionContext,
+  workspaceRoot: string,
+  dbPath: string,
+): Promise<void> {
+  const canonical = computeWorkspaceId(workspaceRoot);
+  const doneKey = `${WORKSPACE_ID_MIGRATED_KEY}.${canonical}`;
+  if (context.globalState.get<boolean>(doneKey) === true) { return; }
+  for (const legacyId of computeLegacyWorkspaceIds(workspaceRoot)) {
+    try {
+      await runEngineRawAsync(
+        ['--migrate-workspace', '--from', legacyId, '--to', canonical, '--db', dbPath],
+      );
+    } catch { /* best-effort; retried next activation until marked done */ }
+  }
+  await context.globalState.update(doneKey, true);
+}
+
+function normalizePromptText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim().toLowerCase();
+}
 
 function isWithinWorkspace(absoluteFile: string, workspaceRoot: string): boolean {
   const normalisedRoot = path.resolve(workspaceRoot) + path.sep;
@@ -141,6 +180,17 @@ export async function seedCacheFromWorkspace(
     const bootstrapKey = `${BOOTSTRAP_DONE_KEY}.${workspaceId}`;
     const hasBootstrapped = context.globalState.get<boolean>(bootstrapKey) === true;
     const lastSeeded = context.globalState.get<number>(seededKey) ?? 0;
+
+    // Rescue data indexed under a legacy (pre-canonicalization) id. This must
+    // run BEFORE the seeding gate below, otherwise an already-bootstrapped
+    // workspace whose seeding is throttled would never migrate its old rows —
+    // leaving the panel reading an empty canonical id.
+    const dbPath = getDbPath(context);
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    if (workspaceRoot) {
+      await migrateLegacyWorkspaceIds(context, workspaceRoot, dbPath);
+    }
+
     if (!force && hasBootstrapped && Date.now() - lastSeeded < SEEDING_INTERVAL_MS) { return; }
 
     const seeds: string[] = [];
@@ -163,20 +213,20 @@ export async function seedCacheFromWorkspace(
       seeds.map((s) => s.trim()).filter((s) => s.length >= MIN_SEED_LEN && s.length <= 400),
     )].slice(0, MAX_SEED_COUNT);
 
-    const dbPath = getDbPath(context);
-    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-
     if (unique.length > 0) {
       const cliArgs = ['--seed-batch', '--db', dbPath, '--workspace-id', workspaceId];
       if (workspaceRoot) { cliArgs.push('--workspace-root', workspaceRoot); }
-      runEngineRaw(cliArgs, JSON.stringify(unique));
+      await runEngineRawAsync(cliArgs, { input: JSON.stringify(unique), timeoutMs: SEED_TIMEOUT_MS });
     } else if (workspaceRoot) {
       // No prompts to seed but we still want workspace memory + KG primed.
       // A single synthetic harvest prompt is enough to trigger the engine's
       // augmented-sections pipeline (memory ingestion + repo-stack KG nodes).
-      runEngineRaw(
+      await runEngineRawAsync(
         ['--seed-batch', '--db', dbPath, '--workspace-id', workspaceId, '--workspace-root', workspaceRoot],
-        JSON.stringify(['Summarize the architecture and conventions of this codebase.']),
+        {
+          input: JSON.stringify(['Summarize the architecture and conventions of this codebase.']),
+          timeoutMs: SEED_TIMEOUT_MS,
+        },
       );
     }
 
@@ -207,9 +257,69 @@ export async function enrichFromChatHistory(
     if (workspaceRoot) { cliArgs.push('--workspace-root', workspaceRoot); }
     // The engine deduplicates via the semantic cache + KG upserts, so re-sending
     // already-seen prompts is cheap and idempotent.
-    runEngineRaw(cliArgs, JSON.stringify(prompts.slice(0, 50)));
+    await runEngineRawAsync(cliArgs, {
+      input: JSON.stringify(prompts.slice(0, 50)),
+      timeoutMs: SEED_TIMEOUT_MS,
+    });
   } catch {
     /* silent — enrichment is best-effort */
+  }
+}
+
+/**
+ * Imports prompts harvested from GitHub Copilot Chat into Prompt Optimizer's
+ * conversation memory so they can be replayed as enrichment context.
+ *
+ * These imported entries are tagged as `copilot-history`, allowing the chat
+ * handler to include them for LM context while keeping back-reference logic
+ * focused on direct @promptoptimizer turns.
+ */
+export async function syncCopilotChatsToConversationMemory(
+  context: vscode.ExtensionContext,
+): Promise<number> {
+  try {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceId = computeWorkspaceId(workspaceRoot);
+
+    const harvested = harvestChatHistory(context)
+      .map((p) => p.trim())
+      .filter((p) => p.length >= MIN_SEED_LEN && p.length <= 400)
+      .slice(-MAX_COPILOT_IMPORT_PER_SYNC);
+
+    if (harvested.length === 0) { return 0; }
+
+    const all = getConversation(context);
+    const existing = new Set(
+      all
+        .filter((turn) => turn.workspace_id === workspaceId)
+        .map((turn) => normalizePromptText(turn.user_raw)),
+    );
+
+    const now = Date.now();
+    const toInsert: ConversationTurn[] = [];
+    for (const [idx, prompt] of harvested.entries()) {
+      const normalized = normalizePromptText(prompt);
+      if (!normalized || existing.has(normalized)) { continue; }
+      existing.add(normalized);
+      toInsert.push({
+        id: `copilot-${(now + idx).toString(36)}`,
+        timestamp: now - (harvested.length - idx) * 1000,
+        user_raw: prompt,
+        user_optimized: prompt,
+        assistant: '',
+        workspace_id: workspaceId,
+        source: 'copilot-history',
+      });
+    }
+
+    if (toInsert.length === 0) { return 0; }
+
+    all.push(...toInsert);
+    while (all.length > MAX_CONVERSATION_TURNS * 3) { all.shift(); }
+    await context.globalState.update(CONVERSATION_KEY, all);
+    return toInsert.length;
+  } catch {
+    return 0;
   }
 }
 
@@ -227,9 +337,12 @@ export async function ingestMemoryFiles(
     if (!workspaceRoot) { return; }
     const workspaceId = computeWorkspaceId(workspaceRoot);
     const dbPath = getDbPath(context);
-    runEngineRaw(
+    await runEngineRawAsync(
       ['--seed-batch', '--db', dbPath, '--workspace-id', workspaceId, '--workspace-root', workspaceRoot],
-      JSON.stringify(['Refresh long-lived memory and project conventions for this workspace.']),
+      {
+        input: JSON.stringify(['Refresh long-lived memory and project conventions for this workspace.']),
+        timeoutMs: SEED_TIMEOUT_MS,
+      },
     );
   } catch {
     /* silent */

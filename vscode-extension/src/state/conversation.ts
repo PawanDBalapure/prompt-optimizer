@@ -1,7 +1,11 @@
 import * as vscode from 'vscode';
 
 import { CONVERSATION_KEY, MAX_CONVERSATION_TURNS } from '../constants';
-import type { ConversationTurn, PromptProxyPanelState } from '../types';
+import type { ConversationTurn, ConversationTurnSource, PromptProxyPanelState } from '../types';
+
+function isConversationTurnSource(value: unknown): value is ConversationTurnSource {
+  return value === 'promptoptimizer' || value === 'copilot-history';
+}
  
 function isConversationTurn(value: unknown): value is ConversationTurn {
   const v = value as Partial<ConversationTurn> | null;
@@ -13,7 +17,8 @@ function isConversationTurn(value: unknown): value is ConversationTurn {
     && typeof v.user_raw === 'string'
     && typeof v.user_optimized === 'string'
     && typeof v.assistant === 'string'
-    && typeof v.workspace_id === 'string',
+    && typeof v.workspace_id === 'string'
+    && (v.source === undefined || isConversationTurnSource(v.source)),
   );
 }
 
@@ -35,13 +40,14 @@ export function getConversation(
 export async function addConversationTurn(
   context: vscode.ExtensionContext,
   workspaceId: string,
-  turn: { user_raw: string; user_optimized: string; assistant: string },
+  turn: { user_raw: string; user_optimized: string; assistant: string; source?: ConversationTurnSource },
 ): Promise<void> {
   const all = readConversationStore(context);
   all.push({
     id: Date.now().toString(36),
     timestamp: Date.now(),
     workspace_id: workspaceId,
+    source: turn.source ?? 'promptoptimizer',
     ...turn,
   });
   // Keep at most MAX_CONVERSATION_TURNS per workspace, overall cap 3x.
@@ -69,7 +75,8 @@ export function containsBackReference(prompt: string): boolean {
 /** Prepend the most recent user request as context when the prompt references it. */
 export function resolveReferences(prompt: string, history: ConversationTurn[]): string {
   if (!containsBackReference(prompt) || history.length === 0) { return prompt; }
-  const last = history[history.length - 1];
+  const last = [...history].reverse().find((turn) => turn.source !== 'copilot-history');
+  if (!last) { return prompt; }
   const ref = last.user_raw.length > 180 ? `${last.user_raw.slice(0, 180)}\u2026` : last.user_raw;
   return `[Continuing from: "${ref}"]\n${prompt}`;
 }
@@ -98,8 +105,17 @@ export function buildLMMessages(
   msgs.push(vscode.LanguageModelChatMessage.User(ctxLines.join('\n')));
   msgs.push(vscode.LanguageModelChatMessage.Assistant('Understood. Ready to help.'));
 
-  // Replay up to 8 previous turns.
-  for (const turn of history.slice(-8)) {
+  // Blend in a small window of imported Copilot prompts, then replay
+  // interactive Prompt Optimizer turns so immediate continuity stays strong.
+  const importedCopilot = history.filter((turn) => turn.source === 'copilot-history').slice(-2);
+  for (const turn of importedCopilot) {
+    msgs.push(vscode.LanguageModelChatMessage.User(
+      `Prior Copilot chat context:\n${turn.user_optimized || turn.user_raw}`,
+    ));
+  }
+
+  const interactiveHistory = history.filter((turn) => turn.source !== 'copilot-history').slice(-6);
+  for (const turn of interactiveHistory) {
     msgs.push(vscode.LanguageModelChatMessage.User(turn.user_optimized));
     if (turn.assistant) {
       msgs.push(vscode.LanguageModelChatMessage.Assistant(turn.assistant));

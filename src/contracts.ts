@@ -115,7 +115,7 @@ export interface ContextSnippet {
 
 export interface DeterministicRoutingDecision {
   status: 'resolved' | 'ambiguous' | 'unresolved';
-  strategy: 'path-symbol' | 'semantic-fallback' | 'active-file-fallback' | 'none';
+  strategy: 'path-symbol' | 'workspace-scan' | 'semantic-fallback' | 'active-file-fallback' | 'none';
   reason: string;
 }
 

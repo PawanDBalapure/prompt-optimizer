@@ -118,29 +118,48 @@ btnPrimary.addEventListener('click', function() {
   }
 });
 
-document.getElementById('btnOpenChat').addEventListener('click', function() {
-  vscode.postMessage({ type: 'openChat' });
-});
+var btnOpenChat = document.getElementById('btnOpenChat');
+if (btnOpenChat) {
+  btnOpenChat.addEventListener('click', function() {
+    vscode.postMessage({ type: 'openChat' });
+  });
+}
 
-document.getElementById('btnUseOptimized').addEventListener('click', function() {
-  if (!currentState || !currentState.optimized) { clearAlerts(); addAlert('warning', 'Run Optimize or Agent first.'); return; }
-  vscode.postMessage({ type: 'sendPrompt', prompt: currentState.optimized });
-});
+var btnUseOptimized = document.getElementById('btnUseOptimized');
+if (btnUseOptimized) {
+  btnUseOptimized.addEventListener('click', function() {
+    if (!currentState || !currentState.optimized) { clearAlerts(); addAlert('warning', 'Run Optimize or Agent first.'); return; }
+    vscode.postMessage({ type: 'sendPrompt', prompt: currentState.optimized });
+  });
+}
 
-optimizedPrompt.addEventListener('click', function(e) {
-  var btn = e.target.closest('.secret-del');
-  if (btn) { removeSecretFromOutput(btn.getAttribute('data-remove'), optimizedPrompt); }
-});
+if (optimizedPrompt) {
+  optimizedPrompt.addEventListener('click', function(e) {
+    var btn = e.target.closest('.secret-del');
+    if (btn) { removeSecretFromOutput(btn.getAttribute('data-remove'), optimizedPrompt); }
+  });
+}
 
-document.getElementById('btnCopyOptimized').addEventListener('click', function() {
-  if (!currentState || !currentState.optimized) { clearAlerts(); addAlert('warning', 'Run Optimize or Agent first.'); return; }
-  vscode.postMessage({ type: 'copyPrompt', prompt: currentState.optimized });
-});
+var btnCopyOptimized = document.getElementById('btnCopyOptimized');
+if (btnCopyOptimized) {
+  btnCopyOptimized.addEventListener('click', function() {
+    if (!currentState || !currentState.optimized) { clearAlerts(); addAlert('warning', 'Run Optimize or Agent first.'); return; }
+    vscode.postMessage({ type: 'copyPrompt', prompt: currentState.optimized });
+  });
+}
 
-document.getElementById('btnOpenContextFiles').addEventListener('click', function() {
-  if (!currentState || !currentState.analysis) { clearAlerts(); addAlert('warning', 'Run Optimize or Agent first.'); return; }
-  vscode.postMessage({ type: 'openContextFiles' });
-});
+
+// Optional action button: the "Open Files" control may be commented out in
+// panel.html. Guard the binding so a missing element can't throw at load and
+// take down every listener wired below it (mode select, Run, chips, the
+// message handler, and the `ready` handshake).
+var btnOpenContextFiles = document.getElementById('btnOpenContextFiles');
+if (btnOpenContextFiles) {
+  btnOpenContextFiles.addEventListener('click', function() {
+    if (!currentState || !currentState.analysis) { clearAlerts(); addAlert('warning', 'Run Optimize or Agent first.'); return; }
+    vscode.postMessage({ type: 'openContextFiles' });
+  });
+}
 
 btnSettingsMenu.addEventListener('click', function(event) {
   event.stopPropagation();
@@ -447,6 +466,11 @@ window.addEventListener('message', function(event) {
     case 'statusOverview':
       renderStatusOverview(msg.payload);
       resetRefreshButton();
+      break;
+    case 'statusOverviewError':
+      resetRefreshButton();
+      clearAlerts();
+      addAlert('warning', 'Could not read workspace index status: ' + (msg.message || 'unknown error'));
       break;
     case 'overviewRefreshed':
       resetRefreshButton();

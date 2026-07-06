@@ -136,6 +136,21 @@ const DISCOVERY_EXCLUDE =
 const MAX_DISCOVERED_FILES = 5;
 const MAX_DISCOVERED_BYTES = 200_000;
 
+const PHRASE_STOP_WORDS = new Set<string>([
+  'a', 'an', 'the', 'this', 'that', 'these', 'those',
+  'what', 'where', 'how', 'why', 'is', 'are', 'do', 'does', 'did',
+  'can', 'could', 'should', 'would',
+  'there', 'it', 'i', 'we', 'you', 'my', 'our', 'your',
+  'in', 'inside', 'within', 'from', 'of', 'for', 'to', 'on', 'at', 'with',
+  'and', 'or', 'please', 'find', 'locate', 'purpose',
+]);
+
+const PHRASE_TRAILING_WORDS = new Set<string>([
+  'doing', 'do', 'does', 'did',
+  'work', 'works', 'working',
+  'function', 'functions', 'functioning',
+]);
+
 /**
  * Pull file/symbol references out of a prompt: explicit `name.ext` paths plus
  * camelCase / PascalCase / snake_case identifiers (>= 4 chars) that commonly
@@ -154,7 +169,55 @@ function extractReferenceNames(rawPrompt: string): { files: Set<string>; symbols
     const isSnake = token.includes('_');
     if (isCamel || isSnake) { symbols.add(token); }
   }
+
+  // Fallback for plain-English file mentions, e.g. "prompt ir helper".
+  if (files.size === 0 && symbols.size === 0) {
+    for (const phraseSymbol of extractPhraseSymbolCandidates(rawPrompt)) {
+      symbols.add(phraseSymbol);
+    }
+  }
+
   return { files, symbols };
+}
+
+function titleWord(word: string): string {
+  if (word.length <= 2) { return word.toUpperCase(); }
+  return word.charAt(0).toUpperCase() + word.slice(1);
+}
+
+function extractPhraseSymbolCandidates(rawPrompt: string): Set<string> {
+  if (!/\b(what|where|how|why|is there|are there|find|locate|purpose)\b/i.test(rawPrompt)) {
+    return new Set<string>();
+  }
+
+  const region =
+    rawPrompt.match(/\b(?:what|how|why)\s+(?:does|do|did|is|are|can|should|would)\s+(.+)/i)?.[1]
+    ?? rawPrompt.match(/\bwhere\s+(?:is|are|can i find)\s+(.+)/i)?.[1]
+    ?? rawPrompt.match(/\b(?:is there|are there)\s+(.+)/i)?.[1]
+    ?? rawPrompt;
+
+  const words = (region.toLowerCase().match(/[a-z0-9]+/g) ?? [])
+    .filter((word) => !PHRASE_STOP_WORDS.has(word));
+
+  while (words.length > 0 && PHRASE_TRAILING_WORDS.has(words[words.length - 1])) {
+    words.pop();
+  }
+
+  if (words.length < 2 || words.length > 5) { return new Set<string>(); }
+
+  const merged = words.join('');
+  if (merged.length < 6) { return new Set<string>(); }
+
+  const pascal = words.map((word) => titleWord(word)).join('');
+  const camel = words.map((word, index) => index === 0 ? word : titleWord(word)).join('');
+
+  return new Set<string>([
+    pascal,
+    camel,
+    merged,
+    words.join('_'),
+    words.join('-'),
+  ]);
 }
 
 /** Brace-expanded case variants so a Windows/macOS glob still matches a symbol. */

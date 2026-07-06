@@ -15,7 +15,12 @@ import {
   openPromptProxyPanel,
 } from './commands/open';
 import { maybeAutoOpenContextFiles, openContextFilesAndSelect } from './commands/openContextFiles';
-import { seedCacheFromWorkspace, enrichFromChatHistory, ingestMemoryFiles } from './engine/seeder';
+import {
+  seedCacheFromWorkspace,
+  enrichFromChatHistory,
+  ingestMemoryFiles,
+  syncCopilotChatsToConversationMemory,
+} from './engine/seeder';
 import { runEngineRaw } from './engine/runner';
 import { registerMemoryFeatures } from './memory';
 import { registerUserGuide } from './commands/userGuide';
@@ -172,6 +177,7 @@ export function activate(context: vscode.ExtensionContext) {
           },
           async () => { await seedCacheFromWorkspace(context); },
         );
+        await syncCopilotChatsToConversationMemory(context);
         provider.refreshStatusOverview();
       } catch (error) {
         // Log silently; seeding failures are non-critical and should not
@@ -193,7 +199,10 @@ export function activate(context: vscode.ExtensionContext) {
             location: vscode.ProgressLocation.Window,
             title: 'Prompt Optimizer: refreshing index…',
           },
-          async () => { await enrichFromChatHistory(context); },
+          async () => {
+            await enrichFromChatHistory(context);
+            await syncCopilotChatsToConversationMemory(context);
+          },
         );
         provider.refreshStatusOverview();
       } catch (error) {

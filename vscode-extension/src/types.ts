@@ -5,6 +5,7 @@ export type PromptSource = 'panel' | 'chat' | 'clipboard';
 export type TargetModel = 'claude' | 'gpt' | 'gemini' | 'deepseek' | 'grok' | 'local';
 /** Output density for the structured YAML prompt. */
 export type PromptDensity = 'rich' | 'lean';
+export type ConversationTurnSource = 'promptoptimizer' | 'copilot-history';
 
 export type SecretPatternMatchMode =
   | 'regex'
@@ -32,6 +33,7 @@ export interface ConversationTurn {
   user_optimized: string;
   assistant: string;
   workspace_id: string;
+  source?: ConversationTurnSource;
 }
 
 export interface PromptProxyMetrics {
@@ -74,7 +76,7 @@ export interface PromptProxyAnalysis {
     }>;
     deterministic_routing?: {
       status: 'resolved' | 'ambiguous' | 'unresolved';
-      strategy: 'path-symbol' | 'semantic-fallback' | 'active-file-fallback' | 'none';
+      strategy: 'path-symbol' | 'workspace-scan' | 'semantic-fallback' | 'active-file-fallback' | 'none';
       reason: string;
     };
   };

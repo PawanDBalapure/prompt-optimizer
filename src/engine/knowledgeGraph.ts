@@ -142,6 +142,74 @@ export class KnowledgeGraph {
   }
 
   /**
+   * Index a batch of *static* workspace source files into the graph — the
+   * full-code-base complement to {@link recordWorkspaceGraph} (which only
+   * sees IDE-supplied open files). For each file it upserts:
+   *
+   *   - a `file` node (name = workspace-relative path);
+   *   - a filename-stem `concept` node with a `names-file` edge, so prompt
+   *     terms like "tokenBudget" resolve to `src/tokenBudget.ts`;
+   *   - a `concept` node per defined symbol with BOTH `implements`
+   *     (file→symbol) and `implemented-by` (symbol→file) edges, so graph
+   *     walks starting from a symbol term reach its defining file;
+   *   - `depends-on` edges for resolvable relative imports.
+   *
+   * `allWorkspacePaths` (when provided) is used to resolve relative imports
+   * against the complete file set rather than just this batch. Every upsert
+   * is keyed on (workspace, type, name), so repeated indexing is idempotent.
+   * Runs inside a transaction for speed; never throws.
+   */
+  indexStaticFiles(
+    workspaceId: string,
+    files: Array<{ path: string; content: string }>,
+    allWorkspacePaths?: string[],
+  ): { files: number; symbols: number; edges: number } {
+    const out = { files: 0, symbols: 0, edges: 0 };
+    if (files.length === 0) { return out; }
+    try {
+      const lookup = buildPathLookup(
+        (allWorkspacePaths ?? files.map((f) => f.path)).map((p) => ({ path: p })),
+      );
+      const txn = this.db.transaction(() => {
+        for (const file of files) {
+          const rel = normalizePath(file.path);
+          const lineCount = file.content.split('\n').length;
+          const fileId = this.upsertNode(workspaceId, 'file', rel, `Source file — ${lineCount} lines`);
+          out.files++;
+
+          const base = rel.slice(rel.lastIndexOf('/') + 1);
+          const stem = base.includes('.') ? base.slice(0, base.indexOf('.')) : base;
+          if (stem !== '' && stem !== rel) {
+            const stemId = this.upsertNode(workspaceId, 'concept', stem, `File name: ${rel}`);
+            this.upsertEdge(stemId, fileId, 'names-file', 1.0);
+            out.edges++;
+          }
+
+          const signals = extractFileSignals(file.content, rel, lookup);
+          for (const symbol of signals.implements) {
+            const symbolId = this.upsertNode(
+              workspaceId, 'concept', symbol, `Symbol: ${symbol} (defined in ${rel})`,
+            );
+            this.upsertEdge(fileId, symbolId, 'implements', 1.5);
+            this.upsertEdge(symbolId, fileId, 'implemented-by', 1.5);
+            out.symbols++;
+            out.edges += 2;
+          }
+          for (const depPath of signals.dependencies) {
+            // Empty summary: never clobber the "Source file — N lines" summary
+            // the dependency target gets (or already got) from its own record.
+            const depId = this.upsertNode(workspaceId, 'file', depPath, '');
+            this.upsertEdge(fileId, depId, 'depends-on', 1.0);
+            out.edges++;
+          }
+        }
+      });
+      txn();
+    } catch { /* static indexing must never break callers */ }
+    return out;
+  }
+
+  /**
    * Build a compact architecture map from SQLite graph data for prompt-time
    * injection. The shape is intentionally stable so downstream compressors
    * preserve structure and references.
@@ -211,10 +279,13 @@ export class KnowledgeGraph {
     let seeds: KgNode[] = [];
     try {
       const placeholders = seedTerms.map(() => '?').join(',');
+      // LOWER(name): node names keep their original casing (camelCase symbols,
+      // file stems) while prompt terms arrive lowercased — the comparison must
+      // be case-insensitive or statically-indexed symbols are unreachable.
       seeds = (this.db.prepare(
         `SELECT id, workspace_id AS workspaceId, node_type AS nodeType, name, summary, updated_at AS updatedAt
          FROM kg_nodes
-         WHERE workspace_id = ? AND name IN (${placeholders})`,
+         WHERE workspace_id = ? AND LOWER(name) IN (${placeholders})`,
       ).all(workspaceId, ...seedTerms) as KgNode[]);
     } catch { return []; }
 
@@ -464,28 +535,43 @@ function extractFileSignals(
   }
 
   return {
-    implements: Array.from(impl).slice(0, 8),
+    implements: Array.from(impl).slice(0, 24),
     dependencies: Array.from(deps).slice(0, 8),
   };
 }
 
+const MAX_SYMBOLS_PER_FILE = 24;
+
 function extractImplementedSymbols(content: string): string[] {
   const found = new Set<string>();
-  const patterns = [
-    /(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)/g,
-    /(?:export\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)/g,
-    /(?:export\s+)?interface\s+([A-Za-z_][A-Za-z0-9_]*)/g,
-    /(?:export\s+)?type\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/g,
-    /(?:export\s+)?(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/g,
-    /def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/g,
-  ];
-  for (const re of patterns) {
-    let m: RegExpExecArray | null = null;
-    while ((m = re.exec(content)) !== null) {
-      found.add(m[1]);
-      if (found.size >= 12) { break; }
+  const collect = (patterns: RegExp[]): void => {
+    for (const re of patterns) {
+      let m: RegExpExecArray | null = null;
+      while ((m = re.exec(content)) !== null) {
+        found.add(m[1]);
+        if (found.size >= MAX_SYMBOLS_PER_FILE) { return; }
+      }
     }
-    if (found.size >= 12) { break; }
+  };
+  // Exported declarations FIRST — they are the file's public API and must
+  // never be crowded out of the symbol cap by module-private helpers (which
+  // typically appear earlier in the file).
+  collect([
+    /export\s+(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)/g,
+    /export\s+(?:default\s+)?(?:abstract\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)/g,
+    /export\s+interface\s+([A-Za-z_][A-Za-z0-9_]*)/g,
+    /export\s+type\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/g,
+    /export\s+(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/g,
+  ]);
+  if (found.size < MAX_SYMBOLS_PER_FILE) {
+    collect([
+      /(?:async\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)/g,
+      /class\s+([A-Za-z_][A-Za-z0-9_]*)/g,
+      /interface\s+([A-Za-z_][A-Za-z0-9_]*)/g,
+      /type\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/g,
+      /(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/g,
+      /def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/g,
+    ]);
   }
   return Array.from(found);
 }

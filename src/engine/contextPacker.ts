@@ -17,6 +17,7 @@ import {
   lineMatchesLiteral,
 } from './contextPacker.helpers.js';
 import { extractPromptPhraseWords, scoreFilenamePhraseMatch } from './symbolPhraseMatch.js';
+import { resolveWorkspaceFiles } from './workspaceFileResolver.js';
 import type { RelevantContextPack } from './types.js';
 
 export class ContextPacker {
@@ -25,6 +26,9 @@ export class ContextPacker {
   private static readonly ROUTE_SEMANTIC_MIN = 0.2;
 
   private static readonly ROUTE_SEMANTIC_MARGIN = 0.08;
+
+  /** An open file at/above this route score makes a workspace scan unnecessary. */
+  private static readonly WORKSPACE_SCAN_SKIP_SCORE = 80;
 
   buildQueryTerms(rawPrompt: string): Set<string> {
     const features = this.vectorizer.analyze(rawPrompt);
@@ -135,7 +139,7 @@ export class ContextPacker {
 
     const pathHints = this.extractPathHints(rawPrompt);
     const promptWords = extractPromptPhraseWords(rawPrompt);
-    const scored = Array.from(candidates.values()).map((file) => {
+    const scoreCandidate = (file: IdeContextFile, discovered: boolean) => {
       const semantic = this.scoreTextRelevance(`${file.path}\n${file.selection ?? ''}\n${file.content}`, queryTerms);
       const pathScore = this.pathEvidence(file.path, pathHints);
       const nameScore = Math.max(
@@ -151,9 +155,36 @@ export class ContextPacker {
         nameScore,
         routeScore,
         symbolHits,
+        discovered,
         hasDeterministicEvidence: routeScore > 0 || symbolHits > 0,
       };
-    });
+    };
+    const scored = Array.from(candidates.values()).map((file) => scoreCandidate(file, false));
+
+    // Workspace exact-match discovery: when no *open* file carries strong
+    // route evidence but the prompt names a concrete file/symbol, scan the
+    // code base itself so the exact match is found even if it isn't open.
+    const bestOpenRoute = scored.reduce((max, entry) => Math.max(max, entry.routeScore), 0);
+    if (
+      ideContext.workspace_root
+      && bestOpenRoute < ContextPacker.WORKSPACE_SCAN_SKIP_SCORE
+      && (pathHints.size > 0 || salientTerms.size > 0 || promptWords.length > 0)
+    ) {
+      const excludePaths = new Set(
+        Array.from(candidates.keys()).map((p) => this.normalizePath(p)),
+      );
+      for (const file of resolveWorkspaceFiles({
+        workspaceRoot: ideContext.workspace_root,
+        pathHints,
+        salientTerms,
+        promptWords,
+        excludePaths,
+      })) {
+        if (candidates.has(file.path)) { continue; }
+        candidates.set(file.path, file);
+        scored.push(scoreCandidate(file, true));
+      }
+    }
 
     const deterministic = scored
       .filter((entry) => entry.hasDeterministicEvidence)
@@ -171,12 +202,14 @@ export class ContextPacker {
         files: selected,
         routing: {
           status: 'resolved',
-          strategy: 'path-symbol',
-          reason: top.pathScore > 0
-            ? 'Exact file-path evidence found in prompt.'
-            : top.nameScore > 0
-              ? 'Filename matched the prompt wording (symbol/phrase evidence).'
-              : 'Exact symbol evidence found in file content.',
+          strategy: top.discovered ? 'workspace-scan' : 'path-symbol',
+          reason: top.discovered
+            ? 'Exact match found by scanning the workspace code base (file was not open).'
+            : top.pathScore > 0
+              ? 'Exact file-path evidence found in prompt.'
+              : top.nameScore > 0
+                ? 'Filename matched the prompt wording (symbol/phrase evidence).'
+                : 'Exact symbol evidence found in file content.',
         },
       };
     }

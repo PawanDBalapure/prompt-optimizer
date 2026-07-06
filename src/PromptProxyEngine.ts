@@ -49,6 +49,7 @@ import {
   type ResolvedEngineConfig,
 } from './engine/config.js';
 import { KnowledgeGraph } from './engine/knowledgeGraph.js';
+import { indexWorkspaceStatic, type WorkspaceIndexStats } from './engine/workspaceIndexer.js';
 import { FileDigestStore } from './engine/fileDigest.js';
 import {
   formatMemorySections,
@@ -82,6 +83,8 @@ export class PromptProxyEngine {
   private maintenanceService: MaintenanceService | null = null;
   private readonly engineConfig: ResolvedEngineConfig;
   private readonly augmentBreaker: AugmentBreaker;
+  /** Workspaces already statically indexed by this engine instance. */
+  private readonly staticallyIndexed = new Set<string>();
 
   constructor(options?: string | PromptProxyEngineOptions) {
     const dbPath = typeof options === 'string' ? options : options?.db_path;
@@ -137,6 +140,19 @@ export class PromptProxyEngine {
   /** Public accessor for VS Code commands that inspect the KG. */
   public getKnowledgeGraph(): KnowledgeGraph | null {
     return this.knowledgeGraph;
+  }
+
+  /**
+   * Statically index the whole workspace code base into the knowledge graph
+   * (file nodes, symbol concepts, dependency edges). Idempotent — node/edge
+   * counts are stable across repeated runs. Used by the CLI
+   * `--index-workspace` endpoint and the seeding pipeline.
+   */
+  public indexWorkspace(workspaceId: string, workspaceRoot: string): WorkspaceIndexStats | null {
+    if (!this.knowledgeGraph) { return null; }
+    const stats = indexWorkspaceStatic(this.knowledgeGraph, workspaceId, workspaceRoot);
+    this.staticallyIndexed.add(workspaceId);
+    return stats;
   }
 
   /** Public accessor for the underlying cache manager — used by CLI status commands. */
@@ -348,6 +364,14 @@ export class PromptProxyEngine {
     if (!breaker.shouldSkip('kg')) {
       try {
         if (this.knowledgeGraph) {
+          // Seeding passes (bootstrap / panel Refresh) are the workspace-index
+          // moments: statically index the whole code base into the graph once
+          // per workspace per engine process, so the KG holds every source
+          // file/symbol/dependency — not just files the IDE happened to open.
+          if (seeding && ide?.workspace_root && !this.staticallyIndexed.has(workspaceId)) {
+            this.staticallyIndexed.add(workspaceId);
+            indexWorkspaceStatic(this.knowledgeGraph, workspaceId, ide.workspace_root);
+          }
           this.knowledgeGraph.recordWorkspaceGraph(workspaceId, rawPrompt, ide, stackInfo, seeding);
           const suggestions = this.knowledgeGraph.collectGraphContext(workspaceId, rawPrompt);
           for (const suggestion of suggestions) { sections.push(suggestion.text); }

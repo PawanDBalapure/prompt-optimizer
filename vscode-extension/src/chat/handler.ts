@@ -62,9 +62,13 @@ export async function handleChatRequest(
       stream.markdown(`**Conversation memory** \u2014 ${history.length} turn${history.length === 1 ? '' : 's'} remembered\n\n`);
       for (const [i, turn] of history.entries()) {
         const ago = Math.round((Date.now() - turn.timestamp) / 60000);
-        stream.markdown(`**Turn ${i + 1}** *(${ago < 2 ? 'just now' : `${ago} min ago`})*\n\n`);
+        const source = turn.source === 'copilot-history' ? 'copilot-import' : '@promptoptimizer';
+        stream.markdown(`**Turn ${i + 1}** *(${ago < 2 ? 'just now' : `${ago} min ago`})* · \`${source}\`\n\n`);
         stream.markdown(`> You: ${turn.user_raw.slice(0, 200)}\n\n`);
-        stream.markdown(`> Assistant: ${turn.assistant.slice(0, 300)}${turn.assistant.length > 300 ? '\u2026' : ''}\n\n---\n\n`);
+        const assistantPreview = turn.assistant.trim().length > 0
+          ? `${turn.assistant.slice(0, 300)}${turn.assistant.length > 300 ? '\u2026' : ''}`
+          : '(assistant reply not available for imported Copilot history)';
+        stream.markdown(`> Assistant: ${assistantPreview}\n\n---\n\n`);
       }
     }
     stream.button({ command: 'prompt-proxy.clearMemory', title: 'Clear memory' });

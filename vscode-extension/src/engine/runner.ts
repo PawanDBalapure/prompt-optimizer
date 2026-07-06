@@ -155,3 +155,59 @@ export function runEngineRaw(args: string[], input?: string): string {
 
   return child.stdout.trim();
 }
+
+/**
+ * Async variant of {@link runEngineRaw}. Long-running engine work (workspace
+ * seeding / full static indexing) MUST use this: `spawnSync` blocks the whole
+ * extension host, which froze the UI and made the panel's refresh spinner
+ * appear stuck until the 60 s kill. Supports a per-call timeout so heavy
+ * index passes get more headroom than quick status reads.
+ */
+export function runEngineRawAsync(
+  args: string[],
+  options?: { input?: string; timeoutMs?: number },
+): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const child = child_process.spawn(
+      findSystemNode(),
+      [getCliPath(), ...args],
+      { env: budgetEnv(), shell: false },
+    );
+
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) { return; }
+      settled = true;
+      try { child.kill(); } catch { /* already gone */ }
+      reject(new Error(`Engine CLI timed out after ${options?.timeoutMs ?? SUBPROCESS_TIMEOUT_MS} ms.`));
+    }, options?.timeoutMs ?? SUBPROCESS_TIMEOUT_MS);
+
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => { stdout += chunk; });
+    child.stderr.on('data', (chunk: string) => { stderr += chunk; });
+    child.on('error', (err) => {
+      if (settled) { return; }
+      settled = true;
+      clearTimeout(timer);
+      reject(err);
+    });
+    child.on('close', (code) => {
+      if (settled) { return; }
+      settled = true;
+      clearTimeout(timer);
+      if (code !== 0) {
+        reject(new Error(stderr.trim() || 'CLI subprocess exited with an error.'));
+        return;
+      }
+      resolve(stdout.trim());
+    });
+
+    if (options?.input !== undefined) {
+      child.stdin.write(options.input);
+    }
+    child.stdin.end();
+  });
+}

@@ -33,6 +33,9 @@ import {
 } from './engine/instructionStudioInsights.js';
 import { runHealthCheck } from './engine/health.js';
 import { exportDatabase } from './engine/backup.js';
+import { RepositoryIntelligenceBuilder } from './engine/repositoryIntelligence.js';
+import { migrateWorkspaceId } from './engine/workspaceMigration.js';
+import { workspaceIdCandidates } from './engine/workspaceIdentity.js';
 import { redactForPersistence } from './engine/redactor.js';
 import {
   handleRecallMemory,
@@ -65,6 +68,8 @@ function printHelp(): void {
       '   or: prompt-proxy-engine --peer-remove --peer-db <path> [--db <path>]\n' +
       '   or: prompt-proxy-engine --peer-toggle --peer-db <path> [--enabled true|false] [--db <path>]\n' +
       '   or: prompt-proxy-engine --kg-stats [--workspace <id>] [--db <path>]\n' +
+      '   or: prompt-proxy-engine --index-workspace [--workspace-root <path>] [--workspace <id>] [--deep] [--db <path>]\n' +
+      '   or: prompt-proxy-engine --migrate-workspace --from <id> --to <id> [--db <path>]\n' +
       '   or: prompt-proxy-engine --reset-graph [--workspace <id>] [--db <path>]\n' +
       '   or: prompt-proxy-engine --digest-stats [--workspace <id>] [--db <path>]\n' +
       '   or: prompt-proxy-engine --digest-list --workspace <id> [--limit <n>] [--db <path>]\n' +
@@ -261,6 +266,66 @@ async function handlePeerCommand(args: string[]): Promise<void> {
       process.stdout.write(`${JSON.stringify({ ok })}\n`);
       return;
     }
+  } finally {
+    engine.close();
+  }
+}
+
+/**
+ * Full workspace static index: walks the code base and populates the SQLite
+ * knowledge graph (file nodes, symbol concepts, dependency edges). With
+ * `--deep`, additionally rebuilds the repo-intelligence JSON graph
+ * (`.promptoptimizer/repo-intelligence/graph.json`) used by impact analysis.
+ */
+async function handleIndexWorkspace(args: string[]): Promise<void> {
+  const wsRoot = resolveArg(args, '--workspace-root') ?? process.cwd();
+  const wsId = resolveArg(args, '--workspace') ?? resolveArg(args, '--workspace-id') ?? wsRoot;
+  const engine = new PromptProxyEngine(resolveDbPath(args) ? { db_path: resolveDbPath(args) } : {});
+  await engine.initialize();
+  try {
+    const indexed = engine.indexWorkspace(wsId, wsRoot);
+    let repoIntelligence: unknown = null;
+    if (args.includes('--deep')) {
+      try {
+        repoIntelligence = await new RepositoryIntelligenceBuilder(wsRoot).ingest();
+      } catch { /* deep ingest is best-effort */ }
+    }
+    const graph = engine.getKnowledgeGraph()?.stats(wsId) ?? { nodes: 0, edges: 0 };
+    process.stdout.write(`${JSON.stringify({
+      ok: indexed !== null,
+      workspace: wsId,
+      workspace_root: wsRoot,
+      indexed,
+      graph,
+      repo_intelligence: repoIntelligence,
+    })}\n`);
+  } finally {
+    engine.close();
+  }
+}
+
+/**
+ * Merge rows stored under a legacy workspace id into the canonical id.
+ * Used by the extension to rescue data indexed before workspace-id
+ * canonicalization (Windows drive-letter casing produced divergent ids).
+ */
+async function handleMigrateWorkspace(args: string[]): Promise<void> {
+  const fromId = resolveArg(args, '--from');
+  const toId = resolveArg(args, '--to');
+  if (!fromId || !toId) {
+    process.stderr.write('--migrate-workspace requires --from <id> and --to <id>\n');
+    process.exitCode = 1;
+    return;
+  }
+  const engine = new PromptProxyEngine(resolveDbPath(args) ? { db_path: resolveDbPath(args) } : {});
+  await engine.initialize();
+  try {
+    const db = engine.getCacheManager().rawDatabase();
+    if (!db) {
+      process.stdout.write(`${JSON.stringify({ ok: false, error: 'database unavailable' })}\n`);
+      return;
+    }
+    process.stdout.write(`${JSON.stringify(migrateWorkspaceId(db, fromId, toId))}\n`);
   } finally {
     engine.close();
   }
@@ -516,32 +581,67 @@ async function handleRedactTest(): Promise<void> {
  */
 async function handleStatusOverview(args: string[]): Promise<void> {
   const dbPath = resolveDbPath(args);
-  const workspace = resolveArg(args, '--workspace');
+  const explicitWorkspace = resolveArg(args, '--workspace');
+  const workspaceRoot = resolveArg(args, '--workspace-root');
   const engine = new PromptProxyEngine(dbPath ? { db_path: dbPath } : {});
   await engine.initialize();
   try {
     const cacheManager = engine.getCacheManager();
     const cacheStats = cacheManager.getStats();
     const kg = engine.getKnowledgeGraph();
-    const kgStats = kg ? kg.stats(workspace) : { nodes: 0, edges: 0 };
     const federation = engine.getFederation();
     const peers = federation ? federation.list() : [];
-    let memoryCount = 0;
-    if (workspace) {
-      try {
-        const db = cacheManager.rawDatabase();
-        const row = db.prepare('SELECT COUNT(*) AS c FROM workspace_memory WHERE workspace_id = ?').get(workspace) as { c: number } | undefined;
-        memoryCount = row?.c ?? 0;
-      } catch { /* ignore */ }
-    }
     const digestStore = engine.getFileDigestStore();
-    const digestStats = digestStore ? digestStore.stats(workspace) : { files: 0, total_visits: 0, last_updated: null };
+    const db = cacheManager.rawDatabase();
+
+    const memoryFor = (id: string): number => {
+      try {
+        const row = db
+          .prepare('SELECT COUNT(*) AS c FROM workspace_memory WHERE workspace_id = ?')
+          .get(id) as { c: number } | undefined;
+        return row?.c ?? 0;
+      } catch { return 0; }
+    };
+
+    // Candidate ids: the explicit one first, then every id this folder may
+    // have hashed to historically (drive-letter casing / pre-canonicalization).
+    // Reading across them means the panel shows real counts even before the
+    // one-time id migration has run — no more phantom zeros after an update.
+    const candidates: string[] = [];
+    if (explicitWorkspace) { candidates.push(explicitWorkspace); }
+    if (workspaceRoot) {
+      for (const id of workspaceIdCandidates(workspaceRoot)) {
+        if (!candidates.includes(id)) { candidates.push(id); }
+      }
+    }
+    if (candidates.length === 0) { candidates.push('global'); }
+
+    // Pick the candidate id with the most graph data (falls back to the first).
+    let chosen = candidates[0];
+    let kgStats = kg ? kg.stats(chosen) : { nodes: 0, edges: 0 };
+    let memoryCount = memoryFor(chosen);
+    let digestStats = digestStore
+      ? digestStore.stats(chosen)
+      : { files: 0, total_visits: 0, last_updated: null };
+    if (kgStats.nodes === 0 && memoryCount === 0 && (digestStats.files ?? 0) === 0) {
+      for (const id of candidates.slice(1)) {
+        const kgs = kg ? kg.stats(id) : { nodes: 0, edges: 0 };
+        const mem = memoryFor(id);
+        const dig = digestStore ? digestStore.stats(id) : { files: 0, total_visits: 0, last_updated: null };
+        if (kgs.nodes > 0 || mem > 0 || (dig.files ?? 0) > 0) {
+          chosen = id; kgStats = kgs; memoryCount = mem; digestStats = dig;
+          break;
+        }
+      }
+    }
+
     process.stdout.write(`${JSON.stringify({
       cache: { entries: cacheStats.total_entries, hits: cacheStats.total_hits, avg_confidence: cacheStats.avg_confidence },
       kg: kgStats,
       peers: { total: peers.length, enabled: peers.filter((p) => p.enabled).length },
       memory: { entries: memoryCount },
       digests: digestStats,
+      workspace_id: chosen,
     })}\n`);
   } finally {
     engine.close();
@@ -852,6 +952,16 @@ async function main(): Promise<void> {
 
   if (args.includes('--kg-stats')) {
     await handleKgStats(args);
+    return;
+  }
+
+  if (args.includes('--index-workspace')) {
+    await handleIndexWorkspace(args);
+    return;
+  }
+
+  if (args.includes('--migrate-workspace')) {
+    await handleMigrateWorkspace(args);
     return;
   }
 

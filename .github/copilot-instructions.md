@@ -48,12 +48,12 @@ Keep it concise — bullet points and short paragraphs work best.
 
 - **__workspace_seed__**: Aggregated workspace harvest
 - **TypeScript/JavaScript**: Language: TypeScript/JavaScript
-- **is there a prompt ir helper and wht does it do ?**: is there a prompt ir helper and wht does it do ?
-- **c:/Users/Pawan/prompt-optimizer/src/engine/insights.js**: Dependency file: c:/Users/Pawan/prompt-optimizer/src/engine/insights.js
-- **c:/Users/Pawan/prompt-optimizer/src/promptIR/promptCompiler.js**: Dependency file: c:/Users/Pawan/prompt-optimizer/src/promptIR/promptCompiler.js
-- **originalRaw**: Symbol: originalRaw
-- **c:/Users/Pawan/prompt-optimizer/src/SemanticCacheManager.js**: Dependency file: c:/Users/Pawan/prompt-optimizer/src/SemanticCacheManager.js
-- **c:/Users/Pawan/prompt-optimizer/src/RepoAwareness.js**: Dependency file: c:/Users/Pawan/prompt-optimizer/src/RepoAwareness.js
+- **data**: Symbol: data (defined in vscode-extension/src/webview/validator.ts)
+- **prompt**: Symbol: prompt (defined in vscode-extension/src/webview/validator.ts)
+- **text**: Symbol: text (defined in vscode-extension/src/webview/validator.ts)
+- **optimized**: Symbol: optimized (defined in vscode-extension/src/webview/validator.ts)
+- **vscode-extension/src/types.ts**: Source file — 132 lines
+- **type**: Symbol: type (defined in vscode-extension/src/webview/validator.ts)
 
 ### Recently studied files (auto)
 

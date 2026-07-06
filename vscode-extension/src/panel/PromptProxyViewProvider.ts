@@ -37,7 +37,7 @@ import { reportError } from '../util/errorReporter';
 import { renderWebviewHtml } from '../webview/loader';
 import { validateMessage } from '../webview/validator';
 import { PROMPT_PROXY_VIEW_TYPE } from './view-type';
-import { runEngineRaw } from '../engine/runner';
+import { runEngineRaw, runEngineRawAsync } from '../engine/runner';
 import { seedCacheFromWorkspace } from '../engine/seeder';
 import { ocrImage as runOcrOnBuffer } from '../chat/ocr';
 import { estimateTokens } from '../memory/budget';
@@ -244,11 +244,21 @@ export class PromptProxyViewProvider implements vscode.WebviewViewProvider {
       const dbPath = getDbPath(this._context);
       const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       const wsId = computeWorkspaceId(wsRoot);
-      const raw = runEngineRaw(['--status-overview', '--workspace', wsId, '--db', dbPath]);
+      const args = ['--status-overview', '--workspace', wsId, '--db', dbPath];
+      // Pass the root too so the engine can transparently fall back to legacy
+      // workspace ids (drive-letter casing / pre-canonicalization) and never
+      // shows phantom zeros right after an extension update.
+      if (wsRoot) { args.push('--workspace-root', wsRoot); }
+      const raw = await runEngineRawAsync(args);
       const overview = JSON.parse(raw);
       webviewView.webview.postMessage({ type: 'statusOverview', payload: overview });
-    } catch {
-      // Non-fatal: leave the status strip hidden if the engine call fails.
+    } catch (err) {
+      // Non-fatal, but visible: a silent failure leaves the panel looking like
+      // every counter is 0 even when the DB is populated.
+      webviewView.webview.postMessage({
+        type: 'statusOverviewError',
+        message: err instanceof Error ? err.message : 'Could not read workspace index status.',
+      });
     }
   }
 

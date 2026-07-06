@@ -391,7 +391,7 @@ function detectSubject(raw: string): SubjectMatch {
 
     let phrase = region
       .replace(/^(?:the|a|an)\s+/i, '')
-      .replace(/\s+(?:does|do|did|work|works|working|is|are|in|inside|within|from|of|for)\b.*$/i, '')
+      .replace(/\s+(?:does|do|did|doing|work|works|working|is|are|in|inside|within|from|of|for)\b.*$/i, '')
       .replace(/[.,;:?!]+$/, '')
       .trim();
     phrase = phrase.split(/\s+/).slice(0, 6).join(' ');

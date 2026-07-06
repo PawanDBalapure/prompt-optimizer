@@ -152,6 +152,15 @@ export async function runCoreScenarios(dbFile: string): Promise<void> {
     'multiline prompts should not be forced into single-question rewrite template',
   );
 
+  const promptIrHelperResp = await engine.processRequest({
+    raw_prompt: 'what is the prompt ir helper doing ?',
+    workspace_id: 'subject-phrase-cleanup-demo',
+  });
+  assertSchema(promptIrHelperResp);
+  const promptIrHelperTask = promptIrHelperResp.optimized_prompt.match(/^task:\s+"([^"]+)"/m)?.[1] ?? '';
+  assert.ok(/prompt ir helper/i.test(promptIrHelperTask), 'task should keep the phrase subject');
+  assert.ok(!/\bhelper doing\b/i.test(promptIrHelperTask), 'task should strip trailing conversational verb from subject');
+
   console.log('\n  Validating symbol-named file routing + opens with selection...');
   const engineFileContent = [
     "import { ContextPacker } from './engine/contextPacker.js';",
@@ -2363,6 +2372,304 @@ async function runPropertyTestScenario(): Promise<void> {
     }
   }
   console.log('  Instruction Studio insights and replay endpoints: PASSED');
+
+  console.log('\n38. Validating workspace exact-match file discovery (closed-file routing)...');
+  {
+    const scanDbFile = 'prompt_semantic_cache_wsscan_test.db';
+    resetDatabase(scanDbFile);
+    const scanRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'po-wsscan-'));
+    try {
+      // The exact match lives in the code base but is NOT an open editor.
+      fs.mkdirSync(path.join(scanRoot, 'src'), { recursive: true });
+      fs.writeFileSync(
+        path.join(scanRoot, 'src', 'tokenBudget.ts'),
+        'export function calculateTokenBudget(limit: number): number {\n  return Math.max(16, limit);\n}\n',
+        'utf8',
+      );
+      // Decoy in a vendored dir — the scanner must never surface it.
+      fs.mkdirSync(path.join(scanRoot, 'node_modules', 'decoy'), { recursive: true });
+      fs.writeFileSync(
+        path.join(scanRoot, 'node_modules', 'decoy', 'tokenBudget.ts'),
+        'export const decoy = true;\n',
+        'utf8',
+      );
+
+      const scanEngine = new PromptProxyEngine({ db_path: scanDbFile });
+      await scanEngine.initialize();
+
+      // (a) Prompt names a file that is not open → workspace scan finds it.
+      const scanResp = await scanEngine.processRequest({
+        raw_prompt: 'Explain what calculateTokenBudget does in tokenBudget.ts',
+        workspace_id: 'wsscan-test',
+        ide_context: { workspace_root: scanRoot, open_files: [] },
+      });
+      assertSchema(scanResp);
+      const routing = scanResp.analysis.context.deterministic_routing;
+      assert.ok(routing, 'routing decision must be reported');
+      assert.equal(routing!.status, 'resolved', `expected resolved routing, got: ${JSON.stringify(routing)}`);
+      assert.equal(
+        routing!.strategy,
+        'workspace-scan',
+        `expected workspace-scan strategy, got: ${JSON.stringify(routing)}`,
+      );
+      assert.ok(
+        scanResp.analysis.context.selected_files.some((f) => f.replace(/\\/g, '/') === 'src/tokenBudget.ts'),
+        `expected src/tokenBudget.ts selected, got: ${JSON.stringify(scanResp.analysis.context.selected_files)}`,
+      );
+      assert.ok(
+        !scanResp.analysis.context.selected_files.some((f) => f.includes('node_modules')),
+        'vendored decoy must never be selected',
+      );
+
+      // (b) Open-file evidence still wins without a scan: same prompt with the
+      // exact file already open must route via path-symbol, not workspace-scan.
+      const openResp = await scanEngine.processRequest({
+        raw_prompt: 'Explain what calculateTokenBudget does in tokenBudget.ts please',
+        workspace_id: 'wsscan-test',
+        ide_context: {
+          workspace_root: scanRoot,
+          open_files: [{
+            path: 'src/tokenBudget.ts',
+            content: 'export function calculateTokenBudget(limit: number): number {\n  return Math.max(16, limit);\n}\n',
+            language: 'ts',
+          }],
+        },
+      });
+      assertSchema(openResp);
+      assert.equal(openResp.analysis.context.deterministic_routing?.strategy, 'path-symbol');
+
+      // (c) No evidence in the prompt → no scan, routing stays unresolved.
+      const vagueResp = await scanEngine.processRequest({
+        raw_prompt: 'help me',
+        workspace_id: 'wsscan-test',
+        ide_context: { workspace_root: scanRoot, open_files: [] },
+      });
+      assertSchema(vagueResp);
+      assert.notEqual(
+        vagueResp.analysis.context.deterministic_routing?.strategy,
+        'workspace-scan',
+        'a vague prompt must not trigger a workspace scan match',
+      );
+
+      scanEngine.close();
+    } finally {
+      fs.rmSync(scanRoot, { recursive: true, force: true });
+      resetDatabase(scanDbFile);
+    }
+  }
+  console.log('  workspace exact-match file discovery: PASSED');
+
+  console.log('\n39. Validating full workspace static indexing into the knowledge graph...');
+  {
+    const idxDbFile = 'prompt_semantic_cache_wsindex_test.db';
+    resetDatabase(idxDbFile);
+    const idxRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'po-wsindex-'));
+    try {
+      // A small multi-file code base — NONE of these are open in any editor.
+      fs.mkdirSync(path.join(idxRoot, 'src'), { recursive: true });
+      fs.writeFileSync(
+        path.join(idxRoot, 'src', 'tokenStore.ts'),
+        'export function saveToken(token: string): void {\n  void token;\n}\n',
+        'utf8',
+      );
+      fs.writeFileSync(
+        path.join(idxRoot, 'src', 'authService.ts'),
+        "import { saveToken } from './tokenStore.js';\n\nexport class AuthService {\n  login(token: string): void { saveToken(token); }\n}\n",
+        'utf8',
+      );
+      // Vendored code must never be indexed.
+      fs.mkdirSync(path.join(idxRoot, 'node_modules', 'lib'), { recursive: true });
+      fs.writeFileSync(path.join(idxRoot, 'node_modules', 'lib', 'vendored.ts'), 'export const v = 1;\n', 'utf8');
+
+      const idxEngine = new PromptProxyEngine({ db_path: idxDbFile });
+      await idxEngine.initialize();
+      const idxKg = idxEngine.getKnowledgeGraph();
+      assert.ok(idxKg, 'KG must be available');
+
+      // (a) A seeding pass (what bootstrap + panel Refresh run) must statically
+      // index the whole code base, not just IDE-supplied files.
+      await idxEngine.processRequest({
+        raw_prompt: 'Summarize the architecture and conventions of this codebase.',
+        workspace_id: 'wsindex-test',
+        ide_context: { workspace_root: idxRoot },
+        seeding: true,
+      });
+      const statsAfterSeed = idxKg!.stats('wsindex-test');
+      assert.ok(
+        statsAfterSeed.nodes >= 6,
+        `expected file+symbol nodes from static indexing, got ${JSON.stringify(statsAfterSeed)}`,
+      );
+
+      // (b) The graph must resolve a symbol term to its defining file...
+      const symbolHits = idxKg!.collectGraphContext('wsindex-test', 'What does saveToken do?');
+      assert.ok(
+        symbolHits.some((s) => s.text.includes('src/tokenStore.ts')),
+        `expected saveToken to resolve to src/tokenStore.ts, got: ${JSON.stringify(symbolHits.map((s) => s.text))}`,
+      );
+      // ...and a filename stem to its file node.
+      const stemHits = idxKg!.collectGraphContext('wsindex-test', 'Explain the authService module');
+      assert.ok(
+        stemHits.some((s) => s.text.includes('src/authService.ts')),
+        `expected authService stem to resolve to src/authService.ts, got: ${JSON.stringify(stemHits.map((s) => s.text))}`,
+      );
+
+      // (c) Vendored files stay out of the graph.
+      assert.ok(
+        !symbolHits.concat(stemHits).some((s) => s.text.includes('node_modules')),
+        'vendored code must not surface from the graph',
+      );
+
+      // (d) Re-indexing is idempotent: explicit re-index must not grow counts.
+      const reIndexStats = idxEngine.indexWorkspace('wsindex-test', idxRoot);
+      assert.ok(reIndexStats && reIndexStats.indexedFiles >= 2, 'explicit re-index should process files');
+      assert.deepEqual(
+        idxKg!.stats('wsindex-test'),
+        statsAfterSeed,
+        're-indexing the same workspace must not grow graph node/edge counts',
+      );
+      idxEngine.close();
+
+      // (e) CLI endpoint: --index-workspace reports stats and populates the graph.
+      const cliIdxDb = 'prompt_semantic_cache_wsindex_cli_test.db';
+      resetDatabase(cliIdxDb);
+      const cliRun = spawnSync(
+        process.execPath,
+        ['dist/cli.js', '--index-workspace', '--workspace-root', idxRoot, '--workspace', 'wsindex-cli', '--db', cliIdxDb],
+        { encoding: 'utf8' },
+      );
+      assert.equal(cliRun.status, 0, cliRun.stderr);
+      const cliPayload = JSON.parse(cliRun.stdout.trim()) as {
+        ok: boolean;
+        indexed: { indexedFiles: number; symbols: number };
+        graph: { nodes: number; edges: number };
+      };
+      assert.equal(cliPayload.ok, true, 'CLI index should succeed');
+      assert.ok(cliPayload.indexed.indexedFiles >= 2, 'CLI must index the source files');
+      assert.ok(cliPayload.graph.nodes >= 6, 'CLI-indexed graph must contain file+symbol nodes');
+      resetDatabase(cliIdxDb);
+    } finally {
+      fs.rmSync(idxRoot, { recursive: true, force: true });
+      resetDatabase(idxDbFile);
+    }
+  }
+  console.log('  full workspace static indexing: PASSED');
+
+  console.log('\n40. Validating workspace-id migration (legacy drive-letter casing rescue)...');
+  {
+    const migDbFile = 'prompt_semantic_cache_wsmigrate_test.db';
+    resetDatabase(migDbFile);
+    const migRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'po-wsmigrate-'));
+    try {
+      fs.mkdirSync(path.join(migRoot, 'src'), { recursive: true });
+      fs.writeFileSync(
+        path.join(migRoot, 'src', 'billing.ts'),
+        'export function chargeCard(amount: number): number { return amount; }\n',
+        'utf8',
+      );
+
+      // Index everything under a LEGACY id (simulates data written before
+      // workspace-id canonicalization).
+      const migEngine = new PromptProxyEngine({ db_path: migDbFile });
+      await migEngine.initialize();
+      const migKg = migEngine.getKnowledgeGraph()!;
+      migEngine.indexWorkspace('legacy-id', migRoot);
+      const legacyStats = migKg.stats('legacy-id');
+      assert.ok(legacyStats.nodes > 0, 'legacy workspace must have indexed nodes');
+      assert.deepEqual(migKg.stats('canonical-id'), { nodes: 0, edges: 0 });
+      migEngine.close();
+
+      // CLI migration merges the legacy rows onto the canonical id.
+      const migRun = spawnSync(
+        process.execPath,
+        ['dist/cli.js', '--migrate-workspace', '--from', 'legacy-id', '--to', 'canonical-id', '--db', migDbFile],
+        { encoding: 'utf8' },
+      );
+      assert.equal(migRun.status, 0, migRun.stderr);
+      const migPayload = JSON.parse(migRun.stdout.trim()) as { ok: boolean; moved: Record<string, number> };
+      assert.equal(migPayload.ok, true, 'migration should succeed');
+      assert.ok((migPayload.moved.kg_nodes ?? 0) > 0, 'kg_nodes rows must be moved');
+
+      const verifyEngine = new PromptProxyEngine({ db_path: migDbFile });
+      await verifyEngine.initialize();
+      const verifyKg = verifyEngine.getKnowledgeGraph()!;
+      assert.deepEqual(verifyKg.stats('legacy-id'), { nodes: 0, edges: 0 }, 'legacy id must be emptied');
+      assert.deepEqual(verifyKg.stats('canonical-id'), legacyStats, 'canonical id must hold all migrated data');
+      // Retrieval works under the canonical id after migration.
+      const migHits = verifyKg.collectGraphContext('canonical-id', 'What does chargeCard do?');
+      assert.ok(
+        migHits.some((s) => s.text.includes('src/billing.ts')),
+        `migrated symbol must resolve, got: ${JSON.stringify(migHits.map((s) => s.text))}`,
+      );
+      verifyEngine.close();
+    } finally {
+      fs.rmSync(migRoot, { recursive: true, force: true });
+      resetDatabase(migDbFile);
+    }
+  }
+  console.log('  workspace-id migration: PASSED');
+
+  console.log('\n41. Validating status-overview legacy-id fallback (survives stale/uncanonicalized ids)...');
+  {
+    const foDbFile = 'prompt_semantic_cache_statusfallback_test.db';
+    resetDatabase(foDbFile);
+    const foRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'po-statusfb-'));
+    try {
+      const { workspaceIdCandidates } = await import('../engine/workspaceIdentity.js');
+      // Deterministic candidate derivation: canonical first, no duplicates.
+      const cands = workspaceIdCandidates(foRoot);
+      assert.ok(cands.length >= 1, 'must derive at least the canonical id');
+      assert.equal(new Set(cands).size, cands.length, 'candidate ids must be unique');
+
+      fs.mkdirSync(path.join(foRoot, 'src'), { recursive: true });
+      fs.writeFileSync(
+        path.join(foRoot, 'src', 'ledger.ts'),
+        'export function postEntry(v: number): number { return v; }\n',
+        'utf8',
+      );
+
+      // Index the workspace under the CANONICAL id derived from the root
+      // (what a current build computes). This is the id the fallback derives.
+      const foEngine = new PromptProxyEngine({ db_path: foDbFile });
+      await foEngine.initialize();
+      const canonicalId = cands[0];
+      foEngine.indexWorkspace(canonicalId, foRoot);
+      foEngine.close();
+
+      // Panel asks with a STALE/mismatched explicit --workspace id but passes
+      // --workspace-root. The engine must derive the canonical candidate from
+      // the root and surface its data instead of reporting phantom zeros.
+      const foRun = spawnSync(
+        process.execPath,
+        ['dist/cli.js', '--status-overview', '--workspace', 'stale-mismatched-id',
+          '--workspace-root', foRoot, '--db', foDbFile],
+        { encoding: 'utf8' },
+      );
+      assert.equal(foRun.status, 0, foRun.stderr);
+      const overview = JSON.parse(foRun.stdout.trim()) as {
+        kg: { nodes: number };
+        workspace_id: string;
+      };
+      assert.ok(
+        overview.kg.nodes > 0,
+        `fallback must surface data under the canonical id, got: ${JSON.stringify(overview)}`,
+      );
+      assert.equal(overview.workspace_id, canonicalId, 'chosen id must be the canonical candidate');
+
+      // Sanity: without --workspace-root the mismatched id yields zeros.
+      const noRootRun = spawnSync(
+        process.execPath,
+        ['dist/cli.js', '--status-overview', '--workspace', 'stale-mismatched-id', '--db', foDbFile],
+        { encoding: 'utf8' },
+      );
+      assert.equal(noRootRun.status, 0, noRootRun.stderr);
+      const noRoot = JSON.parse(noRootRun.stdout.trim()) as { kg: { nodes: number } };
+      assert.equal(noRoot.kg.nodes, 0, 'without root, a mismatched id cannot recover data');
+    } finally {
+      fs.rmSync(foRoot, { recursive: true, force: true });
+      resetDatabase(foDbFile);
+    }
+  }
+  console.log('  status-overview legacy-id fallback: PASSED');
 
   //await runInstructionStudioTests();
 }
