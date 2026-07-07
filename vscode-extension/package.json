@@ -739,7 +739,8 @@
     "better-sqlite3": "^11.8.0",
     "gpt-tokenizer": "^2.8.1",
     "js-tiktoken": "^1.0.21",
-    "onnxruntime-web": "^1.18.0"
+    "onnxruntime-web": "^1.18.0",
+    "web-tree-sitter": "^0.25.6"
   },
   "overrides": {
     "@xenova/transformers": {

@@ -37,6 +37,7 @@ import { RepositoryIntelligenceBuilder } from './engine/repositoryIntelligence.j
 import { migrateWorkspaceId } from './engine/workspaceMigration.js';
 import { workspaceIdCandidates } from './engine/workspaceIdentity.js';
 import { redactForPersistence } from './engine/redactor.js';
+import { validateStructuralDiff } from './engine/harness/astDiff.js';
 import {
   handleRecallMemory,
   handleExportMemory,
@@ -96,7 +97,8 @@ function printHelp(): void {
       '   or: prompt-proxy-engine --instruction-studio-replay --workspace-root <path> [--session-id <id>]\n' +
       '   or: prompt-proxy-engine --instruction-studio-conflicts (reads graph JSON from stdin)\n' +
       '   or: prompt-proxy-engine --instruction-studio-compile --workspace-root <path> (reads graph JSON from stdin)\n' +
-      '   or: prompt-proxy-engine --redact-test (reads stdin, prints redacted output)\n'
+      '   or: prompt-proxy-engine --redact-test (reads stdin, prints redacted output)\n' +
+      '   or: prompt-proxy-engine --harness-validate-diff (reads {original,modified,request} JSON from stdin, prints structural-diff verdict)\n'
   );
 }
 
@@ -1022,6 +1024,18 @@ async function main(): Promise<void> {
 
   if (args.includes('--redact-test')) {
     await handleRedactTest();
+    return;
+  }
+
+  if (args.includes('--harness-validate-diff')) {
+    const stdin = await readStdin();
+    const payload = JSON.parse(stdin) as { original?: string; modified?: string; request?: string };
+    const verdict = validateStructuralDiff(
+      payload.original ?? '',
+      payload.modified ?? '',
+      payload.request ?? '',
+    );
+    console.log(JSON.stringify(verdict, null, 2));
     return;
   }
 

@@ -2671,6 +2671,114 @@ async function runPropertyTestScenario(): Promise<void> {
   }
   console.log('  status-overview legacy-id fallback: PASSED');
 
+  console.log('\n42. Validating pre-flight harness (boundaries / diff-only / library / signature / AST slice / diff)...');
+  {
+    const harnessDbFile = 'prompt_semantic_cache_harness_test.db';
+    resetDatabase(harnessDbFile);
+    const harnessRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'po-harness-'));
+    try {
+      // package.json with date-fns present so the library check pins it.
+      fs.writeFileSync(
+        path.join(harnessRoot, 'package.json'),
+        JSON.stringify({ name: 'demo', dependencies: { 'date-fns': '^3.0.0' } }),
+        'utf8',
+      );
+      // harness.json with an explicit forbidden path + guideline.
+      fs.mkdirSync(path.join(harnessRoot, '.promptoptimizer'), { recursive: true });
+      fs.writeFileSync(
+        path.join(harnessRoot, '.promptoptimizer', 'harness.json'),
+        JSON.stringify({
+          forbiddenPaths: ['src/core/db'],
+          guidelines: ['Use functional React components, never class components'],
+        }),
+        'utf8',
+      );
+
+      const activeContent = [
+        'export function formatOrderDate(order: Order): string {',
+        '  return order.createdAt.toISOString();',
+        '}',
+        'export function totalPrice(items: Item[]): number {',
+        '  return items.reduce((sum, i) => sum + i.price, 0);',
+        '}',
+      ].join('\n');
+
+      const harnessEngine = new PromptProxyEngine({ db_path: harnessDbFile });
+      await harnessEngine.initialize();
+      const harnessResp = await harnessEngine.processRequest({
+        raw_prompt: 'Fix formatOrderDate to handle an invalid date and format it for display',
+        workspace_id: 'harness-test',
+        ide_context: {
+          workspace_root: harnessRoot,
+          active_file: { path: 'src/ui/order.ts', content: activeContent, language: 'ts' },
+        },
+      });
+      assertSchema(harnessResp);
+      const opt = harnessResp.optimized_prompt;
+
+      assert.ok(/unified diff or search-replace/i.test(opt), `diff-only constraint missing:\n${opt}`);
+      assert.ok(/Never modify files under: src\/core\/db/i.test(opt), `boundary constraint missing:\n${opt}`);
+      assert.ok(/date-fns/i.test(opt), `library-pin constraint missing:\n${opt}`);
+      assert.ok(/failing unit test/i.test(opt), `intent-expansion (test-first) missing:\n${opt}`);
+      assert.ok(/formatOrderDate/.test(opt), `signature anchor for named fn missing:\n${opt}`);
+      assert.ok(
+        harnessResp.improvements.some((i) => /Harness: injected/.test(i)),
+        'harness improvement summary must be reported',
+      );
+      harnessEngine.close();
+
+      // Kill switch: PROMPT_OPT_HARNESS=off suppresses every injection.
+      const offDbFile = 'prompt_semantic_cache_harness_off_test.db';
+      resetDatabase(offDbFile);
+      process.env.PROMPT_OPT_HARNESS = 'off';
+      const offEngine = new PromptProxyEngine({ db_path: offDbFile });
+      await offEngine.initialize();
+      const offResp = await offEngine.processRequest({
+        raw_prompt: 'Fix formatOrderDate to handle an invalid date',
+        workspace_id: 'harness-off',
+        ide_context: {
+          workspace_root: harnessRoot,
+          active_file: { path: 'src/ui/order.ts', content: activeContent, language: 'ts' },
+        },
+      });
+      assertSchema(offResp);
+      assert.ok(
+        !/unified diff or search-replace/i.test(offResp.optimized_prompt),
+        'kill switch must suppress harness injections',
+      );
+      offEngine.close();
+      delete process.env.PROMPT_OPT_HARNESS;
+      resetDatabase(offDbFile);
+
+      // CLI structural-diff verdict: an out-of-scope function deletion warns.
+      const diffPayload = {
+        original: activeContent,
+        modified: [
+          'export function formatOrderDate(order: Order): string {',
+          '  return order.createdAt.toLocaleDateString();',
+          '}',
+        ].join('\n'),
+        request: 'Fix formatOrderDate to format for display',
+      };
+      const diffRun = spawnSync(
+        process.execPath,
+        ['dist/cli.js', '--harness-validate-diff'],
+        { input: JSON.stringify(diffPayload), encoding: 'utf8' },
+      );
+      assert.equal(diffRun.status, 0, diffRun.stderr);
+      const verdict = JSON.parse(diffRun.stdout.trim()) as { ok: boolean; warnings: string[] };
+      assert.equal(verdict.ok, false, 'dropping totalPrice out of scope must fail the verdict');
+      assert.ok(
+        verdict.warnings.some((w) => /totalPrice/.test(w)),
+        `expected a totalPrice removal warning, got: ${JSON.stringify(verdict.warnings)}`,
+      );
+    } finally {
+      fs.rmSync(harnessRoot, { recursive: true, force: true });
+      resetDatabase(harnessDbFile);
+    }
+  }
+  console.log('  pre-flight harness: PASSED');
+
   //await runInstructionStudioTests();
 }
 
