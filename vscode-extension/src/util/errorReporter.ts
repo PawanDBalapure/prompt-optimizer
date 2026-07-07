@@ -1,28 +1,15 @@
 import * as vscode from 'vscode';
-import * as os from 'os';
+
+import { buildBody, ISSUES_URL, setSupportMetadata, tryOpenMailto } from './supportMail';
+
+export { openSupportEmail } from './supportMail';
 
 /**
- * Centralised error reporting helper.
- *
- * Every error surfaced through this helper is shown via
- * `window.showErrorMessage` together with a small set of recovery
- * actions that include "📧 Email author" — composing a pre-filled
- * mailto: link with extension/VS Code/OS metadata and the captured
- * stack trace so users can report problems without copy-pasting
- * environment details by hand.
- *
- * Design notes:
- * - The author's contact is sourced (in priority order) from:
- *     1. VS Code setting `promptProxy.support.email`
- *     2. `package.json` → `bugs.email`
- *     3. The hard-coded fallback below.
- * - If the email is empty the action is hidden and only the
- *   GitHub issues fallback is offered.
- * - This helper never throws — error reporting must not error.
+ * Centralised error reporting.  Every error surfaced through this helper is
+ * shown via `window.showErrorMessage` with recovery actions including
+ * "📧 Email author" — a pre-filled mailto: link with extension/VS Code/OS
+ * metadata so users can report problems in one click.  Never throws.
  */
-
-const FALLBACK_EMAIL = 'pawandbalapure@gmail.com';
-const ISSUES_URL = 'https://github.com/PawanDBalapure/prompt-optimizer/issues/new';
 
 interface ReporterContext {
   /** Human-readable scope, e.g. "Optimize prompt" or "Webview message". */
@@ -33,67 +20,57 @@ interface ReporterContext {
   silent?: boolean;
 }
 
-let extensionContext: vscode.ExtensionContext | undefined;
-let extensionVersion = 'unknown';
-let bugsEmail: string | undefined;
-
 /**
- * Checks if an error is a benign cancellation or originated from another extension.
- * Since all VS Code extensions share the same process, we don't want to show
+ * Checks if an error is a benign cancellation or originated from another
+ * extension.  All VS Code extensions share one process, so we must not show
  * error toasts for unhandled rejections thrown by GitLens or others.
  */
 function isForeignOrCancellationError(error: unknown): boolean {
-  if (!error) return false;
-  
-  // 1. Check for Cancellation cancellation errors
-  const name = error instanceof Error ? error.name : (error as any).name;
-  const message = error instanceof Error ? error.message : (error as any).message;
+  if (!error) { return false; }
+
+  const name = error instanceof Error ? error.name : (error as { name?: string }).name;
+  const message = error instanceof Error ? error.message : (error as { message?: string }).message;
   if (name === 'CancellationError' || name === 'Canceled' || message === 'Canceled' || message === 'Operation cancelled') {
     return true;
   }
-  
-  // 2. Safely inspect the stack trace to ensure it's not clearly from another extension.
-  const stack = error instanceof Error ? error.stack : (error as any).stack;
+
+  // Inspect the stack: if it clearly comes from another extension, ignore it.
+  const stack = error instanceof Error ? error.stack : (error as { stack?: string }).stack;
   if (typeof stack === 'string') {
-    // If the stack contains ".vscode/extensions/" or ".vscode-server/extensions/" ...
     if (stack.includes('.vscode') || stack.includes('extensions/')) {
-      // ... but DOES NOT contain our extension name, ignore it.
       if (!stack.includes('prompt-optimizer') && !stack.includes('promptProxy')) {
         return true;
       }
     }
   }
-
   return false;
 }
 
 /**
- * Wire the reporter into the extension lifecycle.  Must be called once
- * from `activate`.  Installs `process.on('unhandledRejection')` and
- * `uncaughtException` listeners so background failures still reach the
- * user with a one-click email button.
+ * Wire the reporter into the extension lifecycle.  Must be called once from
+ * `activate`.  Installs `unhandledRejection` / `uncaughtException` listeners
+ * so background failures still reach the user with a one-click email button.
  */
 export function initErrorReporter(context: vscode.ExtensionContext): void {
-  extensionContext = context;
   try {
     const pkg = context.extension?.packageJSON ?? {};
-    extensionVersion = String(pkg.version ?? 'unknown');
     const bugs = pkg.bugs;
-    if (bugs && typeof bugs === 'object' && typeof bugs.email === 'string') {
-      bugsEmail = bugs.email;
-    }
+    setSupportMetadata(
+      String(pkg.version ?? 'unknown'),
+      bugs && typeof bugs === 'object' && typeof bugs.email === 'string' ? bugs.email : undefined,
+    );
   } catch {
     /* ignore — reporter must not throw */
   }
 
   const onUnhandled = (reason: unknown) => {
-    if (isForeignOrCancellationError(reason)) return;
+    if (isForeignOrCancellationError(reason)) { return; }
     void reportError('An unexpected background error occurred in Prompt Optimizer.', reason, {
       scope: 'unhandledRejection',
     });
   };
   const onUncaught = (err: Error) => {
-    if (isForeignOrCancellationError(err)) return;
+    if (isForeignOrCancellationError(err)) { return; }
     void reportError('Prompt Optimizer encountered an uncaught exception.', err, {
       scope: 'uncaughtException',
     });
@@ -106,136 +83,6 @@ export function initErrorReporter(context: vscode.ExtensionContext): void {
       process.removeListener('uncaughtException', onUncaught);
     },
   });
-}
-
-function getSupportEmail(): string {
-  try {
-    const cfg = vscode.workspace.getConfiguration('promptProxy');
-    const configured = cfg.get<string>('support.email');
-    if (configured && configured.trim()) {
-      return configured.trim();
-    }
-  } catch {
-    /* ignore */
-  }
-  return (bugsEmail && bugsEmail.trim()) || FALLBACK_EMAIL;
-}
-
-function buildBody(scope: string | undefined, error: unknown, details?: Record<string, unknown>): string {
-  const errMsg = error instanceof Error ? error.message : (error == null ? '' : String(error));
-  const stack = error instanceof Error && error.stack ? error.stack : '';
-  const lines: string[] = [];
-  lines.push('Hi,');
-  lines.push('');
-  lines.push('I hit the error below while using Prompt Optimizer. Steps to reproduce:');
-  lines.push('1. ');
-  lines.push('2. ');
-  lines.push('');
-  lines.push('--- diagnostics (auto-filled — please keep) ---');
-  lines.push(`Extension : Prompt Optimizer v${extensionVersion}`);
-  lines.push(`VS Code   : ${vscode.version}`);
-  lines.push(`OS        : ${os.platform()} ${os.release()} (${os.arch()})`);
-  lines.push(`Node      : ${process.version}`);
-  if (scope) {
-    lines.push(`Scope     : ${scope}`);
-  }
-  if (details) {
-    for (const [key, value] of Object.entries(details)) {
-      try {
-        lines.push(`${key.padEnd(10, ' ')}: ${typeof value === 'string' ? value : JSON.stringify(value)}`);
-      } catch {
-        /* skip un-serialisable */
-      }
-    }
-  }
-  if (errMsg) {
-    lines.push('');
-    lines.push('Error:');
-    lines.push(errMsg);
-  }
-  if (stack) {
-    lines.push('');
-    lines.push('Stack:');
-    lines.push(stack);
-  }
-  return lines.join('\n');
-}
-
-/**
- * Windows ShellExecute / `start mailto:` rejects URIs longer than ~2048
- * characters with ENOENT ("system cannot find the specified file").  We
- * cap the encoded body well below that threshold and append a marker
- * telling the user the rest is on the clipboard.
- */
-const MAX_MAILTO_BODY_CHARS = 1500;
-
-function buildMailto(title: string, body: string): { uri: vscode.Uri; truncated: boolean } {
-  const email = getSupportEmail();
-  const subject = `[Prompt Optimizer v${extensionVersion}] ${title}`;
-  let safeBody = body;
-  let truncated = false;
-  if (safeBody.length > MAX_MAILTO_BODY_CHARS) {
-    safeBody = safeBody.slice(0, MAX_MAILTO_BODY_CHARS)
-      + '\n\n[…truncated — full diagnostics are on your clipboard]';
-    truncated = true;
-  }
-  const params = new URLSearchParams({ subject, body: safeBody });
-  // mailto needs RFC2368-style encoding; URLSearchParams uses '+' for spaces
-  // which most mail clients accept, but we normalise to %20 for safety.
-  const qs = params.toString().replace(/\+/g, '%20');
-  return { uri: vscode.Uri.parse(`mailto:${email}?${qs}`), truncated };
-}
-
-/**
- * Try to open the user's default mail client with diagnostics, and degrade
- * gracefully if Windows / the OS has no `mailto:` handler registered.
- *
- * Failure path:
- *   1. Copy the full diagnostic body to the clipboard.
- *   2. Show a follow-up dialog offering "Open GitHub issue" + "Copy email
- *      address" so the user can still report the problem.
- *
- * This avoids the bare ENOENT ("system cannot find the specified file")
- * error users see when no default mail client is registered.
- */
-async function tryOpenMailto(title: string, body: string): Promise<void> {
-  const email = getSupportEmail();
-  const { uri, truncated } = buildMailto(title, body);
-
-  // Always stage the full body on the clipboard first — that way the user
-  // never loses information even if openExternal fails.
-  try { await vscode.env.clipboard.writeText(body); } catch { /* ignore */ }
-
-  let opened = false;
-  try {
-    opened = await vscode.env.openExternal(uri);
-  } catch {
-    opened = false;
-  }
-  if (opened) {
-    if (truncated) {
-      vscode.window.setStatusBarMessage(
-        'Prompt Optimizer: full diagnostics copied to clipboard (paste into the email).',
-        6000,
-      );
-    }
-    return;
-  }
-
-  const OPEN_GITHUB = '🐞 Open GitHub issue';
-  const COPY_EMAIL = '📋 Copy email address';
-  const choice = await vscode.window.showWarningMessage(
-    'No default mail client is configured on this system. The full diagnostic '
-    + 'message has been copied to your clipboard — paste it into a GitHub '
-    + 'issue or send it to ' + email + '.',
-    OPEN_GITHUB, COPY_EMAIL,
-  );
-  if (choice === OPEN_GITHUB) {
-    await vscode.env.openExternal(vscode.Uri.parse(ISSUES_URL));
-  } else if (choice === COPY_EMAIL) {
-    await vscode.env.clipboard.writeText(email);
-    vscode.window.setStatusBarMessage('Prompt Optimizer: support email copied to clipboard.', 4000);
-  }
 }
 
 /**
@@ -257,7 +104,7 @@ export async function reportError(
     const body = buildBody(ctx?.scope, error, ctx?.details);
 
     if (ctx?.silent) {
-      // Still log to the extension's output channel via console for debugging.
+      // Still log for debugging.
       console.error('[prompt-optimizer]', title, error);
       return;
     }
@@ -278,15 +125,4 @@ export async function reportError(
     // Reporter must never throw; fall back to a plain console log.
     console.error('[prompt-optimizer] reportError failed', innerErr);
   }
-}
-
-/**
- * Open the email composer manually (used by the "Report an issue"
- * command + panel chip).  No actual error required — body will list
- * environment metadata only.
- */
-export async function openSupportEmail(reason = 'Feedback / question'): Promise<void> {
-  void extensionContext;
-  const body = buildBody(reason, undefined);
-  await tryOpenMailto(reason, body);
 }

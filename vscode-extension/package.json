@@ -126,7 +126,8 @@
         {
           "id": "prompt-proxy-panel",
           "name": "Prompt Optimizer",
-          "type": "webview"
+          "type": "webview",
+          "icon": "images/icon.png"
         }
       ]
     },
@@ -463,6 +464,11 @@
         "icon": "$(rocket)"
       },
       {
+        "command": "prompt-proxy.openInstructionStudio",
+        "title": "Prompt Optimizer: Open Instruction Studio",
+        "icon": "$(symbol-structure)"
+      },
+      {
         "command": "prompt-proxy.cacheStats",
         "title": "Prompt Optimizer: Show Cache Statistics"
       },
@@ -706,6 +712,7 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "node ./scripts/sync-versions.cjs && node ./scripts/fetch-tesseract.cjs && npm --prefix .. run build && tsc -p ./ && node ./scripts/sync-engine.cjs",
+    "test:panel-buttons": "node scripts/test-panel-buttons.cjs",
     "sync-versions": "node ./scripts/sync-versions.cjs",
     "sync-versions:check": "node ./scripts/sync-versions.cjs --check",
     "watch": "tsc -watch -p ./",

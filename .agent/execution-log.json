@@ -225,5 +225,21 @@
     "activeRuleCount": 1,
     "inactiveRuleCount": 0,
     "ruleUsageCount": 1
+  },
+  {
+    "sessionId": "sess-mrawi74x-rgovzq",
+    "conversationRef": "instruction-studio-15",
+    "timestamp": "2026-07-07T17:06:31.713Z",
+    "workflowName": "Instruction Studio Starter",
+    "versionIndex": 15,
+    "personasActive": [
+      {
+        "id": "architect",
+        "version": "v15"
+      }
+    ],
+    "activeRuleCount": 1,
+    "inactiveRuleCount": 0,
+    "ruleUsageCount": 1
   }
 ]

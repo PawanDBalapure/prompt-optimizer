@@ -167,5 +167,18 @@
     "versionIndex": 14,
     "activeRuleCount": 1,
     "inactiveRuleCount": 0
+  },
+  {
+    "sessionId": "sess-mrawi74w-dceota",
+    "timestamp": "2026-07-07T17:06:31.712Z",
+    "workflowName": "Instruction Studio Starter",
+    "persona": "Architect",
+    "condition": "If Task=Refactor",
+    "priority": "Medium",
+    "agentScope": "Code Generation",
+    "ruleText": "Always run unit tests before completing changes.",
+    "versionIndex": 15,
+    "activeRuleCount": 1,
+    "inactiveRuleCount": 0
   }
 ]

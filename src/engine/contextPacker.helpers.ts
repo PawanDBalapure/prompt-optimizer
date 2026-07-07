@@ -6,6 +6,7 @@
 import type { IdeContextFile, IdeContextLog } from '../contracts.js';
 import { MAX_FILE_LINES, MAX_LOG_LINES, SMALL_FILE_LINES } from './constants.js';
 import { compressLogStack, isCodeLanguage, preFilterCode } from './contentPipelines.js';
+import { sliceFunction } from './harness/astSlicer.js';
 
 const LANGUAGE_BY_EXT: Record<string, string> = {
   ts: 'ts',
@@ -388,6 +389,22 @@ export function extractRelevantFileSnippet(
       text: stripCodeBoilerplate(file.content.trim(), language),
       ranges: lines.length > 0 ? [{ start: 0, end: lines.length - 1 }] : [],
     };
+  }
+
+  // 3a-pre. When the prompt names a function that exists in this file, a
+  //     whole-function slice (AST when a tree-sitter grammar is loaded,
+  //     brace/indent walking otherwise) beats line-level matching: it is
+  //     complete, contiguous, and never mixes unrelated hits.
+  if (salientTerms && salientTerms.size > 0) {
+    for (const term of salientTerms) {
+      const slice = sliceFunction(file.content, language, term);
+      if (slice && slice.endLine - slice.startLine + 1 <= MAX_FILE_LINES) {
+        return {
+          text: stripCodeBoilerplate(slice.text.trim(), language),
+          ranges: [{ start: slice.startLine, end: slice.endLine }],
+        };
+      }
+    }
   }
 
   // 3a. Prefer literal symbol hits when the prompt names a concrete symbol.

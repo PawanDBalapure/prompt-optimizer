@@ -20,6 +20,9 @@ import { inferRepoStack } from './RepoAwareness.js';
 
 import { CACHE_TIMEOUT_MS, MAX_CACHE_CANDIDATES, MAX_IMPROVEMENTS } from './engine/constants.js';
 import { ContextPacker } from './engine/contextPacker.js';
+import { appendHarnessConstraints, buildHarnessInjections } from './engine/harness/assemble.js';
+import { initAstSlicer } from './engine/harness/astSlicer.js';
+import { loadHarnessConfig } from './engine/harness/config.js';
 import { selectAndRankAugmentedSections, type AugmentSelectionStats } from './engine/augmentBudget.js';
 import { createRelevanceContext } from './engine/relevanceScoring.js';
 import { buildCacheInsight, createEmptyResponse } from './engine/insights.js';
@@ -104,6 +107,9 @@ export class PromptProxyEngine {
 
   public async initialize(): Promise<void> {
     await this.cacheManager.initialize();
+    // Best-effort tree-sitter grammar preload for AST-based slicing; the
+    // heuristic slicer answers when no grammar is present.
+    await initAstSlicer().catch(() => undefined);
     const db = this.cacheManager.rawDatabase();
     if (db) {
       this.knowledgeGraph = new KnowledgeGraph(db);
@@ -229,6 +235,13 @@ export class PromptProxyEngine {
 
     const compiledRequest = compilePromptIR(structuredIr, targetModel, spec.intent.domain, density);
 
+    // Pre-flight harness: guardrail constraints (diff-only output, blast
+    // radius boundaries, library pinning, signature anchoring, team rules,
+    // intent expansion) appended to the compiled spec's constraints block.
+    const harnessConfig = loadHarnessConfig(request.ide_context?.workspace_root);
+    const harnessLines = buildHarnessInjections(rawPrompt, harnessConfig, request.ide_context);
+    const compiledWithHarness = appendHarnessConstraints(compiledRequest, harnessLines);
+
     const cacheStatus = cacheResult?.matchType ?? 'miss';
     const shouldReuseCached =
       cacheStatus === 'exact'
@@ -246,7 +259,7 @@ export class PromptProxyEngine {
 
     // Save prompt version regardless of cache hit so rollback always has data.
     const hashedKey = hashPromptKey(rawPrompt);
-    this.cacheManager.recordVersion(hashedKey, rawPrompt, compiledRequest, targetModel, 'main', 0.0);
+    this.cacheManager.recordVersion(hashedKey, rawPrompt, compiledWithHarness, targetModel, 'main', 0.0);
 
     // Partial (segment-level) cache reuse: collapse recurring context blocks
     // that were already sent for this workspace into compact cache references
@@ -264,7 +277,7 @@ export class PromptProxyEngine {
       // We do not append the output to the prompt since they are now injected via YAML.
       const reuse = segmentStore.applyReuse(workspaceId, augmentedSections);
       reusedSegments = reuse.reused;
-      builtPrompt = buildOptimizedPrompt(compiledRequest, []);
+      builtPrompt = buildOptimizedPrompt(compiledWithHarness, []);
     }
 
     const optimizedPrompt = applySdlcMode(sanitizeOptimizedPrompt(builtPrompt), sdlcMode);
@@ -293,6 +306,9 @@ export class PromptProxyEngine {
       optimized_prompt: optimizedPrompt,
       improvements: [
         ...(sdlcMode ? [describeMode(sdlcMode)] : []),
+        ...(harnessLines.length > 0
+          ? [`Harness: injected ${harnessLines.length} guardrail constraint${harnessLines.length === 1 ? '' : 's'} (boundaries / output format / libraries / signatures).`]
+          : []),
         ...(reusedSegments.length > 0
           ? [
               `Reused ${reusedSegments.length} context block${reusedSegments.length === 1 ? '' : 's'} ` +

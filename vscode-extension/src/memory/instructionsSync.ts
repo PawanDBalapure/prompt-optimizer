@@ -1,9 +1,9 @@
 import * as vscode from 'vscode';
-import * as fs from 'node:fs';
 
 import { runEngineRaw } from '../engine/runner';
 import { getDbPath } from '../state/config';
 import { computeWorkspaceId } from '../util/workspace';
+import { appendOpenEditorRules } from './openRulesImport';
 
 /**
  * Debounced synchronizer for `.github/copilot-instructions.md`.  Hooks
@@ -21,10 +21,6 @@ const DEBOUNCE_MS = 1500;
 /** Per-workspace flag — set after the first successful bootstrap toast. */
 const BOOTSTRAP_NOTIFIED_KEY = 'promptProxy.bootstrapInstructionsNotified';
 const BOOTSTRAP_IMPORTED_OPEN_RULES_KEY = 'promptProxy.bootstrapImportedOpenRules';
-const MANAGED_BEGIN = '<!-- prompt-optimizer:memory:begin -->';
-const OPEN_RULES_BEGIN = '<!-- prompt-optimizer:install-open-rules:begin -->';
-const OPEN_RULES_END = '<!-- prompt-optimizer:install-open-rules:end -->';
-const MAX_OPEN_RULES_CHARS = 12_000;
 
 const MEMORY_FILE_NAMES = new Set([
   'memory.md', 'knowledge.md', 'AGENTS.md', 'CLAUDE.md', 'CLAUDE.local.md',
@@ -85,9 +81,7 @@ export function registerCopilotInstructionsSync(context: vscode.ExtensionContext
 
   // Bootstrap on activation: ensure `.github/copilot-instructions.md` exists
   // so the very first chat turn after install already has Prompt Optimizer
-  // memory wired into Copilot.  Runs once per workspace, then notifies the
-  // user with a one-time toast if the file (or the .github folder) had to
-  // be created.
+  // memory wired into Copilot.
   void bootstrapInstructions(context);
 }
 
@@ -125,90 +119,6 @@ async function bootstrapInstructions(context: vscode.ExtensionContext): Promise<
   } else if (choice === GUIDE) {
     await vscode.commands.executeCommand('prompt-proxy.userGuide');
   }
-}
-
-function appendOpenEditorRules(targetPath: string): boolean {
-  const editor = vscode.window.activeTextEditor;
-  if (!editor) { return false; }
-  const openText = editor.document.getText().trim();
-  if (!openText) { return false; }
-
-  const existing = safeRead(targetPath);
-  const clipped = openText.length > MAX_OPEN_RULES_CHARS
-    ? `${openText.slice(0, MAX_OPEN_RULES_CHARS)}\n... (truncated)`
-    : openText;
-
-  const beginMarker = existing.indexOf(OPEN_RULES_BEGIN);
-  const endMarker = beginMarker === -1 ? -1 : existing.indexOf(OPEN_RULES_END, beginMarker);
-  if (beginMarker !== -1 && endMarker !== -1) {
-    const sectionStart = beginMarker + OPEN_RULES_BEGIN.length;
-    const currentBody = existing.slice(sectionStart, endMarker).replace(/^\r?\n/, '');
-    const mergedBody = mergeRuleBlocks(currentBody, clipped);
-    if (mergedBody === currentBody) { return false; }
-
-    const updatedExisting = [
-      existing.slice(0, sectionStart),
-      '\n',
-      mergedBody.replace(/\s+$/g, ''),
-      '\n',
-      existing.slice(endMarker),
-    ].join('');
-    fs.writeFileSync(targetPath, updatedExisting, { encoding: 'utf8' });
-    return true;
-  }
-
-  const block = [
-    OPEN_RULES_BEGIN,
-    '## Installation Rules (from open file)',
-    '',
-    clipped,
-    OPEN_RULES_END,
-  ].join('\n');
-
-  let updated: string;
-  const beginIdx = existing.indexOf(MANAGED_BEGIN);
-  if (beginIdx === -1) {
-    const trimmed = existing.replace(/\s+$/g, '');
-    updated = trimmed ? `${trimmed}\n\n${block}\n` : `${block}\n`;
-  } else {
-    const before = existing.slice(0, beginIdx).replace(/\s+$/g, '');
-    const after = existing.slice(beginIdx).replace(/^\s+/g, '');
-    updated = `${before}\n\n${block}\n\n${after}`;
-  }
-
-  fs.writeFileSync(targetPath, updated, { encoding: 'utf8' });
-  return true;
-}
-
-function mergeRuleBlocks(existingBody: string, incomingBody: string): string {
-  const existingLines = existingBody.split(/\r?\n/);
-  const existingNorm = new Set(existingLines.map(normalizeRuleLine).filter(Boolean));
-
-  const incomingLines = incomingBody.split(/\r?\n/);
-  const additions: string[] = [];
-  for (const line of incomingLines) {
-    const norm = normalizeRuleLine(line);
-    if (!norm) { continue; }
-    if (existingNorm.has(norm)) { continue; }
-    additions.push(line);
-    existingNorm.add(norm);
-  }
-
-  if (additions.length === 0) { return existingBody; }
-  const base = existingBody.replace(/\s+$/g, '');
-  return base ? `${base}\n${additions.join('\n')}` : additions.join('\n');
-}
-
-function normalizeRuleLine(line: string): string {
-  const trimmed = line.trim();
-  if (!trimmed) { return ''; }
-  if (trimmed === '## Installation Rules (from open file)') { return ''; }
-  return trimmed.replace(/\s+/g, ' ').toLowerCase();
-}
-
-function safeRead(filePath: string): string {
-  try { return fs.readFileSync(filePath, 'utf8'); }
-  catch { return ''; }
 }
 
 async function runSync(

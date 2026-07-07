@@ -46,22 +46,21 @@ Keep it concise — bullet points and short paragraphs work best.
 
 ### Project knowledge graph (auto)
 
-- **__workspace_seed__**: Aggregated workspace harvest
-- **TypeScript/JavaScript**: Language: TypeScript/JavaScript
-- **data**: Symbol: data (defined in vscode-extension/src/webview/validator.ts)
-- **prompt**: Symbol: prompt (defined in vscode-extension/src/webview/validator.ts)
-- **text**: Symbol: text (defined in vscode-extension/src/webview/validator.ts)
-- **optimized**: Symbol: optimized (defined in vscode-extension/src/webview/validator.ts)
-- **vscode-extension/src/types.ts**: Source file — 132 lines
-- **type**: Symbol: type (defined in vscode-extension/src/webview/validator.ts)
+- **c:/Users/Pawan/prompt-optimizer/src/contracts.js**: Dependency file: c:/Users/Pawan/prompt-optimizer/src/contracts.js
+- **c:/Users/Pawan/prompt-optimizer/src/engine/constants.js**: Dependency file: c:/Users/Pawan/prompt-optimizer/src/engine/constants.js
+- **out**: Symbol: out
+- **ext**: Symbol: ext
+- **literalMatchTier**: Symbol: literalMatchTier
+- **stripCodeBoilerplate**: Symbol: stripCodeBoilerplate
+- **stays**: Symbol: stays
+- **IDENT_CHAR**: Symbol: IDENT_CHAR
 
 ### Recently studied files (auto)
 
 - `c:\Users\Pawan\prompt-optimizer\src\PromptIRHelper.ts` — /** • * Barrel re-export — preserves the historical import path while the • * implementation lives in focused modules under ./promptIR/. • *…
 - `c:\Users\Pawan\prompt-optimizer\vscode-extension\media\panel.html` — <!DOCTYPE html> • <html lang="en"> • <head> • <meta charset="UTF-8"> • <meta name="viewport" content="width=device-width, initial-scale=1.0"…
 - `c:\Users\Pawan\prompt-optimizer\vscode-extension\src\extension.ts` — import * as vscode from 'vscode'; • import * as fs from 'fs'; • import * as path from 'path'; • import { • CHAT_PARTICIPANT_ID, • ENRICH_INT…
-- `c:\Users\Pawan\prompt-optimizer\src\PromptProxyEngine.ts` — import { SemanticCacheManager, CacheQueryResult } from './SemanticCacheManager.js'; • import type { • PromptCacheCandidate, • ProcessPromptR…
-- `c:
+- `c:\Users\Pawan\prompt-optimizer\src\engine\contextPacker.helpers.ts` — /** • * Pure (vectorizer-independent) helpers for {@link ContextPacker}. Kept in a • * focused module so the packer class stays small and th
 ... (truncated)
 
 <!-- prompt-optimizer:memory:end -->
