@@ -18,6 +18,7 @@ import {
 } from './contextPacker.helpers.js';
 import { extractPromptPhraseWords, scoreFilenamePhraseMatch } from './symbolPhraseMatch.js';
 import { resolveWorkspaceFiles } from './workspaceFileResolver.js';
+import { CodebaseAgent } from './agentRouter/agent.js';
 import type { RelevantContextPack } from './types.js';
 
 export class ContextPacker {
@@ -341,11 +342,51 @@ export class ContextPacker {
       sections.push(section);
     }
 
+    this.enrichWithAgentSearch(rawPrompt, ideContext, selectedFiles, sections, seenSections);
+
     return {
       files: selectedFiles,
       logs: selectedLogs,
       sections,
       insight: this.buildInsight(ideContext, selectedFiles, selectedLogs, contextSnippets, fileSelection.routing),
     };
+  }
+
+  /** Max agent-router slices appended per prompt — enrichment must stay a
+   *  small tail on the pack, never the bulk of it (token economy). */
+  private static readonly MAX_AGENT_SLICES = 4;
+
+  /**
+   * Agent-router enrichment: deterministic route → ripgrep presearch →
+   * line-sliced hits (never whole files) appended as compact sections, so
+   * text the open-file heuristics missed can still be FOUND in the code base
+   * and packed. Fully fault-tolerant — any failure leaves the pack unchanged.
+   */
+  private enrichWithAgentSearch(
+    rawPrompt: string,
+    ideContext: PromptIDEContext,
+    selectedFiles: IdeContextFile[],
+    sections: string[],
+    seenSections: Set<string>,
+  ): void {
+    if (!ideContext.workspace_root) { return; }
+    try {
+      const packedPaths = new Set(selectedFiles.map((f) => this.normalizePath(f.path)));
+      const { slices } = new CodebaseAgent(ideContext.workspace_root).gatherContext(rawPrompt);
+      let added = 0;
+      for (const slice of slices) {
+        if (added >= ContextPacker.MAX_AGENT_SLICES) { break; }
+        // Skip files already inlined by the primary selection — duplicated
+        // content is pure token bloat.
+        if (packedPaths.has(this.normalizePath(slice.filePath))) { continue; }
+        const section = `# Codebase search — ${slice.filePath}:${slice.startLine}-${slice.endLine}\n${slice.code}`;
+        if (seenSections.has(section)) { continue; }
+        seenSections.add(section);
+        sections.push(section);
+        added++;
+      }
+    } catch {
+      // Enrichment is optional; never break context packing.
+    }
   }
 }
